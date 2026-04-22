@@ -150,12 +150,26 @@ Use `scripts/visualize_mat.py` to visualize `.mat` files produced by inference. 
 **Example** — after running inference as below, visualize all reconstructions in the output folder and save figures:
 
 ```bash
-# Run inferenc
+# Run inference
 python scripts/inference.py -c configs/nv_raw2insights_mri_base.json -i example -o outputs/example_output_base
 
 # Visualize all .mat files in the reconstruction folder and save PNGs
 python scripts/visualize_mat.py outputs/example_output_base/val_img4ranking -o outputs/example_output_base/figs
 ```
+
+For **CMRx4Dflow** outputs, use `scripts/visualize_cmrx4dflow.py`. It is specialized for 4D arrays `(H, W, slices, time)` and can generate:
+
+- one full PNG grid per encoding
+- one center-slice overview sheet across encodings
+- one animated GIF per slice for each encoding
+
+Example:
+
+```bash
+python scripts/visualize_cmrx4dflow.py example/cmrx4dflow_p006_output
+```
+
+By default, this writes PNGs under `example/cmrx4dflow_p006_output/figs/` and GIFs under `example/cmrx4dflow_p006_output/gifs/`.
 
 <table>
   <tr>
