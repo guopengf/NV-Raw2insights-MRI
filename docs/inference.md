@@ -47,6 +47,45 @@ The reader loads these `.mat` files according to the schema in `scripts/readers.
 
 The repository includes an `example` folder with a sample JSON so you can run a quick test. See `scripts/readers.py` and `scripts/mri_data/data_utils.py` for the exact schema and how `.mat` files are loaded.
 
+### Preparing CMRx4Dflow 2026 examples
+
+CMRx4Dflow 2026 raw data is not directly consumable by `scripts/inference.py`. The helper
+`scripts/create_cmrx4dflow_inference_dataset.py` converts one 4D-flow case into synthetic
+CMRxRecon-style inputs by:
+
+- reading `kdata_full.mat` as `[venc, time, coil, kz, ky, kx]`
+- applying a centered 1D inverse FFT along `kz`
+- splitting the 4 velocity encodes into 4 inference cases
+- retrospectively undersampling each case with `ktGaussian24`
+- writing CMRxRecon-style JSON, `kus`, and `mask` files under `MultiCoil/Flow2d/...`
+
+Example using the bundled `TaskR1R2` sample:
+
+```bash
+python scripts/create_cmrx4dflow_inference_dataset.py \
+  --source_dir example/TaskR1R2/ValidationSet/Aorta/Center012/Philips_30T_Ingenia/P006 \
+  --output_dir outputs/cmrx4dflow_p006_input \
+  --acceleration 24 \
+  --seed 0
+```
+
+This produces 4 JSON descriptors at `outputs/cmrx4dflow_p006_input/`, one per velocity encode,
+plus the generated `.mat` files under:
+
+```text
+outputs/cmrx4dflow_p006_input/
+├── Center012_Philips_30T_Ingenia_P006_enc0_kus_ktGaussian24.json
+├── Center012_Philips_30T_Ingenia_P006_enc1_kus_ktGaussian24.json
+├── Center012_Philips_30T_Ingenia_P006_enc2_kus_ktGaussian24.json
+├── Center012_Philips_30T_Ingenia_P006_enc3_kus_ktGaussian24.json
+└── MultiCoil/Flow2d/
+    ├── UnderSample_TaskR1/
+    └── Mask_TaskR1/
+```
+
+The generated JSON files use absolute paths so they can be passed directly to the current
+inference script without any additional path rewriting.
+
 ## Running Inference
 
 ### Single-GPU
@@ -71,6 +110,15 @@ python scripts/inference.py \
   -m /path/to/nv_raw2insights_mri_base.pt \
   -i /path/to/input_dir \
   -o /path/to/output_dir
+```
+
+For the converted CMRx4Dflow example above:
+
+```bash
+python scripts/inference.py \
+  -c configs/nv_raw2insights_mri_base.json \
+  -i outputs/cmrx4dflow_p006_input \
+  -o outputs/cmrx4dflow_p006_recon
 ```
 
 ### Multi-GPU (torchrun)

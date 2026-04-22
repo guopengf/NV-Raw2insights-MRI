@@ -47,7 +47,7 @@ def crop_map(image, crop_size):
     ]
 
 
-def run4Ranking(img, filetype, do_center_crop_infer=True):
+def run4Ranking(img, filetype, do_center_crop_infer=False):
     sx, sy, sz, st = img.shape
 
     img = np.reshape(img, (sx, sy, sz, st))
