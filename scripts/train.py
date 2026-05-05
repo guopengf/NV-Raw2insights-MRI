@@ -10,6 +10,7 @@
 # limitations under the License.
 
 import argparse
+import json
 import logging
 import math
 import os
@@ -30,6 +31,7 @@ from monai.apps.reconstruction.complex_utils import complex_abs
 from monai.data import CacheDataset, DataLoader, Dataset, DistributedSampler, partition_dataset
 from monai.data.fft_utils import fftn_centered, ifftn_centered
 from monai.utils import set_determinism
+from path_safety import assert_outputs_not_in_data
 from mri_data.data_utils import (
     crop_k_space,
     gather_metric,
@@ -51,6 +53,63 @@ torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.enabled = True
 
 warnings.filterwarnings("ignore")
+
+
+def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodings=None):
+    accelerations = accelerations or [10, 20, 30, 40, 50]
+    encodings = encodings or [0, 1, 2, 3]
+    out_dir = assert_outputs_not_in_data([out_dir], data_roots)[0]
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_paths = []
+    for root_str in data_roots:
+        root = Path(root_str)
+        if not root.exists():
+            continue
+        for center_dir in sorted(root.glob("Center*")):
+            if not center_dir.is_dir():
+                continue
+            for scanner_dir in sorted(center_dir.iterdir()):
+                if not scanner_dir.is_dir():
+                    continue
+                for patient_dir in sorted(scanner_dir.iterdir()):
+                    if not patient_dir.is_dir():
+                        continue
+
+                    full_kspace = patient_dir / "kdata_full.mat"
+                    coilmap = patient_dir / "coilmap.mat"
+                    if not full_kspace.exists():
+                        continue
+
+                    for acc in accelerations:
+                        us_kspace = patient_dir / f"kdata_ktGaussian{int(acc)}.mat"
+                        us_mask = patient_dir / f"usmask_ktGaussian{int(acc)}.mat"
+                        if not us_kspace.exists() or not us_mask.exists():
+                            continue
+
+                        for enc_idx in encodings:
+                            item = {
+                                "kspace": str(us_kspace),
+                                "target_kspace": str(full_kspace),
+                                "mask": [str(us_mask)],
+                                "mask_type": f"ktGaussian{int(acc)}",
+                                "acquisition": "Flow2d",
+                                "encoding_idx": int(enc_idx),
+                                "is_4dflow": True,
+                            }
+                            if coilmap.exists():
+                                item["coilmap"] = str(coilmap)
+
+                            out_name = (
+                                f"{center_dir.name}__{scanner_dir.name}__{patient_dir.name}"
+                                f"__ktGaussian{int(acc)}__enc{int(enc_idx)}.json"
+                            )
+                            out_path = out_dir / out_name
+                            with open(out_path, "w") as f:
+                                json.dump(item, f, indent=2)
+                            manifest_paths.append(out_path)
+
+    return manifest_paths
 
 
 @record
@@ -94,13 +153,37 @@ def trainer(args):
         f = open(os.devnull, "w")
         sys.stdout = sys.stderr = f
     outpath = os.path.join(args.exp_dir, args.exp)
+    assert_outputs_not_in_data([outpath], [*args.data_path_train, *args.data_path_val])
     Path(outpath).mkdir(parents=True, exist_ok=True)  # create output directory to store model checkpoints
 
     # create training-validation data loaders
-    train_files = [file for path_str in args.data_path_train for file in Path(path_str).iterdir()]
+    if getattr(args, "is_4dflow_aorta", False):
+        train_manifest_dir = Path(outpath) / "jsons_train"
+        val_manifest_dir = Path(outpath) / "jsons_val"
+        if rank == 0:
+            build_4dflow_aorta_manifests(
+                args.data_path_train,
+                train_manifest_dir,
+                accelerations=getattr(args, "four_dflow_accelerations", [10, 20, 30, 40, 50]),
+                encodings=getattr(args, "four_dflow_encodings", [0, 1, 2, 3]),
+            )
+            build_4dflow_aorta_manifests(
+                args.data_path_val,
+                val_manifest_dir,
+                accelerations=getattr(args, "four_dflow_accelerations", [10, 20, 30, 40, 50]),
+                encodings=getattr(args, "four_dflow_encodings", [0, 1, 2, 3]),
+            )
+        if args.ddp:
+            dist.barrier(device_ids=[local_rank])
+        train_files = sorted(train_manifest_dir.glob("*.json"))
+        val_files = sorted(val_manifest_dir.glob("*.json"))
+    else:
+        train_files = [file for path_str in args.data_path_train for file in Path(path_str).iterdir()]
+        val_files = [file for path_str in args.data_path_val for file in Path(path_str).iterdir()]
+
     training_file_seed = int(os.getenv("SLURM_JOB_ID", "42"))
     print(f"#using seed: {training_file_seed}, balanced sampling: {args.balance_data}")
-    if args.dataset.lower() == "cmrxrecon":
+    if args.dataset.lower() == "cmrxrecon" and not getattr(args, "is_4dflow_aorta", False):
         train_files = get_training_set(
             train_files,
             MODALITY_MAPPING,
@@ -117,7 +200,6 @@ def trainer(args):
     train_files = [dict([("kspace", train_files[i])]) for i in range(len(train_files))]
     print(f"#training files: {len(train_files)}")
 
-    val_files = [file for path_str in args.data_path_val for file in Path(path_str).iterdir()]
     val_files = val_files[
         : int(args.sample_rate * len(val_files))
     ]  # select a subset of the data according to sample_rate
@@ -205,7 +287,7 @@ def trainer(args):
     loss_function = get_loss_function(args, device)
 
     # create the optimizer and the learning rate scheduler
-    eff_batch_size = args.batch_size * dist.get_world_size() if args.ddp else args.batch_siz
+    eff_batch_size = args.batch_size * dist.get_world_size() if args.ddp else args.batch_size
 
     print(f"lr_schedule: {args.lr_schedule}")
     print(f"min_lr: {args.min_lr}")
@@ -300,6 +382,8 @@ def trainer(args):
             )
 
             final_shape = [int(s) for s in final_shape]
+            sensitivity_maps = batch_data.get("sensitivity_maps")
+            sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
 
             # iterate through all slices
             sample_list = list(range(input.shape[0]))
@@ -337,6 +421,7 @@ def trainer(args):
                 inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
                 tar = torch.Tensor(target[window_idx])
                 mas = torch.Tensor(mask[window_idx])
+                sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
                 inp, tar, mas, mean, std = (
                     inp.to(device),
                     tar.to(device),
@@ -344,8 +429,9 @@ def trainer(args):
                     mean.to(device),
                     std.to(device),
                 )
+                sens = sens.to(device) if sens is not None else None
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
-                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type)
+                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens)
 
                 output = output * std[window_idx] + mean[window_idx]  # [b, c/1, h, w, 2]
                 output = output[:, args.num_frames // 2]
@@ -537,6 +623,8 @@ def trainer(args):
                         val_data["kspace_meta_dict"]["shape"][0],
                     )
                     final_shape = [int(s) for s in final_shape]
+                    sensitivity_maps = val_data.get("sensitivity_maps")
+                    sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
                     input = (
                         fftn_centered(input, spatial_dims=2, is_complex=True)
                         if args.model_type.lower() in ["varnet", "kspace_mar"]
@@ -558,6 +646,7 @@ def trainer(args):
                         inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
                         tar = torch.Tensor(target[window_idx])
                         mas = torch.Tensor(mask[window_idx])
+                        sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
                         inp, tar, mas, mean, std = (
                             inp.to(device),
                             tar.to(device),
@@ -565,9 +654,10 @@ def trainer(args):
                             mean.to(device),
                             std.to(device),
                         )
+                        sens = sens.to(device) if sens is not None else None
 
                         with autocast("cuda", torch.bfloat16, enabled=args.amp):
-                            output = model(inp, mas.bool(), mask_type, acc_factor, acq_type)
+                            output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens)
 
                         output = output[:, args.num_frames // 2]
                         tar = tar[:, args.num_frames // 2]

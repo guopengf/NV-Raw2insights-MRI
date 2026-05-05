@@ -30,6 +30,7 @@ from monai.data.fft_utils import fftn_centered, ifftn_centered
 from monai.transforms import Compose, EnsureTyped, Identityd, Lambdad, LoadImaged, ResizeWithPadOrCropd
 from monai.utils import set_determinism
 from mri_data.data_utils import crop_k_space, get_reader, postprocess_mri_recon, rearrange_mri_data
+from path_safety import assert_outputs_not_in_data
 from torch.amp import autocast
 from torch.distributed.elastic.multiprocessing.errors import record
 from transforms import *
@@ -82,6 +83,7 @@ def infer(args):
     if rank != 0:
         f = open(os.devnull, "w")
         sys.stdout = sys.stderr = f
+    args.output_path = assert_outputs_not_in_data([args.output_path], [args.data_path_test])[0]
     Path(args.output_path).mkdir(parents=True, exist_ok=True)  # create output directory to store model checkpoints
 
     # Add barrier to ensure rank 1 finishes wandb init before rank 0 starts
@@ -259,18 +261,27 @@ def infer(args):
                 temporal_shuffle=temporal_shuffle,
             )  # (time), slice, coil, h, w
 
-            outputs_rss = np.sqrt(np.sum(outputs[0] ** 2, axis=-3))  # RSS: (time), slice, h, w
+            outputs_rss = np.sqrt(np.sum(outputs[0] ** 2, axis=-3)).astype(np.float32)
 
-            outputs_pp = postprocess_mri_recon(
-                outputs_rss,
-                args,
-                file_name,
-                is_training=False,
-                pp_z_score_norm=args.pp_z_score_norm,
-            )  # w, h, slice, (time)
+            # keep full spatial size, all slices, all time frames
+            # outputs_rss expected: (t, z, h, w)
+            if outputs_rss.ndim == 4:
+                outputs_to_save = np.transpose(outputs_rss, (3, 2, 1, 0)).astype(np.float32)  # (x, y, z, t)
+            elif outputs_rss.ndim == 3:
+                outputs_to_save = np.transpose(outputs_rss, (2, 1, 0)).astype(np.float32)
+            else:
+                outputs_to_save = outputs_rss.astype(np.float32)
+            
+            
+            output_path = os.path.join(
+                args.output_path,
+                "val_img4ranking",
+                os.path.splitext(os.path.basename(test_data["kspace_meta_dict"]["filename"][0]))[0] + ".mat",
+            )
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)    
 
             save_img4ranking(
-                outputs_pp,
+                outputs_to_save,
                 os.path.join(args.output_path, "val_img4ranking"),
                 file_name.replace(".json", ".mat"),
             )

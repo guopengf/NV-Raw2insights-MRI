@@ -990,6 +990,7 @@ class restormer_mri(nn.Module):
 
         self.args = args
         self.use_csm = args.use_csm
+        self.use_external_csm = getattr(args, "use_external_csm", False)
         self.use_acs_region = use_acs_region if use_acs_region is not None else args.use_acs_region
         self.num_frames = int(args.num_frames)
         self.num_coils = 10
@@ -1071,6 +1072,9 @@ class restormer_mri(nn.Module):
                 )
             if self.args.pretrained_csm is not None:
                 self.load_csm_model()
+            if self.use_external_csm and hasattr(self, "coil_sensitivity_model"):
+                for param in self.coil_sensitivity_model.parameters():
+                    param.requires_grad = False
             self.recon_model = restormer(
                 in_channel=self.num_frames * self.num_reduced_coils * 2,
                 out_channel=self.num_frames * self.num_reduced_coils * 2,
@@ -1258,7 +1262,13 @@ class restormer_mri(nn.Module):
         skip = x.clone()
 
         if self.use_csm:
-            if sensitivity_maps is None or not self.use_single_csm:
+            if sensitivity_maps is not None:
+                if sensitivity_maps.dim() == 6:
+                    sensitivity_maps = rearrange(sensitivity_maps, "b t c h w two -> (b t) c h w two")
+                sensitivity_maps = sensitivity_maps.to(device=x.device, dtype=x.dtype)
+            elif self.use_external_csm:
+                raise ValueError("use_external_csm=True but sensitivity_maps were not provided by the data loader.")
+            elif sensitivity_maps is None or not self.use_single_csm:
                 if self.use_acs_region and mask is not None:
                     x_acs = get_acs_image(x, mask)
                     if self.use_single_csm:
@@ -1275,6 +1285,8 @@ class restormer_mri(nn.Module):
         x = rearrange(x, "(b t) c h w two -> b (t c two) h w", t=T, two=2)
         mask_idx = next((i for i, sub in enumerate(self.mask_types) if sub in mask_type.lower()), -1)
         acc_idx = next((i for i, sub in enumerate(self.acc_factors) if int(sub) == acc_factor), -1)
+        if acc_idx == -1:
+            acc_idx = min(range(len(self.acc_factors)), key=lambda i: abs(int(self.acc_factors[i]) - int(acc_factor)))
         acq_idx = next(
             (i for i, sub in enumerate(self.acq_types) if sub.lower() == acq_type.lower()),
             -1,

@@ -57,7 +57,7 @@ def get_train_transforms(args):
             ),
             (
                 RandSimulateNoReadoutOversampleKspaced(keys=["kspace"], prob=0.25)
-                if args.dataset.lower() == "cmrxrecon"
+                if args.dataset.lower() == "cmrxrecon" and not getattr(args, "is_4dflow_aorta", False)
                 else Identityd(keys=["kspace"])
             ),
             ExtractDataKeyFromMetaKeyd(keys=["mask", "acquisition"], meta_key="kspace_meta_dict"),

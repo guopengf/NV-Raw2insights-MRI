@@ -26,6 +26,7 @@ import torchvision
 from monai.apps.reconstruction.complex_utils import complex_abs, complex_conj_t, complex_mul_t
 from monai.data.fft_utils import fftn_centered, ifftn_centered
 from monai.networks.utils import copy_model_state
+from path_safety import assert_not_in_known_raw_data_path
 from torch.nn.parallel import DistributedDataParallel
 from torch.optim import Optimizer
 
@@ -140,6 +141,7 @@ def adjust_learning_rate(optimizer, epoch, args, is_resume_first_ten=False):
 
 
 def save_img4ranking(img4ranking, folder_path, file_path):
+    folder_path = assert_not_in_known_raw_data_path(folder_path, what="img4ranking output folder")
     os.makedirs(folder_path, exist_ok=True)
     scipy.io.savemat(os.path.join(folder_path, file_path), {"img4ranking": img4ranking})
 
@@ -189,6 +191,7 @@ def visualize(input, output, target, epoch, writer):
 
 
 def save_args_to_file_json(args, filename):
+    filename = assert_not_in_known_raw_data_path(filename, what="config output file")
     # Convert args dictionary to be JSON serializable
     args_dict = vars(args)
     for key, value in args_dict.items():
@@ -682,6 +685,7 @@ def save_checkpoint(
         model_filename (str): model filename.
         epoch_finished (bool): epoch finished
     """
+    ckpt_path = assert_not_in_known_raw_data_path(f"{ckpt_folder}/{model_filename}", what="checkpoint output file")
     net_state_dict = net.module.state_dict() if is_ddp else net.state_dict()
     optimizer_state_dict = optimizer.state_dict()
     scaler_state_dict = scaler.state_dict()
@@ -706,9 +710,9 @@ def save_checkpoint(
             "torch_rng_state": torch_rng_state,
             "cuda_rng_state": cuda_rng_state,
         },
-        f"{ckpt_folder}/{model_filename}",
+        ckpt_path,
     )
-    print(f"Save ckpt to {ckpt_folder}/{model_filename}.")
+    print(f"Save ckpt to {ckpt_path}.")
 
 
 def get_acs_region(mask: torch.Tensor) -> tuple[int, int, int, int]:

@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io
 
+from path_safety import assert_outputs_not_in_data
+
 
 def read_mat(mat_file):
     """Read .mat file; try h5py first (v7.3), then scipy."""
@@ -206,9 +208,10 @@ def main():
     for mat_path in mat_files:
         out_path = None
         if args.output_dir:
-            os.makedirs(args.output_dir, exist_ok=True)
+            output_dir = assert_outputs_not_in_data([args.output_dir], [mat_path])[0]
+            os.makedirs(output_dir, exist_ok=True)
             base = os.path.splitext(os.path.basename(mat_path))[0]
-            out_path = os.path.join(args.output_dir, base + ".png")
+            out_path = os.path.join(output_dir, base + ".png")
         try:
             visualize_mat(
                 mat_path,

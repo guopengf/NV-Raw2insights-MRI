@@ -13,6 +13,8 @@ import argparse
 import json
 import os
 
+from path_safety import assert_outputs_not_in_data
+
 
 def find_first_prefix_match(string, prefix_string):
     """
@@ -113,7 +115,7 @@ def create_json_with_masks(
 ):
     # Convert to absolute paths
     source_dir = os.path.abspath(source_dir)
-    output_dir = os.path.abspath(output_dir)
+    output_dir = str(assert_outputs_not_in_data([output_dir], [source_dir])[0])
 
     # Set default exclude list if none provided
     if mask_strings is None:
@@ -219,6 +221,7 @@ if __name__ == "__main__":
         help="Whether to create json files for training set. Default is False.",
     )
     args = parser.parse_args()
+    args.output_dir = str(assert_outputs_not_in_data([args.output_dir], [args.source_dir, args.mask_dir])[0])
 
     if args.training_set:
         include_dirs = ["TrainingSet"]

@@ -214,13 +214,14 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
         mask_type: str = None,
         acc_factor: int = None,
         acq_type: str = None,
+        sensitivity_maps: torch.Tensor = None,
     ) -> torch.Tensor:
         ref_image = x.clone()
         x0 = x
         cas_skips = None
         for i in range(self.num_steps):
-            sensitivity_maps = None
             if self.constant_input_flow:
+                step_sensitivity_maps = sensitivity_maps
                 if self.training:
                     x, cas_skips, sensitivity_maps = checkpoint(
                         self.recon_model,
@@ -230,7 +231,7 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
                         acc_factor,
                         acq_type,
                         cas_skips,
-                        sensitivity_maps,
+                        step_sensitivity_maps,
                         ref_image,
                         i,
                         use_reentrant=False,
@@ -243,11 +244,12 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
                         acc_factor,
                         acq_type,
                         cas_skips,
-                        sensitivity_maps,
+                        step_sensitivity_maps,
                         ref_image,
                         i,
                     )
             else:
+                step_sensitivity_maps = sensitivity_maps
                 if self.training:
                     x, cas_skips, sensitivity_maps = checkpoint(
                         self.recon_model,
@@ -257,7 +259,7 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
                         acc_factor,
                         acq_type,
                         cas_skips,
-                        sensitivity_maps,
+                        step_sensitivity_maps,
                         ref_image,
                         i,
                         use_reentrant=False,
@@ -270,7 +272,7 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
                         acc_factor,
                         acq_type,
                         cas_skips,
-                        sensitivity_maps,
+                        step_sensitivity_maps,
                         ref_image,
                         i,
                     )

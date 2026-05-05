@@ -609,6 +609,262 @@ class UniformKspaceMask(KspaceMask):
         )
 
 
+# def ifft1c_kz(kspace: np.ndarray) -> np.ndarray:
+#     """
+#     Centered 1D IFFT along kz axis for raw 4D flow.
+#     Expected raw shape:
+#       (enc, t, coil, kz, ky, kx)
+#     """
+#     return np.fft.ifftshift(
+#         np.fft.ifft(
+#             np.fft.fftshift(kspace, axes=(-3,)),
+#             axis=-3,
+#             norm="ortho",
+#         ),
+#         axes=(-3,),
+#     )
+
+
+# def raw_4dflow_to_hybrid(kspace: np.ndarray) -> np.ndarray:
+#     """
+#     raw:
+#       (enc, t, coil, kz, ky, kx)   complex
+#     -> 1D IFFT along kz
+#     -> (enc, t, coil, z, ky, kx)
+#     -> transpose
+#     -> (enc, t, z, coil, ky, kx)
+#     -> reshape
+#     -> (enc*t, z, coil, ky, kx)
+#     -> convert to (..., 2)
+#     -> (enc*t, z, coil, ky, kx, 2)
+#     """
+#     hybrid = ifft1c_kz(kspace)                          # complex, (enc, t, coil, z, ky, kx)
+#     hybrid = np.transpose(hybrid, (0, 1, 3, 2, 4, 5))  # complex, (enc, t, z, coil, ky, kx)
+
+#     n_enc, nt, nz, nc, ny, nx = hybrid.shape
+#     hybrid = hybrid.reshape(n_enc * nt, nz, nc, ny, nx)   # complex, (enc*t, z, coil, ky, kx)
+
+#     hybrid = complex_to_lastdim2(hybrid)                  # float32, (enc*t, z, coil, ky, kx, 2)
+#     return hybrid
+
+
+# def raw_4dflow_mask_to_hybrid(mask: np.ndarray, n_enc: int, nx: int) -> np.ndarray:
+#     """
+#     raw mask:
+#       (1, t, 1, kz, ky, 1)
+#     -> (t, z, ky)
+#     -> repeat over enc
+#     -> (enc*t, z, ky)
+#     -> expand/broadcast
+#     -> (enc*t, z, 1, ky, kx)
+#     """
+#     mask = np.asarray(mask).astype(np.float32)
+
+#     # (1, t, 1, kz, ky, 1) -> (t, z, ky)
+#     mask = mask[0, :, 0, :, :, 0]
+#     nt, nz, ny = mask.shape
+
+#     # repeat over enc -> (enc, t, z, ky)
+#     mask = np.repeat(mask[None, ...], n_enc, axis=0)
+
+#     # -> (enc*t, z, ky)
+#     mask = mask.reshape(n_enc * nt, nz, ny)
+
+#     # -> (enc*t, z, 1, ky, 1)
+#     mask = mask[:, :, None, :, None]
+
+#     # broadcast kx
+#     mask = np.repeat(mask, nx, axis=-1).astype(np.float32)
+#     return mask
+
+# def complex_to_lastdim2(x: np.ndarray) -> np.ndarray:
+
+#     """
+
+#     Convert numpy complex array:
+
+#       (..., ky, kx)
+
+#     to real/imag last-dim representation:
+
+#       (..., ky, kx, 2)
+
+#     """
+
+#     if not np.iscomplexobj(x):
+
+#         raise ValueError(f"Expected complex ndarray, got dtype={x.dtype}")
+
+#     return np.stack([x.real, x.imag], axis=-1).astype(np.float32)
+
+def ifft1c_kx(kspace: np.ndarray) -> np.ndarray:
+    """
+    Centered 1D IFFT along kx axis for raw 4D flow.
+    Expected raw shape:
+      (enc, t, coil, kz, ky, kx)
+    Output:
+      (enc, t, coil, kz, ky, x)
+    """
+    return np.fft.ifftshift(
+        np.fft.ifft(
+            np.fft.fftshift(kspace, axes=(-1,)),
+            axis=-1,
+            norm="ortho",
+        ),
+        axes=(-1,),
+    )
+
+
+def complex_to_lastdim2(x: np.ndarray) -> np.ndarray:
+    """
+    Convert numpy complex array:
+      (..., a, b)
+    to real/imag last-dim representation:
+      (..., a, b, 2)
+    """
+    if not np.iscomplexobj(x):
+        raise ValueError(f"Expected complex ndarray, got dtype={x.dtype}")
+    return np.stack([x.real, x.imag], axis=-1).astype(np.float32)
+
+
+def raw_4dflow_to_hybrid(kspace: np.ndarray) -> np.ndarray:
+    """
+    raw:
+      (enc, t, coil, kz, ky, kx)   complex
+    -> 1D IFFT along kx
+    -> (enc, t, coil, kz, ky, x)
+    -> transpose
+    -> (enc, t, x, coil, kz, ky)
+    -> reshape
+    -> (enc*t, x, coil, kz, ky)
+    -> convert to (..., 2)
+    -> (enc*t, x, coil, kz, ky, 2)
+    """
+    hybrid = ifft1c_kx(kspace)                          # complex, (enc, t, coil, kz, ky, x)
+    hybrid = np.transpose(hybrid, (0, 1, 5, 2, 3, 4))  # complex, (enc, t, x, coil, kz, ky)
+
+    n_enc, nt, nx, nc, nkz, ny = hybrid.shape
+    hybrid = hybrid.reshape(n_enc * nt, nx, nc, nkz, ny)   # complex, (enc*t, x, coil, kz, ky)
+
+    hybrid = complex_to_lastdim2(hybrid)                   # float32, (enc*t, x, coil, kz, ky, 2)
+    return hybrid
+
+
+def raw_4dflow_mask_to_hybrid(mask: np.ndarray, n_enc: int, nx: int) -> np.ndarray:
+    """
+    raw mask:
+      (1, t, 1, kz, ky, 1)
+
+    Since the mask is broadcast along kx in raw space, after kx->x IFFT,
+    we keep the same (kz, ky) sampling pattern for every x position.
+
+    Output:
+      (enc*t, x, 1, kz, ky)
+    """
+    mask = np.asarray(mask).astype(np.float32)
+
+    # (1, t, 1, kz, ky, 1) -> (t, kz, ky)
+    mask = mask[0, :, 0, :, :, 0]
+    nt, nkz, ny = mask.shape
+
+    # repeat over enc -> (enc, t, kz, ky)
+    mask = np.repeat(mask[None, ...], n_enc, axis=0)
+
+    # -> (enc*t, kz, ky)
+    mask = mask.reshape(n_enc * nt, nkz, ny)
+
+    # -> (enc*t, 1, kz, ky)
+    mask = mask[:, None, :, :]
+
+    # repeat over x -> (enc*t, x, kz, ky)
+    mask = np.repeat(mask, nx, axis=1)
+
+    # -> (enc*t, x, 1, kz, ky)
+    mask = mask[:, :, None, :, :].astype(np.float32)
+
+    return mask
+
+
+def _normalize_sensitivity_maps(csm: np.ndarray, eps: float = 1e-8) -> np.ndarray:
+    rss = np.sqrt(np.sum(np.abs(csm) ** 2, axis=2, keepdims=True))
+    return csm / np.maximum(rss, eps)
+
+
+def raw_4dflow_coilmap_to_hybrid(
+    coilmap: np.ndarray,
+    *,
+    nt: int,
+    nx: int,
+    nc: int,
+    n_enc: int = 1,
+    enc_idx: int = 0,
+    axis_order: str = "auto",
+    normalize: bool = True,
+) -> np.ndarray:
+    """
+    Convert a patient coilmap to model image-space layout.
+
+    Output shape is (t, x, coil, kz, ky, 2), matching the tensors after
+    kx->x and before enc has been merged into the sample stream.
+    """
+    csm = np.asarray(coilmap)
+    if not np.iscomplexobj(csm):
+        csm = csm.astype(np.complex64)
+
+    csm = np.squeeze(csm)
+
+    if csm.ndim == 6:
+        # (enc, t, coil, kz, ky, kx)
+        if csm.shape[0] == n_enc:
+            csm = csm[enc_idx]
+        else:
+            csm = csm[0]
+        if csm.shape[0] != nt:
+            csm = np.repeat(csm[:1], nt, axis=0)
+        csm = np.transpose(csm, (0, 4, 1, 2, 3))  # (t, x, coil, kz, ky)
+    elif csm.ndim == 5:
+        if csm.shape[0] == n_enc:
+            # (enc, coil, kz, ky, kx)
+            csm = csm[enc_idx]
+            csm = np.transpose(csm, (3, 0, 1, 2))  # (x, coil, kz, ky)
+            csm = np.repeat(csm[None, ...], nt, axis=0)
+        elif csm.shape[0] == nt:
+            # (t, coil, kz, ky, kx)
+            csm = np.transpose(csm, (0, 4, 1, 2, 3))  # (t, x, coil, kz, ky)
+        else:
+            raise ValueError(f"Unsupported 5D coilmap shape: {csm.shape}")
+    elif csm.ndim == 4:
+        inferred_order = axis_order
+        if inferred_order == "auto":
+            inferred_order = "coil_kz_ky_kx" if csm.shape[0] == nc else "kz_ky_kx_coil"
+
+        if inferred_order == "coil_kz_ky_kx":
+            csm = np.transpose(csm, (3, 0, 1, 2))  # (x, coil, kz, ky)
+        elif inferred_order == "kz_ky_kx_coil":
+            csm = np.transpose(csm, (2, 3, 0, 1))  # (x, coil, kz, ky)
+        elif inferred_order == "kx_ky_kz_coil":
+            csm = np.transpose(csm, (0, 3, 2, 1))  # (x, coil, kz, ky)
+        elif inferred_order == "kx_kz_ky_coil":
+            csm = np.transpose(csm, (0, 3, 1, 2))  # (x, coil, kz, ky)
+        elif inferred_order == "coil_x_kz_ky":
+            csm = np.transpose(csm, (1, 0, 2, 3))  # (x, coil, kz, ky)
+        else:
+            raise ValueError(f"Unsupported coilmap_axis_order={axis_order!r}")
+
+        csm = np.repeat(csm[None, ...], nt, axis=0)
+    else:
+        raise ValueError(f"Unsupported coilmap shape: {csm.shape}")
+
+    if csm.shape[1] != nx or csm.shape[2] != nc:
+        raise ValueError(
+            "Coilmap shape does not match k-space after conversion: "
+            f"coilmap={csm.shape}, expected x={nx}, coils={nc}"
+        )
+
+    if normalize:
+        csm = _normalize_sensitivity_maps(csm)
+    return complex_to_lastdim2(csm)
+
 class KspaceMaskd(RandomizableTransform, MapTransform):
     """
     Dictionary-based wrapper of :py:class:`monai.apps.reconstruction.transforms.array.RandomKspacemask`.
@@ -684,7 +940,63 @@ class KspaceMaskd(RandomizableTransform, MapTransform):
         d = dict(data)
         chosen_masker_idx = np.random.randint(0, len(self.maskers))
         for key in self.key_iterator(d):
+
+            # ----------------------------------------------------------
+            # Custom 4D flow fixed-mask branch
+            # raw k-space: (enc, t, coil, kz, ky, kx)
+            # raw mask:    (1,   t, 1,    kz, ky, 1)
+            # ----------------------------------------------------------
             if (
+                isinstance(self.maskers[chosen_masker_idx], FixedKspaceMask)
+                and d[key].ndim == 6
+                and d[FastMRIKeys.MASK].ndim == 6
+            ):
+                meta = d.get("kspace_meta_dict", {})
+                raw_target = d[key]                  # fully sampled GT raw k-space
+                raw_kspace = meta.get("kspace_4dflow_input", raw_target)
+                raw_mask = d[FastMRIKeys.MASK]
+
+                # Convert undersampled raw k-space to hybrid space:
+                # (enc, t, coil, kz, ky, kx) -> (enc*t, x, coil, kz, ky, 2)
+                masked_hybrid = raw_4dflow_to_hybrid(raw_kspace)
+                target_hybrid = raw_4dflow_to_hybrid(raw_target)
+
+                # Build corresponding hybrid mask metadata:
+                # (1, t, 1, kz, ky, 1) -> (enc*t, x, 1, kz, ky)
+                hybrid_mask = raw_4dflow_mask_to_hybrid(
+                    raw_mask,
+                    n_enc=raw_kspace.shape[0],
+                    nx=raw_kspace.shape[-1],
+                )
+
+                d[key] = target_hybrid
+                d[FastMRIKeys.MASK] = hybrid_mask
+                d[key + "_masked"] = masked_hybrid
+
+                if CMRxReconKeys.SENSITIVITY_MAPS in meta:
+                    d[CMRxReconKeys.SENSITIVITY_MAPS] = raw_4dflow_coilmap_to_hybrid(
+                        meta[CMRxReconKeys.SENSITIVITY_MAPS],
+                        nt=raw_target.shape[1],
+                        nx=raw_target.shape[-1],
+                        nc=raw_target.shape[2],
+                        n_enc=int(meta.get("num_encodings", raw_target.shape[0])),
+                        enc_idx=int(meta.get("encoding_idx", 0)),
+                        axis_order=meta.get("coilmap_axis_order", "auto"),
+                        normalize=bool(meta.get("normalize_coilmap", True)),
+                    )
+
+                if self.return_ifft:
+                    d[key + "_masked_ifft"] = ifftn_centered(
+                        masked_hybrid, spatial_dims=self.spatial_dims, is_complex=self.is_complex
+                    )
+                    d[key + "_masked_ifft_rss"] = np.sqrt(
+                        np.sum(np.abs(d[key + "_masked_ifft"]) ** 2, axis=-3)
+                    )
+
+                mask_type = d["kspace_meta_dict"][CMRxReconKeys.MASK_TYPE]
+                acc_factor = int("".join(ch for ch in mask_type if ch.isdigit()))
+
+            elif (
                 isinstance(self.maskers[chosen_masker_idx], FixedKspaceMask)
                 and d[key].shape[-2:] == d[FastMRIKeys.MASK].shape[-2:]
             ):
@@ -694,8 +1006,10 @@ class KspaceMaskd(RandomizableTransform, MapTransform):
                     ](d[key], d[FastMRIKeys.MASK])
                 else:
                     d[key + "_masked"], _, _, acc_factor = self.maskers[chosen_masker_idx](d[key], d[FastMRIKeys.MASK])
+
                 mask_type = d["kspace_meta_dict"][CMRxReconKeys.MASK_TYPE]
                 acc_factor = int("".join(ch for ch in mask_type if ch.isdigit()))
+
             elif not isinstance(self.maskers[chosen_masker_idx], FixedKspaceMask):
                 if self.return_ifft:
                     d[key + "_masked"], d[key + "_masked_ifft"], d[key + "_masked_ifft_rss"], acc_factor = self.maskers[
@@ -703,13 +1017,15 @@ class KspaceMaskd(RandomizableTransform, MapTransform):
                     ](d[key])
                 else:
                     d[key + "_masked"], _, _, acc_factor = self.maskers[chosen_masker_idx](d[key])
+
                 mask_type = self.maskers[chosen_masker_idx].__class__.__name__
+
             else:
                 raise RuntimeError(
                     "Augmentation of no readout oversample simulation is not compatible with fixed mask type."
                 )
-            d[FastMRIKeys.MASK] = self.maskers[chosen_masker_idx].mask.expand(d[key + "_masked"].shape)
-            d[CMRxReconKeys.MASK_TYPE] = mask_type
+
+            d["mask_type"] = mask_type
             d["acc_factor"] = acc_factor
 
         return d  # type: ignore
@@ -1094,6 +1410,35 @@ class RandAdjustContrastComplex(RandomizableTransform):
         return self.adjust_contrast(img, self.gamma_value)
 
 
+# class RearrangeAndNormalizeMRI(MapTransform):
+#     def __init__(self, keys: KeysCollection, args, allow_missing_keys: bool = False) -> None:
+#         MapTransform.__init__(self, keys, allow_missing_keys)
+#         self.keys_list = keys
+#         self.args = args
+#         assert len(keys) == 3, "Keys should have 3 keys (input, target, mask), got {}".format(len(keys))
+
+#     def __call__(self, data: Mapping[Hashable, NdarrayOrTensor]) -> dict[Hashable, Tensor]:
+#         d = dict(data)
+
+#         temporal_shuffle = (
+#             torch.randperm(int(d["kspace_meta_dict"]["shape"][0]))
+#             if "map" in d["kspace_meta_dict"]["filename"] and self.args.do_mapping_shuffle
+#             else torch.arange(int(d["kspace_meta_dict"]["shape"][0]))
+#         )
+#         input, target, mask = rearrange_mri_data(
+#             [d[k][None, ...] for k in self.keys_list], self.args, temporal_shuffle=temporal_shuffle
+#         )
+#         input, mean, std = complex_zscore(input, dim=[1, 2, 3])
+
+#         d[self.keys_list[0]] = input.contiguous()
+#         d[self.keys_list[1]] = target.contiguous()
+#         d[self.keys_list[2]] = mask.contiguous()
+#         d["mean"] = mean.contiguous()
+#         d["std"] = std.contiguous()
+#         d["temporal_shuffle"] = temporal_shuffle
+
+#         return d
+
 class RearrangeAndNormalizeMRI(MapTransform):
     def __init__(self, keys: KeysCollection, args, allow_missing_keys: bool = False) -> None:
         MapTransform.__init__(self, keys, allow_missing_keys)
@@ -1109,9 +1454,19 @@ class RearrangeAndNormalizeMRI(MapTransform):
             if "map" in d["kspace_meta_dict"]["filename"] and self.args.do_mapping_shuffle
             else torch.arange(int(d["kspace_meta_dict"]["shape"][0]))
         )
+
+        # minimal fix:
+        # rearrange_mri_data expects all inputs to have a trailing channel dim.
+        # kspace tensors already have last dim = 2, but mask has no trailing dim.
+        # Temporarily add a singleton trailing dim to mask and KEEP it.
+        input_arr = d[self.keys_list[0]][None, ...]
+        target_arr = d[self.keys_list[1]][None, ...]
+        mask_arr = d[self.keys_list[2]][None, ..., None]
+
         input, target, mask = rearrange_mri_data(
-            [d[k][None, ...] for k in self.keys_list], self.args, temporal_shuffle=temporal_shuffle
+            [input_arr, target_arr, mask_arr], self.args, temporal_shuffle=temporal_shuffle
         )
+
         input, mean, std = complex_zscore(input, dim=[1, 2, 3])
 
         d[self.keys_list[0]] = input.contiguous()
@@ -1120,5 +1475,13 @@ class RearrangeAndNormalizeMRI(MapTransform):
         d["mean"] = mean.contiguous()
         d["std"] = std.contiguous()
         d["temporal_shuffle"] = temporal_shuffle
+
+        if CMRxReconKeys.SENSITIVITY_MAPS in d:
+            csm = rearrange_mri_data(
+                d[CMRxReconKeys.SENSITIVITY_MAPS][None, ...],
+                self.args,
+                temporal_shuffle=temporal_shuffle,
+            )
+            d[CMRxReconKeys.SENSITIVITY_MAPS] = torch.as_tensor(csm).contiguous()
 
         return d
