@@ -434,4 +434,3 @@ These are optional debugging tools and are not required for training.
 - The fixed masks are read from `usmask_ktGaussianXX.mat`.
 - The undersampled inputs are read directly from `kdata_ktGaussianXX.mat`.
 - The training target is always `kdata_full.mat`.
-```
