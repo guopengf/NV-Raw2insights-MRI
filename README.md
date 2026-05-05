@@ -1,4 +1,4 @@
-# NV-Raw2Insights-MRI
+<!-- # NV-Raw2Insights-MRI
 
 [![License](https://img.shields.io/badge/Code-Apache%202.0-blue.svg)](LICENSE)
 [![Weights](https://img.shields.io/badge/Weights-NVIDIA%20Open%20Model-green.svg)](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/)
@@ -115,4 +115,323 @@ Please also cite the [CMRxRecon dataset](https://www.synapse.org/Synapse:syn5981
 
 - [SDUM Paper](https://arxiv.org/abs/2512.17137) — arXiv
 - [HuggingFace Model](https://huggingface.co/nvidia/NV-Raw2Insights-MRI) — Weights and model card
-- [CMRxRecon2025 Challenge](https://www.synapse.org/Synapse:syn59814210/wiki/634966) — Benchmark
+- [CMRxRecon2025 Challenge](https://www.synapse.org/Synapse:syn59814210/wiki/634966) — Benchmark -->
+```markdown
+# 4D Flow Aorta MRI Finetuning Usage
+
+This branch adapts NV-Raw2insights-MRI for 4D Flow Aorta MRI reconstruction.
+
+The expected raw data layout is:
+
+```text
+/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/
+  Center007/
+    GE_30T_Architect/
+      P076/
+        coilmap.mat
+        kdata_full.mat
+        kdata_ktGaussian10.mat
+        kdata_ktGaussian20.mat
+        kdata_ktGaussian30.mat
+        kdata_ktGaussian40.mat
+        kdata_ktGaussian50.mat
+        usmask_ktGaussian10.mat
+        usmask_ktGaussian20.mat
+        usmask_ktGaussian30.mat
+        usmask_ktGaussian40.mat
+        usmask_ktGaussian50.mat
+```
+
+The 4D Flow k-space shape is expected to be:
+
+```text
+(enc, t, coil, kz, ky, kx)
+```
+
+This code uses a 1D centered IFFT along `kx`, then treats `x` like the slice dimension used by the original model:
+
+```text
+(enc, t, coil, kz, ky, kx)
+-> IFFT along kx
+(enc, t, coil, kz, ky, x)
+-> transpose
+(enc, t, x, coil, kz, ky)
+```
+
+Each velocity encoding `enc` is split into separate training samples, so the model still sees the original 5D-style input:
+
+```text
+(t, x, coil, kz, ky)
+```
+
+## Important
+
+Do not write outputs into the raw data directory.
+
+Avoid using any output path under:
+
+```text
+/SSDHome/share/4dFlow/
+```
+
+Use a workspace, scratch folder, or experiment folder instead, for example:
+
+```text
+/SSDHome/share/haosen/4dflow/4dflow_finetune_ckpts/
+outputs/
+```
+
+## Config
+
+The 4D Flow config is:
+
+```text
+configs/nv_raw2insights_mri_base_4dflow.json
+```
+
+Important fields:
+
+```json
+{
+  "data_path_train": [
+    "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"
+  ],
+  "data_path_val": [
+    "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"
+  ],
+  "is_4dflow_aorta": true,
+  "use_external_csm": true,
+  "train_mask_types": ["fixed"],
+  "val_mask_types": ["fixed"],
+  "four_dflow_accelerations": [10, 20, 30, 40, 50],
+  "four_dflow_encodings": [0, 1, 2, 3]
+}
+```
+
+Currently `data_path_train` and `data_path_val` point to the same dataset. This is useful for pipeline testing, but it is not an independent validation split.
+
+## Training
+
+### Multi-GPU Training
+
+Example: use physical GPUs 1 and 3.
+
+```bash
+WANDB_MODE=offline CUDA_VISIBLE_DEVICES=1,3 torchrun --nproc_per_node=2 scripts/train.py \
+  --config configs/nv_raw2insights_mri_base_4dflow.json
+```
+
+Inside PyTorch, these visible GPUs are remapped to:
+
+```text
+cuda:0 -> physical GPU 1
+cuda:1 -> physical GPU 3
+```
+
+### Disable W&B Completely
+
+If you do not want W&B at all:
+
+```bash
+WANDB_DISABLED=true CUDA_VISIBLE_DEVICES=1,3 torchrun --nproc_per_node=2 scripts/train.py \
+  --config configs/nv_raw2insights_mri_base_4dflow.json
+```
+
+### Single-GPU Training
+
+Set `"ddp": false` in the config, then run:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 WANDB_MODE=offline python scripts/train.py \
+  --config configs/nv_raw2insights_mri_base_4dflow.json
+```
+
+## Coilmap Check
+
+Use this script to verify whether `coilmap.mat` produces a reasonable coil-combined image.
+
+```bash
+python scripts/check_4dflow_coilmap_combine.py \
+  --patient-dir "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P076/" \
+  --enc 0 \
+  --frame 0
+```
+
+By default, the PNG is saved to the workspace-local folder:
+
+```text
+outputs/coilmap_checks/
+```
+
+Example output name:
+
+```text
+outputs/coilmap_checks/P076_coilmap_check_enc0_t0_x64.png
+```
+
+The script does not modify the `.mat` files.
+
+## Optional: Generate 4D Flow JSON Manifests Manually
+
+Training can generate manifests automatically inside the experiment folder. If you want to generate them manually:
+
+```bash
+python scripts/create_4dflow_aorta_json.py \
+  --root "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/" \
+  --out "outputs/4dflow_jsons"
+```
+
+Each generated JSON contains:
+
+```json
+{
+  "kspace": "path/to/kdata_ktGaussian10.mat",
+  "target_kspace": "path/to/kdata_full.mat",
+  "mask": ["path/to/usmask_ktGaussian10.mat"],
+  "mask_type": "ktGaussian10",
+  "acquisition": "Flow2d",
+  "encoding_idx": 0,
+  "is_4dflow": true,
+  "coilmap": "path/to/coilmap.mat"
+}
+```
+
+## Modified / Added Scripts
+
+### `scripts/readers.py`
+
+Modified `CMRxReconReader` to support 4D Flow Aorta JSON files.
+
+For 4D Flow data, it reads:
+
+```text
+kdata_ktGaussianXX.mat  -> undersampled input
+kdata_full.mat          -> fully sampled GT
+usmask_ktGaussianXX.mat -> fixed mask condition
+coilmap.mat             -> external coil sensitivity maps
+```
+
+It does not generate masks from full k-space.
+
+### `scripts/transforms.py`
+
+Added 4D Flow conversion utilities:
+
+```text
+raw_4dflow_to_hybrid()
+raw_4dflow_mask_to_hybrid()
+raw_4dflow_coilmap_to_hybrid()
+```
+
+The fixed-mask branch now uses the already undersampled k-space as input and the full k-space as target.
+
+The coilmap is converted into the same layout as the model input and passed forward as `sensitivity_maps`.
+
+### `scripts/models/restormer/restormer.py`
+
+Modified the Restormer MRI model to support external coil sensitivity maps.
+
+When:
+
+```json
+"use_external_csm": true
+```
+
+the model uses `coilmap.mat` from the patient folder instead of estimating coil maps internally.
+
+The coil sensitivity model module is kept in the architecture for pretrained weight compatibility, but its parameters are frozen when external coil maps are used.
+
+### `scripts/models/latent_recon.py`
+
+Modified the flow wrapper so `sensitivity_maps` can be passed through the cascade/flow model.
+
+### `scripts/train.py`
+
+Modified training to support `is_4dflow_aorta`.
+
+When enabled, training scans:
+
+```text
+Center*/Scanner*/Patient*/
+```
+
+and automatically creates JSON manifests under the experiment output folder:
+
+```text
+<exp_dir>/<exp>/jsons_train/
+<exp_dir>/<exp>/jsons_val/
+```
+
+It also passes external coil maps into the model during training and validation.
+
+### `scripts/train_utils.py`
+
+Disabled incompatible CMRxRecon k-space augmentation for 4D Flow Aorta training.
+
+### `scripts/check_4dflow_coilmap_combine.py`
+
+New utility script for visually checking whether `coilmap.mat` works for SENSE-style coil combination.
+
+Default output:
+
+```text
+outputs/coilmap_checks/
+```
+
+### `scripts/create_4dflow_aorta_json.py`
+
+New utility script to manually generate JSON manifests for 4D Flow Aorta data.
+
+### `scripts/path_safety.py`
+
+New helper that can prevent accidental writes into raw challenge data directories.
+
+It is intended to prevent writing outputs under paths that look like:
+
+```text
+ChallengeData
+ValidationSet
+TrainingSet
+Aorta
+```
+
+### `scripts/run_4dflow_inference.py`
+
+Utility script for running inference over 4D Flow Aorta cases and organizing results.
+
+It creates temporary JSON inputs, runs `scripts/inference.py`, then copies outputs into an organized output folder.
+
+### `scripts/reorganize_4dflow_outputs.py`
+
+Utility script for reorganizing flat inference outputs into:
+
+```text
+Center/Scanner/Patient/
+```
+
+### `scripts/visualize_4dflow_gt_img4ranking.py`
+
+Utility script for visualizing full 4D Flow GT k-space in an img4ranking-like style.
+
+### `scripts/vis_tools/`
+
+Additional visualization and evaluation helpers:
+
+```text
+save_kspace_frames.py
+save_recon_frames.py
+show_zf_gt_recon_grid.py
+evaluate_case.py
+```
+
+These are optional debugging tools and are not required for training.
+
+## Notes
+
+- The original pretrained model weights can still be loaded because the model input shape is kept compatible.
+- `enc` is split into the sample dimension instead of changing the model architecture.
+- The model uses existing `coilmap.mat` instead of estimating coil maps.
+- The fixed masks are read from `usmask_ktGaussianXX.mat`.
+- The undersampled inputs are read directly from `kdata_ktGaussianXX.mat`.
+- The training target is always `kdata_full.mat`.
+```
