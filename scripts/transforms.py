@@ -1478,7 +1478,7 @@ class RearrangeAndNormalizeMRI(MapTransform):
 
         if CMRxReconKeys.SENSITIVITY_MAPS in d:
             csm = rearrange_mri_data(
-                d[CMRxReconKeys.SENSITIVITY_MAPS][None, ...],
+                [d[CMRxReconKeys.SENSITIVITY_MAPS][None, ...]],
                 self.args,
                 temporal_shuffle=temporal_shuffle,
             )
