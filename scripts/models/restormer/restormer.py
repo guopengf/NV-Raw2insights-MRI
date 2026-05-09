@@ -1007,7 +1007,7 @@ class restormer_mri(nn.Module):
             else [
                 "BlackBlood",
                 "Cine",
-                "Flow2d",
+                "Flow4d",
                 "LGE",
                 "Mapping",
                 "Perfusion",
@@ -1296,7 +1296,7 @@ class restormer_mri(nn.Module):
             x,
             cas_skips,
             timestep,
-            mask_idx * len(self.mask_types) * len(self.acq_types) + acc_idx * len(self.acq_types) + acq_idx,
+            mask_idx * len(self.acc_factors) * len(self.acq_types) + acc_idx * len(self.acq_types) + acq_idx,
         )
         x = rearrange(x, "b (t c two) h w -> (b t) c h w two", t=T, two=2)
 

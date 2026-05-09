@@ -48,7 +48,7 @@ def main():
                             "target_kspace": str(full_kspace),
                             "mask": [str(us_mask)],
                             "mask_type": f"ktGaussian{acc}",
-                            "acquisition": "Flow2d",
+                            "acquisition": "Flow4d",
                             "encoding_idx": enc_idx,
                             "is_4dflow": True,
                         }

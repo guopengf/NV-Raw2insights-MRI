@@ -164,7 +164,7 @@ def main():
     parser.add_argument(
         "--acquisition",
         type=str,
-        default="Flow2d",
+        default="Flow4d",
         help="Acquisition token passed into the existing model",
     )
     parser.add_argument(

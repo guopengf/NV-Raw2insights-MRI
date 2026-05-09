@@ -4,7 +4,7 @@
         "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"
     ],
     "data_path_val": [
-        "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"
+        "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TestSet/Aorta/"
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
@@ -38,11 +38,15 @@
     "cache_rate": 0.0,
     "sample_rate": 1.0,
     "accelerations": [
-        8.0,
-        16.0,
-        24.0
+        10.0,
+        20.0,
+        30.0,
+        40.0,
+        50.0
     ],
     "center_fractions": [
+        0.0,
+        0.0,
         0.0,
         0.0,
         0.0
@@ -53,7 +57,7 @@
     "acq_types": [
         "BlackBlood",
         "Cine",
-        "Flow2d",
+        "Flow4d",
         "LGE",
         "Mapping",
         "Perfusion",
@@ -66,7 +70,7 @@
     ],
     "num_epochs": 160,
     "exp_dir": "/SSDHome/share/haosen/4dflow/4dflow_finetune_ckpts/",
-    "exp": "base_ft_4dflow_encbatch",
+    "exp": "base_ft_4dflow_encbatch_v2",
     "lr": 1.0e-05,
     "weight_decay": 0.001,
     "loss_type": "ssim",
@@ -127,8 +131,10 @@
         "kt_radial"
     ],
     "accelerations_for_def_model": [
-        8,
-        16,
-        24
+        10,
+        20,
+        30,
+        40,
+        50
     ]
 }

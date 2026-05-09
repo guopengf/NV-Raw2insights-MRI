@@ -343,7 +343,7 @@ class CMRxReconReader(ImageReader):
             dat = {
                 CMRxReconKeys.FILENAME: os.path.basename(data),
                 CMRxReconKeys.MASK_TYPE: mask_type,
-                CMRxReconKeys.ACQUISITION: json_data.get("acquisition", "Flow2d"),
+                CMRxReconKeys.ACQUISITION: json_data.get("acquisition", "Flow4d"),
                 "is_4dflow": True,
                 "encoding_idx": int(json_data.get("encoding_idx", 0)),
                 "coilmap_axis_order": json_data.get("coilmap_axis_order", "auto"),

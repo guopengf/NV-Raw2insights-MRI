@@ -93,7 +93,7 @@ def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodi
                                 "target_kspace": str(full_kspace),
                                 "mask": [str(us_mask)],
                                 "mask_type": f"ktGaussian{int(acc)}",
-                                "acquisition": "Flow2d",
+                                "acquisition": "Flow4d",
                                 "encoding_idx": int(enc_idx),
                                 "is_4dflow": True,
                             }
