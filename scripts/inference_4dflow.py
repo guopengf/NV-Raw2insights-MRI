@@ -34,7 +34,26 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from models.latent_recon import create_mri_recon_model  # noqa: E402
+from mri_data.ktSampling import kt_gaussian_sampling  # noqa: E402
 from utils import load_config, load_net, resolve_checkpoint_path  # noqa: E402
+
+
+def simulate_ktgaussian_mask(nt: int, nkz: int, nky: int, R: int,
+                             acs_lines: int = 20, alpha: float = 0.2,
+                             seed: int = 0) -> np.ndarray:
+    """Synthesize a kt-Gaussian mask on the (kz, ky) 2D plane, per time frame.
+
+    Returns shape (nt, nkz, nky). Uses the repo's own `kt_gaussian_sampling`
+    (signature: nx, ny, nt) where `ny` is the kt-undersampled axis and `nx` is
+    tiled. We set nx=nkz (tiled: every kz row gets the same ky pattern per frame),
+    ny=nky (kt-Gaussian-undersampled). Because acs_lines (~20) is typically >
+    nkz (~19), the kz axis is effectively fully sampled while ky carries the
+    under-sampling — matching the 1-D-PE family the model was trained on.
+    """
+    m = kt_gaussian_sampling(nx=nkz, ny=nky, nt=nt,
+                             ncalib=acs_lines, R=R, alpha=alpha, seed=seed)
+    # kt_gaussian_sampling returns (nx, ny, nt). We want (nt, nkz, nky).
+    return np.transpose(m, (2, 0, 1)).astype(np.float32)
 
 
 def _first_key(f: h5py.File) -> str:
@@ -317,31 +336,65 @@ def run_inference_one_enc(
 def run_inference_one_case(case_dir: Path, args, model, device, x_stride: int = 1,
                            rank: int = 0, world_size: int = 1):
     info = find_case_files(case_dir)
-    kdata_path = info["kdata_us"] if info["kdata_us"] is not None else info["kdata_full"]
-    mask_path = info["mask_us"]
+    simulate_mask = bool(getattr(args, "simulate_mask", False))
+    sim_acc = int(getattr(args, "simulate_acc", 24))
 
-    kspace = load_mat_complex(kdata_path)
-    if info["kdata_us"] is not None:
-        mask_type = info["mask_type"] or "ktGaussian20"
+    if simulate_mask:
+        # Start from fully-sampled k-space; retrospectively undersample with a
+        # freshly-synthesized kt-Gaussian mask at an acceleration the model was trained on.
+        if info["kdata_full"] is None:
+            raise FileNotFoundError(f"--simulate_mask requires kdata_full.mat in {case_dir}")
+        kspace = load_mat_complex(info["kdata_full"])
+        mask_type = f"ktGaussian{sim_acc}"
+        mask_path = None
     else:
-        mask_type = "fully_sampled"
+        kdata_path = info["kdata_us"] if info["kdata_us"] is not None else info["kdata_full"]
+        mask_path = info["mask_us"]
+        kspace = load_mat_complex(kdata_path)
+        if info["kdata_us"] is not None:
+            mask_type = info["mask_type"] or "ktGaussian20"
+        else:
+            mask_type = "fully_sampled"
 
     kspace_full = load_mat_complex(info["kdata_full"]) if info["kdata_full"] is not None else None
 
     enc, t, coil, kz, ky, kx = kspace.shape
     if rank == 0:
-        print(f"[{case_dir.name}] kspace shape (enc,t,c,kz,ky,kx) = {kspace.shape}")
+        print(f"[{case_dir.name}] kspace shape (enc,t,c,kz,ky,kx) = {kspace.shape}  "
+              f"(source={'kdata_full' if simulate_mask else kdata_path.name})")
 
     # 1D IFFT on kx (done once for all enc).
     kspace_hy = ifft1d_kx(kspace)  # (enc, t, c, kz, ky, x) hybrid
 
     # Mask (or full-sampled ones).
-    if mask_path is not None:
-        mask_raw = load_mat_real(mask_path).astype(np.float32)
+    if simulate_mask:
+        # Synthesize fresh mask; broadcast over enc and coil, match storage layout
+        # (enc_m=1, t, c_m=1, kz, ky, kx_m=1) so reshape_mask_one_enc still works.
+        acs_lines = int(getattr(args, "acs_lines", 20))
+        seed_base = int(getattr(args, "simulate_seed", 0))
+        per_enc_2d = np.stack(
+            [simulate_ktgaussian_mask(t, kz, ky, R=sim_acc,
+                                       acs_lines=acs_lines, alpha=0.2,
+                                       seed=seed_base + e)
+             for e in range(enc)],
+            axis=0,
+        )  # (enc, t, kz, ky)
+        mask_raw = per_enc_2d[:, :, None, :, :, None]  # (enc, t, 1, kz, ky, 1)
+        # Apply retrospective undersampling in hybrid domain (broadcast over x and coil).
+        mask_bcast = mask_raw[:, :, :, :, :, :]  # (enc, t, 1, kz, ky, 1)
+        # kspace_hy shape: (enc, t, c, kz, ky, x); need mask reshape to (enc, t, 1, kz, ky, 1) -> broadcast
+        kspace_hy = kspace_hy * mask_bcast[..., :1].reshape(enc, t, 1, kz, ky, 1)
+        if rank == 0:
+            sample_rate = per_enc_2d[0].mean()
+            print(f"[{case_dir.name}] simulated mask per-enc sample rate = {sample_rate:.4f} "
+                  f"(R={sim_acc}, acs={acs_lines})")
     else:
-        mask_raw = np.ones((1, t, 1, kz, ky, 1), dtype=np.float32)
+        if mask_path is not None:
+            mask_raw = load_mat_real(mask_path).astype(np.float32)
+        else:
+            mask_raw = np.ones((1, t, 1, kz, ky, 1), dtype=np.float32)
 
-    # Map the 20x-acc Gaussian mask to the closest trained acceleration if requested.
+    # Map the acceleration to the closest trained value if requested.
     try:
         acc_from_name = int("".join(ch for ch in mask_type if ch.isdigit()))
     except ValueError:
@@ -351,7 +404,8 @@ def run_inference_one_case(case_dir: Path, args, model, device, x_stride: int = 
         known = [int(a) for a in getattr(args, "accelerations", [8, 16, 24])]
         acc_factor = min(known, key=lambda a: (abs(a - acc_from_name), -a))
     if rank == 0:
-        print(f"[{case_dir.name}] mask_type={mask_type} acc_factor={acc_factor}")
+        print(f"[{case_dir.name}] mask_type={mask_type} acc_factor={acc_factor}"
+              f"{'  [simulated]' if simulate_mask else ''}")
 
     acq_type = "Flow2d"
 
@@ -552,6 +606,14 @@ def parse_args():
     p.add_argument("--snap_acc_to_trained", action="store_true",
                    help="Snap the mask's acceleration factor to the closest trained value "
                         "(one of config.accelerations, e.g. 20 → 24).")
+    p.add_argument("--simulate_mask", action="store_true",
+                   help="Ignore the shipped undersample mask. Start from kdata_full and "
+                        "retrospectively undersample with a freshly-synthesized kt-Gaussian "
+                        "mask at --simulate_acc (default 24, matches training).")
+    p.add_argument("--simulate_acc", type=int, default=24,
+                   help="Acceleration factor R for the simulated ktGaussian mask.")
+    p.add_argument("--simulate_seed", type=int, default=0,
+                   help="Base seed for simulated mask (incremented per enc for diversity).")
     return p.parse_args()
 
 
@@ -566,6 +628,9 @@ def main():
     if cli.no_amp:
         args.amp = False
     args.snap_acc_to_trained = cli.snap_acc_to_trained
+    args.simulate_mask = cli.simulate_mask
+    args.simulate_acc = cli.simulate_acc
+    args.simulate_seed = cli.simulate_seed
     model_variant = args.model_variant
     args.model_ckpt = resolve_checkpoint_path(model_variant, cli.model_ckpt)
     args.flow = True

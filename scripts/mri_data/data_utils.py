@@ -343,7 +343,7 @@ def postprocess_mri_recon(recon, args, file_type=None, is_training=False, pp_z_s
     elif not is_training:
         # Evaluation mode postprocessing
         recon = recon.transpose()
-        if dataset == "cmrxrecon":
+        if dataset == "cmrxrecon" and not getattr(args, "skip_run4ranking", False):
             # if 'Center' in file_type: # CMRxRecon 2025
             #     recon = run4Ranking2025(recon, file_type)
             # else:                     # CMRxRecon 2024
