@@ -34,7 +34,7 @@
     "acs_lines": 20,
     "pp_norm": false,
     "batch_size": 1,
-    "num_workers": 1,
+    "num_workers": 0,
     "cache_rate": 0.0,
     "sample_rate": 1.0,
     "accelerations": [
