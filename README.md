@@ -141,7 +141,7 @@ The expected raw data layout is:
         usmask_ktGaussian40.mat
         usmask_ktGaussian50.mat
 ```
-run `generate_4dflow_ktgaussian_train.py` to generate kdata_ktGaussian and masks:
+run `generate_4dflow_ktgaussian_train.py` to generate undersampled kspace and masks:
 ```
 python scripts/generate_4dflow_ktgaussian_train.py   --root path/to/TrainSet/Aorta   --accelerations 10,20,30,40,50   --overwrite
 found 138 patients under /SSDHome/share/haosen/4dflow/TrainSet/Aorta
