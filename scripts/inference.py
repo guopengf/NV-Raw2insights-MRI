@@ -216,6 +216,8 @@ def infer(args):
             if args.debug:
                 print(file_name, mask_type, acc_factor, acq_type)
             final_shape = [int(s) for s in final_shape]
+            sensitivity_maps = test_data.get("sensitivity_maps")
+            sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
             input = (
                 fftn_centered(input, spatial_dims=2, is_complex=True)
                 if args.model_type.lower() in ["varnet", "kspace_mar"]
@@ -235,15 +237,17 @@ def infer(args):
                 # forward pass
                 inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
                 mas = torch.Tensor(mask[window_idx])
+                sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
                 inp, mas, mean, std = (
                     inp.to(device),
                     mas.to(device),
                     mean.to(device),
                     std.to(device),
                 )
+                sens = sens.to(device) if sens is not None else None
 
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
-                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type)
+                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens)
 
                 output = output[:, args.num_frames // 2]
                 output = output * std[micro_b] + mean[micro_b]  # [1, c/1, 320, 320, 2]
