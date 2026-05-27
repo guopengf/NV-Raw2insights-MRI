@@ -13,6 +13,12 @@ import torch
 import torch.distributed as dist
 
 
+def _distributed_context():
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_world_size(), dist.get_rank()
+    return 1, 0
+
+
 def zeropower_via_newtonschulz5(G, steps: int):
     """
     Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
@@ -94,12 +100,11 @@ class Muon(torch.optim.Optimizer):
 
         for group in self.param_groups:
             params = group["params"]
-            params_pad = params + [torch.empty_like(params[-1])] * (
-                dist.get_world_size() - len(params) % dist.get_world_size()
-            )
-            for base_i in range(len(params))[:: dist.get_world_size()]:
-                if base_i + dist.get_rank() < len(params):
-                    p = params[base_i + dist.get_rank()]
+            world_size, rank = _distributed_context()
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            for base_i in range(len(params))[::world_size]:
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
                     if p.grad is None:
                         # continue
                         p.grad = torch.zeros_like(p)  # Force synchronization
@@ -109,9 +114,8 @@ class Muon(torch.optim.Optimizer):
                     update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update.reshape(p.shape), alpha=-group["lr"])
-                dist.all_gather(
-                    params_pad[base_i : base_i + dist.get_world_size()], params_pad[base_i + dist.get_rank()]
-                )
+                if world_size > 1:
+                    dist.all_gather(params_pad[base_i : base_i + world_size], params_pad[base_i + rank])
 
         return loss
 
@@ -216,12 +220,13 @@ class MuonWithAuxAdam(torch.optim.Optimizer):
         for group in self.param_groups:
             if group["use_muon"]:
                 params = group["params"]
-                params_pad = params + [torch.empty_like(params[-1])] * (
-                    dist.get_world_size() - len(params) % dist.get_world_size()
-                )
-                for base_i in range(len(params))[:: dist.get_world_size()]:
-                    if base_i + dist.get_rank() < len(params):
-                        p = params[base_i + dist.get_rank()]
+                if len(params) == 0:
+                    continue
+                world_size, rank = _distributed_context()
+                params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+                for base_i in range(len(params))[::world_size]:
+                    if base_i + rank < len(params):
+                        p = params[base_i + rank]
                         if p.grad is None:
                             # continue
                             p.grad = torch.zeros_like(p)  # Force synchronization
@@ -231,9 +236,8 @@ class MuonWithAuxAdam(torch.optim.Optimizer):
                         update = muon_update(p.grad, state["momentum_buffer"], beta=group["momentum"])
                         p.mul_(1 - group["lr"] * group["weight_decay"])
                         p.add_(update.reshape(p.shape), alpha=-group["lr"])
-                    dist.all_gather(
-                        params_pad[base_i : base_i + dist.get_world_size()], params_pad[base_i + dist.get_rank()]
-                    )
+                    if world_size > 1:
+                        dist.all_gather(params_pad[base_i : base_i + world_size], params_pad[base_i + rank])
             else:
                 for p in group["params"]:
                     if p.grad is None:
