@@ -197,3 +197,30 @@ def get_optimizer(args, model):
 
     print("using optimizer: ", optimizer.__class__.__name__)
     return optimizer
+
+
+def apply_phase3_freeze(args, model):
+    phase3 = getattr(args, "phase3", None)
+    if phase3 is None:
+        return
+    freeze = getattr(phase3, "freeze", None)
+    if freeze is None:
+        return
+
+    freeze_backbone = bool(getattr(freeze, "backbone", False))
+    freeze_vaa = bool(getattr(freeze, "vaa", False))
+    gamma_cfg = getattr(phase3, "gamma", None)
+    gamma_trainable = bool(getattr(gamma_cfg, "trainable", True)) if gamma_cfg is not None else True
+    for name, param in model.named_parameters():
+        is_vaa = "vaa_adapters" in name or "gamma_raw" in name
+        if is_vaa:
+            param.requires_grad = (not freeze_vaa) and (gamma_trainable if "gamma_raw" in name else True)
+        elif freeze_backbone:
+            param.requires_grad = False
+
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    print(
+        f"Phase3 freeze: backbone={freeze_backbone}, vaa={freeze_vaa}, "
+        f"trainable_params={trainable / 1e6:.2f}M/{total / 1e6:.2f}M"
+    )

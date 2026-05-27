@@ -42,7 +42,7 @@ from mri_data.data_utils import (
 from torch.amp import GradScaler, autocast
 from torch.distributed.elastic.multiprocessing.errors import record
 from torch.utils.tensorboard import SummaryWriter
-from train_utils import get_optimizer, get_train_transforms, get_val_transforms
+from train_utils import apply_phase3_freeze, get_optimizer, get_train_transforms, get_val_transforms
 from transforms import *
 from utils import *
 
@@ -253,6 +253,7 @@ def trainer(args):
         resume_rng_state=args.resume_rng_state,
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
+    apply_phase3_freeze(args, model)
     print(f"#model_params: {np.sum([len(p.flatten()) for p in model.parameters()]) * 1.0e-6:.2f}M")
 
     train_transforms = get_train_transforms(args)
@@ -392,6 +393,8 @@ def trainer(args):
             final_shape = [int(s) for s in final_shape]
             sensitivity_maps = batch_data.get("sensitivity_maps")
             sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
+            case_mra_prior = batch_data.get("mra_prior")
+            case_mra_prior = case_mra_prior[0] if case_mra_prior is not None else None
 
             # iterate through all slices
             sample_list = list(range(input.shape[0]))
@@ -430,6 +433,9 @@ def trainer(args):
                 tar = torch.Tensor(target[window_idx])
                 mas = torch.Tensor(mask[window_idx])
                 sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
+                mra_prior = None
+                if case_mra_prior is not None:
+                    mra_prior = torch.as_tensor(case_mra_prior, dtype=torch.float32).unsqueeze(0).expand(len(micro_b), -1, -1, -1)
                 inp, tar, mas, mean, std = (
                     inp.to(device),
                     tar.to(device),
@@ -438,50 +444,63 @@ def trainer(args):
                     std.to(device),
                 )
                 sens = sens.to(device) if sens is not None else None
+                mra_prior = mra_prior.to(device) if mra_prior is not None else None
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
-                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens)
+                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
                 output = output * std[window_idx] + mean[window_idx]  # [b, c/1, h, w, 2]
                 output = output[:, args.num_frames // 2]
                 tar = tar[:, args.num_frames // 2]
-                output = complex_abs(crop_k_space(output, (final_shape[-2], final_shape[-1])))  # [b, c/1, h, w]
-                tar = complex_abs(crop_k_space(tar, (final_shape[-2], final_shape[-1])))
-
-                output_rss = torch.sqrt(torch.sum(output**2, dim=1, keepdim=True))
-                targets_rss = torch.sqrt(torch.sum(tar**2, dim=1, keepdim=True))
 
                 with autocast("cuda", torch.bfloat16, enabled=False):
-                    output_rss_pp = postprocess_mri_recon(
-                        output_rss,
-                        args,
-                        file_name,
-                        is_training=True,
-                        pp_z_score_norm=args.pp_z_score_norm,
-                        pp_norm=args.pp_norm,
-                    )
-                    targets_rss_pp = postprocess_mri_recon(
-                        targets_rss,
-                        args,
-                        file_name,
-                        is_training=True,
-                        pp_z_score_norm=args.pp_z_score_norm,
-                        pp_norm=args.pp_norm,
-                    )
-                    if args.loss_type == "ssim":
-                        max_value = (
-                            torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
-                            if "max" not in batch_data["kspace_meta_dict"]
-                            else batch_data["kspace_meta_dict"]["max"][0].item()
+                    output_complex = crop_k_space(output, (final_shape[-2], final_shape[-1]))
+                    target_complex = crop_k_space(tar, (final_shape[-2], final_shape[-1]))
+
+                    if getattr(loss_function, "expects_complex", False):
+                        if sens is not None:
+                            sens_center = sens[:, args.num_frames // 2]
+                            sens_center = crop_k_space(sens_center, (final_shape[-2], final_shape[-1]))
+                            output_complex = sensitivity_map_reduce(output_complex, sens_center)
+                            target_complex = sensitivity_map_reduce(target_complex, sens_center)
+                        loss_dict = loss_function(output_complex.float(), target_complex.float())
+                    else:
+                        output = complex_abs(output_complex)  # [b, c/1, h, w]
+                        tar_mag = complex_abs(target_complex)
+
+                        output_rss = torch.sqrt(torch.sum(output**2, dim=1, keepdim=True))
+                        targets_rss = torch.sqrt(torch.sum(tar_mag**2, dim=1, keepdim=True))
+
+                        output_rss_pp = postprocess_mri_recon(
+                            output_rss,
+                            args,
+                            file_name,
+                            is_training=True,
+                            pp_z_score_norm=args.pp_z_score_norm,
+                            pp_norm=args.pp_norm,
                         )
-                        loss_function.data_range = max_value
-                    elif args.loss_type == "ssim_l1":
-                        max_value = (
-                            torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
-                            if "max" not in batch_data["kspace_meta_dict"]
-                            else batch_data["kspace_meta_dict"]["max"][0].item()
+                        targets_rss_pp = postprocess_mri_recon(
+                            targets_rss,
+                            args,
+                            file_name,
+                            is_training=True,
+                            pp_z_score_norm=args.pp_z_score_norm,
+                            pp_norm=args.pp_norm,
                         )
-                        loss_function.ssim_loss.data_range = max_value
-                    loss_dict = loss_function(output_rss_pp, targets_rss_pp)
+                        if args.loss_type == "ssim":
+                            max_value = (
+                                torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
+                                if "max" not in batch_data["kspace_meta_dict"]
+                                else batch_data["kspace_meta_dict"]["max"][0].item()
+                            )
+                            loss_function.data_range = max_value
+                        elif args.loss_type == "ssim_l1":
+                            max_value = (
+                                torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
+                                if "max" not in batch_data["kspace_meta_dict"]
+                                else batch_data["kspace_meta_dict"]["max"][0].item()
+                            )
+                            loss_function.ssim_loss.data_range = max_value
+                        loss_dict = loss_function(output_rss_pp, targets_rss_pp)
 
                 if isinstance(loss_dict, dict):
                     loss = loss_dict["combined_loss"]
@@ -633,6 +652,8 @@ def trainer(args):
                     final_shape = [int(s) for s in final_shape]
                     sensitivity_maps = val_data.get("sensitivity_maps")
                     sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
+                    case_mra_prior = val_data.get("mra_prior")
+                    case_mra_prior = case_mra_prior[0] if case_mra_prior is not None else None
                     input = (
                         fftn_centered(input, spatial_dims=2, is_complex=True)
                         if args.model_type.lower() in ["varnet", "kspace_mar"]
@@ -655,6 +676,9 @@ def trainer(args):
                         tar = torch.Tensor(target[window_idx])
                         mas = torch.Tensor(mask[window_idx])
                         sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
+                        mra_prior = None
+                        if case_mra_prior is not None:
+                            mra_prior = torch.as_tensor(case_mra_prior, dtype=torch.float32).unsqueeze(0).expand(len(micro_b), -1, -1, -1)
                         inp, tar, mas, mean, std = (
                             inp.to(device),
                             tar.to(device),
@@ -663,9 +687,10 @@ def trainer(args):
                             std.to(device),
                         )
                         sens = sens.to(device) if sens is not None else None
+                        mra_prior = mra_prior.to(device) if mra_prior is not None else None
 
                         with autocast("cuda", torch.bfloat16, enabled=args.amp):
-                            output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens)
+                            output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
                         output = output[:, args.num_frames // 2]
                         tar = tar[:, args.num_frames // 2]

@@ -19,6 +19,7 @@ from collections.abc import Sequence
 
 import numpy as np
 import scipy
+from mra_utils import generate_or_load_mra_prior, phase3_enabled
 from monai.config import PathLike
 from monai.data.image_reader import ImageReader
 from monai.data.utils import is_supported_format
@@ -255,9 +256,10 @@ class CestMRIReader(ImageReader):
 
 @require_pkg(pkg_name="h5py")
 class CMRxReconReader(ImageReader):
-    def __init__(self, fixed_mask_types=None):
+    def __init__(self, fixed_mask_types=None, args=None):
         super().__init__()
         self.fixed_mask_types = fixed_mask_types if isinstance(fixed_mask_types, list) else [fixed_mask_types]
+        self.args = args
 
     def verify_suffix(self, filename: Sequence[PathLike] | PathLike) -> bool:
         suffixes: Sequence[str] = [".json"]
@@ -398,6 +400,8 @@ class CMRxReconReader(ImageReader):
                     json_data["coilmap"],
                     preferred_keys=("coilmap", "csm", "sensitivity_maps", "sens_maps"),
                 )
+            if phase3_enabled(self.args):
+                dat["mra_prior"] = generate_or_load_mra_prior(self.args, json_data)
             return dat
 
         kspace = json_data["kspace"]
@@ -533,6 +537,8 @@ class CMRxReconReader(ImageReader):
             header["kspace_4dflow_input"] = raw_input
             if CMRxReconKeys.SENSITIVITY_MAPS in dat:
                 header[CMRxReconKeys.SENSITIVITY_MAPS] = self._to_complex_array(dat[CMRxReconKeys.SENSITIVITY_MAPS])
+            if "mra_prior" in dat and dat["mra_prior"] is not None:
+                header["mra_prior"] = np.asarray(dat["mra_prior"], dtype=np.float32)
 
             return data, header
 

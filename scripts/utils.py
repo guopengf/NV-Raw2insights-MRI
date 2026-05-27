@@ -192,11 +192,18 @@ def visualize(input, output, target, epoch, writer):
 
 def save_args_to_file_json(args, filename):
     filename = assert_not_in_known_raw_data_path(filename, what="config output file")
-    # Convert args dictionary to be JSON serializable
-    args_dict = vars(args)
-    for key, value in args_dict.items():
+    def to_jsonable(value):
         if isinstance(value, Path):
-            args_dict[key] = str(value)
+            return str(value)
+        if hasattr(value, "to_dict"):
+            return to_jsonable(value.to_dict())
+        if isinstance(value, dict):
+            return {k: to_jsonable(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [to_jsonable(v) for v in value]
+        return value
+
+    args_dict = {key: to_jsonable(value) for key, value in vars(args).items()}
 
     with open(filename, "w") as f:
         json.dump(args_dict, f, indent=4)

@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from models.vaa import VascularAttentionAdapter
 from models.varnet import CoilSensitivityModel_DCAE
 from monai.apps.reconstruction.networks.nets.utils import divisible_pad_t, inverse_divisible_pad_t
 from monai.data.fft_utils import fftn_centered, ifftn_centered
@@ -638,6 +639,7 @@ class Restormer(nn.Module):
         time_embed_scale=1,
         class_dropout_prob=0.1,
         labels_embed_magnitude_scale=1.0,
+        phase3=None,
     ):
         super().__init__()
 
@@ -654,6 +656,14 @@ class Restormer(nn.Module):
         self.timestep_scale = timestep_scale
         self.label_class_scale = label_class_scale
         self.ms_refinement = ms_refinement
+        self.enable_vaa = bool(getattr(phase3, "enable_vaa", False)) if phase3 is not None else False
+        vaa_cfg = getattr(phase3, "vaa", None) if phase3 is not None else None
+        gamma_cfg = getattr(phase3, "gamma", None) if phase3 is not None else None
+        self.vaa_locations = list(getattr(vaa_cfg, "locations", [])) if vaa_cfg is not None else []
+        gamma_init = float(getattr(gamma_cfg, "init", 0.0)) if gamma_cfg is not None else 0.0
+        gamma_mode = getattr(gamma_cfg, "mode", "shifted_sigmoid") if gamma_cfg is not None else "shifted_sigmoid"
+        gamma_trainable = bool(getattr(gamma_cfg, "trainable", True)) if gamma_cfg is not None else True
+        reduction = int(getattr(vaa_cfg, "reduction", 4)) if vaa_cfg is not None else 4
         L = self.L
 
         self.emb_channels = channels[0] * time_embed_scale if time_cond else None
@@ -734,6 +744,24 @@ class Restormer(nn.Module):
         )
         # Final conv
         self.output = nn.Conv2d(channels[0], out_channel, kernel_size=3, padding=1, bias=False)
+        self.vaa_adapters = nn.ModuleDict()
+        if self.enable_vaa:
+            if "bottleneck" in self.vaa_locations:
+                self.vaa_adapters["bottleneck"] = VascularAttentionAdapter(
+                    channels[-1],
+                    reduction=reduction,
+                    gamma_init=gamma_init,
+                    gamma_mode=gamma_mode,
+                )
+            if "intermediate" in self.vaa_locations:
+                self.vaa_adapters["intermediate"] = VascularAttentionAdapter(
+                    channels[0],
+                    reduction=reduction,
+                    gamma_init=gamma_init,
+                    gamma_mode=gamma_mode,
+                )
+            for adapter in self.vaa_adapters.values():
+                adapter.gamma_raw.requires_grad = gamma_trainable
 
         # For padding to be divisible by 2^(L-1)
         self.pad_factor = 2 ** (L - 1)
@@ -753,7 +781,12 @@ class Restormer(nn.Module):
                 nn.Linear(self.emb_channels, self.emb_channels),
             )
 
-    def forward(self, x, cas_skips=None, timestep=None, label=None):
+    def apply_vaa(self, location: str, feature: torch.Tensor, mra_prior: torch.Tensor | None) -> torch.Tensor:
+        if not self.enable_vaa or location not in self.vaa_adapters:
+            return feature
+        return self.vaa_adapters[location](feature, mra_prior)
+
+    def forward(self, x, cas_skips=None, timestep=None, label=None, mra_prior=None):
         L = self.L
 
         # Enforce cas_skips contract if provided
@@ -790,6 +823,7 @@ class Restormer(nn.Module):
                 # cas_skips length is L-1, where cas_skips[i-1] matches level i
                 down_in = down_in + cas_skips[i - 1]
             feats[i] = self.encoders[i](down_in, emb=emb)
+        feats[-1] = self.apply_vaa("bottleneck", feats[-1], mra_prior)
 
         # ---- Decoder ----
         if L >= 2:
@@ -804,11 +838,12 @@ class Restormer(nn.Module):
                 x_dec = self.decoders[i](red, emb=emb)  # decode at level i
                 dec_outs[i] = x_dec  # store decoder output aligned with level i
 
-            ref_in = dec_outs[0]  # refinement at top level (level 0), unchanged
+            ref_in = self.apply_vaa("intermediate", dec_outs[0], mra_prior)
         else:
             # L == 1: no decoder stages; refine the single encoder output
             dec_outs = []
             ref_in = feats[0] + cas_skips[0] if cas_skips is not None else feats[0]
+            ref_in = self.apply_vaa("intermediate", ref_in, mra_prior)
 
         # ---- Refinement + Output ----
         fr = self.refinement(ref_in, emb=emb)
@@ -1061,6 +1096,7 @@ class restormer_mri(nn.Module):
             )
 
         restormer = HybridRestormer if self.hybrid_attn else Restormer
+        restormer_phase3_kwargs = {} if self.hybrid_attn else {"phase3": getattr(args, "phase3", None)}
 
         self.pad_factor = 2**2
         if self.use_csm:
@@ -1093,6 +1129,7 @@ class restormer_mri(nn.Module):
                 label_cond=self.label_cond,
                 num_classes=self.num_classes,
                 labels_embed_magnitude_scale=labels_embed_magnitude_scale,
+                **restormer_phase3_kwargs,
             )
         else:
             self.recon_model = restormer(
@@ -1113,6 +1150,7 @@ class restormer_mri(nn.Module):
                 label_cond=self.label_cond,
                 num_classes=self.num_classes,
                 labels_embed_magnitude_scale=labels_embed_magnitude_scale,
+                **restormer_phase3_kwargs,
             )
         self.use_dc_weight_map = args.use_dc_weight_map
         if self.use_dc_weight_map:
@@ -1250,6 +1288,7 @@ class restormer_mri(nn.Module):
         acq_type: str = None,
         sensitivity_maps: torch.Tensor = None,
         timestep: int = None,
+        mra_prior: torch.Tensor = None,
     ) -> tuple[Tensor | Any, Any]:
         # x shape: (B,T,C,H,W,2) undersampled image
         # mask shape: (B,T,C,H,W,2) mask
@@ -1292,12 +1331,11 @@ class restormer_mri(nn.Module):
             -1,
         )
         assert acq_idx != -1, f"acq type {acq_type} not found in {self.acq_types}"
-        x, cas_skips = self.recon_model(
-            x,
-            cas_skips,
-            timestep,
-            mask_idx * len(self.acc_factors) * len(self.acq_types) + acc_idx * len(self.acq_types) + acq_idx,
-        )
+        label = mask_idx * len(self.acc_factors) * len(self.acq_types) + acc_idx * len(self.acq_types) + acq_idx
+        if self.hybrid_attn:
+            x, cas_skips = self.recon_model(x, cas_skips)
+        else:
+            x, cas_skips = self.recon_model(x, cas_skips, timestep, label, mra_prior)
         x = rearrange(x, "b (t c two) h w -> (b t) c h w two", t=T, two=2)
 
         if self.last_cascade:

@@ -125,6 +125,59 @@
         2,
         3
     ],
+    "phase3": {
+        "enable_vaa": false,
+        "mra": {
+            "source": "gt",
+            "method": "pcmra",
+            "use_mip": true,
+            "projection": "x_mip",
+            "projection_axis": 2,
+            "use_cache": true,
+            "cache_dir": "/SSDHome/share/haosen/4dflow/mra_cache",
+            "device": "cpu",
+            "vessel_map": {
+                "description": "Normalize PC-MRA x-MIP to a single-channel black/white zy vessel prior.",
+                "binary": true,
+                "lower_percentile": 1.0,
+                "upper_percentile": 99.5,
+                "smooth_sigma": 0.75,
+                "threshold": 0.35
+            },
+            "sense": {
+                "description": "Used when source=zf/sense; zf means undersampled k-space reconstructed with CG-SENSE before PC-MRA.",
+                "niter": 5,
+                "lam": 0.0001
+            }
+        },
+        "vaa": {
+            "locations": [
+                "bottleneck",
+                "intermediate"
+            ],
+            "reduction": 4
+        },
+        "freeze": {
+            "backbone": true,
+            "vaa": false
+        },
+        "gamma": {
+            "init": 0.0,
+            "trainable": true,
+            "mode": "shifted_sigmoid"
+        },
+        "loss": {
+            "use_phase": false,
+            "use_ssim_zy": true,
+            "use_ssim_xy": true,
+            "weights": {
+                "magnitude": 1.0,
+                "phase": 0.1,
+                "ssim_zy": 1.0,
+                "ssim_xy": 0.25
+            }
+        }
+    },
     "train_mask_types_for_def_model": [
         "uniform",
         "kt_gaussian",

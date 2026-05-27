@@ -14,6 +14,7 @@ from typing import Sequence
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from einops import rearrange
 from monai.data.fft_utils import fftn_centered, ifftn_centered
 from monai.metrics import SSIMMetric
@@ -200,6 +201,8 @@ class SSIML1Loss(object):
 def get_loss_function(args, device=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
+    if bool(_cfg_get(args, "phase3.loss.use_phase", False)):
+        return Phase3ComplexLoss(args, device).to(device)
     if args.loss_type == "l1":
         loss_function = torch.nn.L1Loss().to(device)
     elif args.loss_type == "l2":
@@ -212,6 +215,15 @@ def get_loss_function(args, device=None):
         raise ValueError(f"Loss function {args.loss_type} not supported.")
 
     return loss_function
+
+
+def _cfg_get(obj, path, default=None):
+    cur = obj
+    for part in path.split("."):
+        if cur is None:
+            return default
+        cur = getattr(cur, part, default)
+    return cur
 
 
 class SSIMLoss(_Loss):
@@ -312,6 +324,74 @@ class SSIMLoss(_Loss):
         if self.reduction == LossReduction.SUM.value:
             return loss.sum()
         return loss  # "none"
+
+
+class Phase3ComplexLoss(nn.Module):
+    expects_complex = True
+
+    def __init__(self, args, device):
+        super().__init__()
+        self.use_phase = bool(_cfg_get(args, "phase3.loss.use_phase", True))
+        self.use_ssim_zy = bool(_cfg_get(args, "phase3.loss.use_ssim_zy", True))
+        self.use_ssim_xy = bool(_cfg_get(args, "phase3.loss.use_ssim_xy", True))
+        self.w_magnitude = float(_cfg_get(args, "phase3.loss.weights.magnitude", 1.0))
+        self.w_phase = float(_cfg_get(args, "phase3.loss.weights.phase", 0.1))
+        self.w_ssim_zy = float(_cfg_get(args, "phase3.loss.weights.ssim_zy", 1.0))
+        self.w_ssim_xy = float(_cfg_get(args, "phase3.loss.weights.ssim_xy", 0.25))
+        self.l1 = nn.L1Loss()
+        self.ssim_zy = SSIMLoss(spatial_dims=2, ssim_scale=1.0, win_size=7, kernel_sigma=1.0).to(device)
+        self.ssim_xy = SSIMLoss(spatial_dims=2, ssim_scale=1.0, win_size=3, kernel_sigma=0.5).to(device)
+
+    @staticmethod
+    def _mag(x: torch.Tensor) -> torch.Tensor:
+        return torch.sqrt(torch.sum(x.float() ** 2, dim=-1).clamp_min(1e-12))
+
+    @staticmethod
+    def _rss(mag: torch.Tensor) -> torch.Tensor:
+        return torch.sqrt(torch.sum(mag**2, dim=1, keepdim=True).clamp_min(1e-12))
+
+    @staticmethod
+    def _angle(x: torch.Tensor) -> torch.Tensor:
+        return torch.atan2(x[..., 1].float(), x[..., 0].float())
+
+    def forward(self, output_complex: torch.Tensor, target_complex: torch.Tensor) -> dict[str, torch.Tensor]:
+        output_mag = self._mag(output_complex)
+        target_mag = self._mag(target_complex)
+        output_rss = self._rss(output_mag)
+        target_rss = self._rss(target_mag)
+
+        magnitude_loss = self.l1(output_rss, target_rss)
+        combined = self.w_magnitude * magnitude_loss
+        losses = {"magnitude_loss": magnitude_loss.detach()}
+
+        if self.use_phase:
+            phase_delta = self._angle(output_complex) - self._angle(target_complex)
+            phase_loss = (1.0 - torch.cos(phase_delta)).mean()
+            combined = combined + self.w_phase * phase_loss
+            losses["phase_loss"] = phase_loss.detach()
+
+        if self.use_ssim_zy:
+            max_value = target_rss.amax(dim=(1, 2, 3)).clamp_min(1e-8)
+            self.ssim_zy.data_range = max_value
+            ssim_zy_loss = self.ssim_zy(output_rss, target_rss)
+            combined = combined + self.w_ssim_zy * ssim_zy_loss
+            losses["ssim_zy_loss"] = ssim_zy_loss.detach()
+
+        if self.use_ssim_xy and output_rss.shape[0] >= 3:
+            # Current 4D Flow input treats raw x as the sample/slice axis; this is a
+            # batch/window approximation of the orthogonal x-y plane.
+            out_xy = output_rss.permute(2, 1, 0, 3).contiguous()
+            tgt_xy = target_rss.permute(2, 1, 0, 3).contiguous()
+            max_value = tgt_xy.amax(dim=(1, 2, 3)).clamp_min(1e-8)
+            self.ssim_xy.data_range = max_value
+            ssim_xy_loss = self.ssim_xy(out_xy, tgt_xy)
+            combined = combined + self.w_ssim_xy * ssim_xy_loss
+            losses["ssim_xy_loss"] = ssim_xy_loss.detach()
+        elif self.use_ssim_xy:
+            losses["ssim_xy_loss"] = output_rss.new_zeros(()).detach()
+
+        losses["combined_loss"] = combined
+        return losses
 
 
 def gather_metric(metric_value, device, world_size):
@@ -418,7 +498,7 @@ def get_reader(args, is_testing=False):
     if args.dataset.lower() == "fastmri":
         data_reader = FastMRIReader(is_testing=is_testing, uniform_input_kspace=(384, 384))
     elif args.dataset.lower() == "cmrxrecon":
-        data_reader = CMRxReconReader(fixed_mask_types=args.fixed_mask_types)
+        data_reader = CMRxReconReader(fixed_mask_types=args.fixed_mask_types, args=args)
     elif args.dataset.lower() == "cest":
         data_reader = CestMRIReader()
     else:

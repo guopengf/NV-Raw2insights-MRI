@@ -218,6 +218,8 @@ def infer(args):
             final_shape = [int(s) for s in final_shape]
             sensitivity_maps = test_data.get("sensitivity_maps")
             sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
+            case_mra_prior = test_data.get("mra_prior")
+            case_mra_prior = case_mra_prior[0] if case_mra_prior is not None else None
             input = (
                 fftn_centered(input, spatial_dims=2, is_complex=True)
                 if args.model_type.lower() in ["varnet", "kspace_mar"]
@@ -238,6 +240,9 @@ def infer(args):
                 inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
                 mas = torch.Tensor(mask[window_idx])
                 sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
+                mra_prior = None
+                if case_mra_prior is not None:
+                    mra_prior = torch.as_tensor(case_mra_prior, dtype=torch.float32).unsqueeze(0).expand(len(micro_b), -1, -1, -1)
                 inp, mas, mean, std = (
                     inp.to(device),
                     mas.to(device),
@@ -245,9 +250,10 @@ def infer(args):
                     std.to(device),
                 )
                 sens = sens.to(device) if sens is not None else None
+                mra_prior = mra_prior.to(device) if mra_prior is not None else None
 
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
-                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens)
+                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
                 output = output[:, args.num_frames // 2]
                 output = output * std[micro_b] + mean[micro_b]  # [1, c/1, 320, 320, 2]
