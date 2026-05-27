@@ -165,18 +165,21 @@ def mra_cache_path(args: Any, json_data: dict[str, Any], source: str) -> Path:
     kspace = json_data.get("kspace", "")
     acc = json_data.get("mask_type", "")
     patient = Path(full_kspace or kspace).parent
+    source_kspace = "" if source == "gt" else str(kspace)
+    source_mask_type = "" if source == "gt" else str(acc)
     key_payload = {
         "patient": str(patient),
         "source": source,
-        "kspace": str(kspace),
+        "kspace": source_kspace,
         "full_kspace": str(full_kspace),
-        "mask_type": acc,
+        "mask_type": source_mask_type,
         "projection_axis": cfg_get(args, "phase3.mra.projection_axis", 2),
         "vessel_map": cfg_get(args, "phase3.mra.vessel_map", {}),
         "sense": cfg_get(args, "phase3.mra.sense", {}),
     }
     digest = hashlib.sha1(json.dumps(key_payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12]
-    return cache_dir / f"{_sanitize('__'.join(patient.parts[-3:]))}__{source}__{_sanitize(str(acc))}__{digest}.npz"
+    acc_part = _sanitize(str(acc)) if source != "gt" else "case"
+    return cache_dir / f"{_sanitize('__'.join(patient.parts[-3:]))}__{source}__{acc_part}__{digest}.npz"
 
 
 def generate_or_load_mra_prior(args: Any, json_data: dict[str, Any]) -> np.ndarray | None:
