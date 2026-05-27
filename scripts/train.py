@@ -203,12 +203,22 @@ def trainer(args):
     ]  # select a subset of the data according to sample_rate
     train_files = [dict([("kspace", train_files[i])]) for i in range(len(train_files))]
     print(f"#training files: {len(train_files)}")
+    if len(train_files) == 0:
+        raise RuntimeError(
+            "No training files were found. Check data_path_train, four_dflow_accelerations, "
+            "and required files kdata_full/kdata_ktGaussian*/usmask_ktGaussian*/coilmap.mat."
+        )
 
     val_files = val_files[
         : int(args.sample_rate * len(val_files))
     ]  # select a subset of the data according to sample_rate
     val_files = [dict([("kspace", val_files[i])]) for i in range(len(val_files))]
     print(f"#validation files: {len(val_files)}")
+    if len(val_files) < world_size:
+        raise RuntimeError(
+            f"Not enough validation files ({len(val_files)}) for world_size={world_size}. "
+            "Check data_path_val or reduce --nproc_per_node."
+        )
     val_files = partition_dataset(
         data=val_files,
         num_partitions=world_size,
