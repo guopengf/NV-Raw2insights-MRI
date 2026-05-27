@@ -161,6 +161,10 @@ def trainer(args):
         train_manifest_dir = Path(outpath) / "jsons_train"
         val_manifest_dir = Path(outpath) / "jsons_val"
         if rank == 0:
+            for manifest_dir in (train_manifest_dir, val_manifest_dir):
+                manifest_dir.mkdir(parents=True, exist_ok=True)
+                for old_manifest in manifest_dir.glob("*.json"):
+                    old_manifest.unlink()
             build_4dflow_aorta_manifests(
                 args.data_path_train,
                 train_manifest_dir,
