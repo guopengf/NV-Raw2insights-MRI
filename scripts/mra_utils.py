@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -196,32 +198,60 @@ def generate_or_load_mra_prior(args: Any, json_data: dict[str, Any]) -> np.ndarr
     use_cache = bool(cfg_get(args, "phase3.mra.use_cache", True))
     if use_cache and cache_path.exists():
         return np.load(cache_path)["vessel_map"].astype(np.float32)
-
-    device = torch.device(str(cfg_get(args, "phase3.mra.device", "cpu")))
-    coilmap_path = json_data.get("coilmap")
-    if not coilmap_path:
-        raise ValueError("VAA MRA generation requires coilmap in the 4D Flow JSON.")
-    coilmap = torch.as_tensor(read_mat_array(coilmap_path, ("coilmap", "csm", "sensitivity_maps", "sens_maps")), device=device)
-
-    if source == "gt":
-        full_kspace = json_data.get("target_kspace", json_data.get("full_kspace", json_data.get("gt_kspace")))
-        kmean, _ = temporal_mean_kspace(full_kspace, "kdata_full", device=device, nonzero=False)
-        img = direct_recon(kmean, coilmap)
-        prior_from = "pc_mra_full_ifft"
-    else:
-        kspace = json_data["kspace"]
-        kmean, mask = temporal_mean_kspace(kspace, "kdata_ktGaussian", device=device, nonzero=True)
-        sense_niter = int(cfg_get(args, "phase3.mra.sense.niter", 5))
-        sense_lam = float(cfg_get(args, "phase3.mra.sense.lam", 1e-4))
-        img = torch.stack(
-            [sense_recon(kmean[enc], mask[enc], coilmap, lam=sense_lam, niter=sense_niter) for enc in range(kmean.shape[0])],
-            dim=0,
-        )
-        prior_from = "pc_mra_us_sense"
-
-    pc_mra = pcmra_from_img(img).detach().cpu().numpy()
-    vessel_map = make_vessel_map_2d(pc_mra, args)
+    lock_path = cache_path.with_suffix(cache_path.suffix + ".lock")
+    have_lock = False
     if use_cache:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(cache_path, vessel_map=vessel_map, pc_mra_shape=np.array(pc_mra.shape), prior_from=prior_from)
-    return vessel_map
+        while True:
+            try:
+                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                have_lock = True
+                break
+            except FileExistsError:
+                if cache_path.exists():
+                    return np.load(cache_path)["vessel_map"].astype(np.float32)
+                time.sleep(0.5)
+        if cache_path.exists():
+            try:
+                return np.load(cache_path)["vessel_map"].astype(np.float32)
+            finally:
+                if have_lock:
+                    lock_path.unlink(missing_ok=True)
+
+    try:
+        device = torch.device(str(cfg_get(args, "phase3.mra.device", "cpu")))
+        coilmap_path = json_data.get("coilmap")
+        if not coilmap_path:
+            raise ValueError("VAA MRA generation requires coilmap in the 4D Flow JSON.")
+        coilmap = torch.as_tensor(read_mat_array(coilmap_path, ("coilmap", "csm", "sensitivity_maps", "sens_maps")), device=device)
+
+        if source == "gt":
+            full_kspace = json_data.get("target_kspace", json_data.get("full_kspace", json_data.get("gt_kspace")))
+            kmean, _ = temporal_mean_kspace(full_kspace, "kdata_full", device=device, nonzero=False)
+            img = direct_recon(kmean, coilmap)
+            prior_from = "pc_mra_full_ifft"
+        else:
+            kspace = json_data["kspace"]
+            kmean, mask = temporal_mean_kspace(kspace, "kdata_ktGaussian", device=device, nonzero=True)
+            sense_niter = int(cfg_get(args, "phase3.mra.sense.niter", 5))
+            sense_lam = float(cfg_get(args, "phase3.mra.sense.lam", 1e-4))
+            img = torch.stack(
+                [
+                    sense_recon(kmean[enc], mask[enc], coilmap, lam=sense_lam, niter=sense_niter)
+                    for enc in range(kmean.shape[0])
+                ],
+                dim=0,
+            )
+            prior_from = "pc_mra_us_sense"
+
+        pc_mra = pcmra_from_img(img).detach().cpu().numpy()
+        vessel_map = make_vessel_map_2d(pc_mra, args)
+        if use_cache:
+            tmp_path = cache_path.parent / f".{cache_path.name}.{os.getpid()}.tmp.npz"
+            np.savez_compressed(tmp_path, vessel_map=vessel_map, pc_mra_shape=np.array(pc_mra.shape), prior_from=prior_from)
+            os.replace(tmp_path, cache_path)
+        return vessel_map
+    finally:
+        if have_lock:
+            lock_path.unlink(missing_ok=True)
