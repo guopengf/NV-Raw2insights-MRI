@@ -275,15 +275,36 @@ class CMRxReconReader(ImageReader):
     def read_mat_dict(self, mat_file: Sequence[PathLike]) -> dict:
         return dict(self.read_mat(mat_file))
 
-    def read_first_mat_array(self, mat_file: Sequence[PathLike], preferred_keys: Sequence[str] = ()) -> ndarray:
-        dat = self.read_mat_dict(mat_file)
+    def _select_mat_array_key(self, dat, preferred_keys: Sequence[str] = ()) -> str:
         for key in preferred_keys:
-            if key in dat:
-                return dat[key]
+            if key in dat and hasattr(dat[key], "shape"):
+                return key
         for key, value in dat.items():
-            if not key.startswith("__"):
-                return value
-        raise ValueError(f"Could not find any array in MAT file: {mat_file}")
+            if not key.startswith("__") and hasattr(value, "shape"):
+                return key
+        raise ValueError("Could not find any array in MAT file.")
+
+    def read_first_mat_array(
+        self,
+        mat_file: Sequence[PathLike],
+        preferred_keys: Sequence[str] = (),
+        selection=None,
+        return_shape: bool = False,
+    ) -> ndarray:
+        try:
+            with h5py.File(mat_file, "r", swmr=True) as f:
+                key = self._select_mat_array_key(f, preferred_keys)
+                dataset = f[key]
+                shape = dataset.shape
+                value = dataset[selection] if selection is not None else dataset[()]
+        except OSError:
+            dat = self.read_mat_dict(mat_file)
+            key = self._select_mat_array_key(dat, preferred_keys)
+            shape = dat[key].shape
+            value = dat[key][selection] if selection is not None else dat[key]
+        if return_shape:
+            return value, shape
+        return value
 
     def filter_masks_by_types(self, masks, fixed_mask_types):
         result = []
@@ -340,22 +361,32 @@ class CMRxReconReader(ImageReader):
             mask = random.choice(masks) if len(masks) > 0 else ""
             mask_type = json_data.get("mask_type", self._infer_mask_type(mask) if mask else "fixed")
 
+            enc_idx = int(json_data.get("encoding_idx", 0))
+            encoding_selection = (slice(enc_idx, enc_idx + 1), Ellipsis)
+            kspace_input, input_shape = self.read_first_mat_array(
+                kspace,
+                preferred_keys=("kdata", "kdata_ktGaussian", "kus", "kspace", "kspace_full"),
+                selection=encoding_selection,
+                return_shape=True,
+            )
+            kspace_target, target_shape = self.read_first_mat_array(
+                target_kspace,
+                preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
+                selection=encoding_selection,
+                return_shape=True,
+            )
+
             dat = {
                 CMRxReconKeys.FILENAME: os.path.basename(data),
                 CMRxReconKeys.MASK_TYPE: mask_type,
                 CMRxReconKeys.ACQUISITION: json_data.get("acquisition", "Flow4d"),
                 "is_4dflow": True,
-                "encoding_idx": int(json_data.get("encoding_idx", 0)),
+                "encoding_idx": enc_idx,
+                "num_encodings": int(target_shape[0]) if len(target_shape) > 0 else int(input_shape[0]),
                 "coilmap_axis_order": json_data.get("coilmap_axis_order", "auto"),
                 "normalize_coilmap": bool(json_data.get("normalize_coilmap", True)),
-                "kspace_4dflow_input": self.read_first_mat_array(
-                    kspace,
-                    preferred_keys=("kdata", "kdata_ktGaussian", "kus", "kspace", "kspace_full"),
-                ),
-                "kspace_4dflow_target": self.read_first_mat_array(
-                    target_kspace,
-                    preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
-                ),
+                "kspace_4dflow_input": kspace_input,
+                "kspace_4dflow_target": kspace_target,
             }
             if mask:
                 dat[CMRxReconKeys.MASK] = self.read_first_mat_array(
@@ -435,7 +466,8 @@ class CMRxReconReader(ImageReader):
                 )
             
             # raw shape: (enc, t, coil, kz, ky, kx)
-            n_enc_all, nt, nc, nkz, nky, nkx = raw_target.shape
+            n_enc_loaded, nt, nc, nkz, nky, nkx = raw_target.shape
+            n_enc_all = int(dat.get("num_encodings", n_enc_loaded))
             if raw_input.shape != raw_target.shape:
                 raise ValueError(
                     "4D flow input and target k-space must have the same shape, "
@@ -448,10 +480,19 @@ class CMRxReconReader(ImageReader):
             enc_idx = int(dat["encoding_idx"])
             if not (0 <= enc_idx < n_enc_all):
                 raise ValueError(f"encoding_idx={enc_idx} out of range for raw shape {raw_target.shape}")
-            
+
             # keep singleton enc dim so transforms.py still sees a 6D tensor
-            raw_input = raw_input[enc_idx : enc_idx + 1]    # shape: (1, t, coil, kz, ky, kx)
-            raw_target = raw_target[enc_idx : enc_idx + 1]  # shape: (1, t, coil, kz, ky, kx)
+            if n_enc_loaded == n_enc_all and n_enc_all > 1:
+                raw_input = raw_input[enc_idx : enc_idx + 1]    # shape: (1, t, coil, kz, ky, kx)
+                raw_target = raw_target[enc_idx : enc_idx + 1]  # shape: (1, t, coil, kz, ky, kx)
+            elif n_enc_loaded == 1:
+                raw_input = raw_input[:1]
+                raw_target = raw_target[:1]
+            else:
+                raise ValueError(
+                    "Unexpected loaded encoding dimension for 4D flow: "
+                    f"loaded={n_enc_loaded}, total={n_enc_all}, encoding_idx={enc_idx}"
+                )
             data = raw_target
             
             header[CMRxReconKeys.PID] = os.path.splitext(dat[CMRxReconKeys.FILENAME])[0]

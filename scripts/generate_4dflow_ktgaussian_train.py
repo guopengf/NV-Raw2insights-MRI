@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 from pathlib import Path
 from typing import Iterable
 
@@ -293,10 +294,16 @@ def to_broadcast_mask(mask_2d_t: np.ndarray) -> np.ndarray:
 def write_h5_array(path: Path, key: str, array: np.ndarray, aliases: tuple[str, ...] = ()) -> None:
     if h5py is None:
         raise RuntimeError("h5py is required to write HDF5 MAT files")
-    with h5py.File(path, "w") as f:
-        f.create_dataset(key, data=array, compression="gzip", shuffle=True)
-        for alias in aliases:
-            f[alias] = h5py.SoftLink(f"/{key}")
+    tmp_path = temporary_output_path(path)
+    try:
+        with h5py.File(tmp_path, "w") as f:
+            f.create_dataset(key, data=array, compression="gzip", shuffle=True)
+            for alias in aliases:
+                f[alias] = h5py.SoftLink(f"/{key}")
+        tmp_path.replace(path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def multiply_block_by_mask(block: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -311,36 +318,54 @@ def multiply_block_by_mask(block: np.ndarray, mask: np.ndarray) -> np.ndarray:
 def write_undersampled_kspace_h5(path: Path, src: MatArray, mask: np.ndarray) -> None:
     if h5py is None:
         raise RuntimeError("h5py is required to write HDF5 MAT files")
-    with h5py.File(path, "w") as f:
-        chunks = (1, 1) + tuple(src.shape[2:])
-        chunks = tuple(min(dim, chunk) for dim, chunk in zip(src.shape, chunks))
-        dst = f.create_dataset(
-            "kdata_ktGaussian",
-            shape=src.shape,
-            dtype=src.dtype,
-            chunks=chunks,
-            compression="gzip",
-            compression_opts=4,
-            shuffle=True,
-        )
-        for frame in range(src.shape[1]):
-            index = (slice(None), slice(frame, frame + 1), slice(None), slice(None), slice(None), slice(None))
-            block = src[index]
-            dst[index] = multiply_block_by_mask(block, mask[:, frame : frame + 1, :, :, :, :])
+    tmp_path = temporary_output_path(path)
+    try:
+        with h5py.File(tmp_path, "w") as f:
+            chunks = (1, 1) + tuple(src.shape[2:])
+            chunks = tuple(min(dim, chunk) for dim, chunk in zip(src.shape, chunks))
+            dst = f.create_dataset(
+                "kdata_ktGaussian",
+                shape=src.shape,
+                dtype=src.dtype,
+                chunks=chunks,
+                compression="gzip",
+                compression_opts=4,
+                shuffle=True,
+            )
+            for frame in range(src.shape[1]):
+                index = (slice(None), slice(frame, frame + 1), slice(None), slice(None), slice(None), slice(None))
+                block = src[index]
+                dst[index] = multiply_block_by_mask(block, mask[:, frame : frame + 1, :, :, :, :])
+        tmp_path.replace(path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def write_undersampled_kspace_scipy(path: Path, src: MatArray, mask: np.ndarray) -> None:
     if sio is None:
         raise RuntimeError("scipy is required to write MATLAB v5 MAT files")
     kspace = multiply_block_by_mask(src.read_all(), mask)
-    sio.savemat(path, {"kdata_ktGaussian": kspace}, do_compression=True)
+    tmp_path = temporary_output_path(path)
+    try:
+        sio.savemat(tmp_path, {"kdata_ktGaussian": kspace}, do_compression=True)
+        tmp_path.replace(path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def save_mask(path: Path, mask: np.ndarray, writer: str) -> None:
     if writer == "scipy":
         if sio is None:
             raise RuntimeError("scipy is required to write MATLAB v5 MAT files")
-        sio.savemat(path, {"usmask_ktGaussian": mask, "mask": mask}, do_compression=True)
+        tmp_path = temporary_output_path(path)
+        try:
+            sio.savemat(tmp_path, {"usmask_ktGaussian": mask, "mask": mask}, do_compression=True)
+            tmp_path.replace(path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
     else:
         write_h5_array(path, "usmask_ktGaussian", mask, aliases=("mask",))
 
@@ -360,6 +385,13 @@ def resolve_writer(writer: str) -> str:
     if sio is not None:
         return "scipy"
     raise RuntimeError("Install h5py or scipy before running this script")
+
+
+def temporary_output_path(path: Path) -> Path:
+    job_id = os.environ.get("SLURM_ARRAY_JOB_ID") or os.environ.get("SLURM_JOB_ID") or "local"
+    task_id = os.environ.get("SLURM_ARRAY_TASK_ID", "0")
+    token = f"{job_id}.{task_id}.{os.getpid()}"
+    return path.with_name(f".{path.name}.tmp.{token}")
 
 
 def process_patient(
@@ -438,6 +470,8 @@ def main() -> None:
         default=2026,
         help="base seed for deterministic per-patient/per-acceleration masks; use -1 for random",
     )
+    parser.add_argument("--num-shards", type=int, default=1, help="number of disjoint patient shards")
+    parser.add_argument("--shard-index", type=int, default=0, help="0-based shard index to process")
     args = parser.parse_args()
 
     root = args.root.expanduser()
@@ -449,10 +483,23 @@ def main() -> None:
     patients = list(iter_patient_dirs(root))
     if not patients:
         raise FileNotFoundError(f"no patient folders with kdata_full.mat found under {root}")
+    if args.num_shards < 1:
+        raise ValueError("--num-shards must be >= 1")
+    if not (0 <= args.shard_index < args.num_shards):
+        raise ValueError("--shard-index must satisfy 0 <= shard-index < num-shards")
+
+    total_patients = len(patients)
+    patients = patients[args.shard_index :: args.num_shards]
+    if not patients:
+        print(
+            f"shard {args.shard_index}/{args.num_shards} has no patients "
+            f"(total patients: {total_patients})"
+        )
 
     total_masks = 0
     total_kspaces = 0
-    print(f"found {len(patients)} patients under {root}")
+    print(f"found {total_patients} patients under {root}")
+    print(f"processing shard {args.shard_index}/{args.num_shards}: {len(patients)} patients")
     print(f"using writer={writer}, accelerations={args.accelerations}")
     for patient_dir in patients:
         n_masks, n_kspaces = process_patient(

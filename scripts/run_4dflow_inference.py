@@ -12,12 +12,26 @@ from path_safety import assert_outputs_not_in_data
 ACCELS = [10, 20, 30, 40, 50]
 
 
-def build_jsons(case_root: Path, json_dir: Path, acquisition: str, encoding_idx: int):
+def parse_accelerations(value: str) -> list[int]:
+    return [int(v.strip()) for v in value.split(",") if v.strip()]
+
+
+def build_jsons(
+    case_root: Path,
+    json_dir: Path,
+    acquisition: str,
+    encoding_idx: int,
+    accelerations: list[int],
+    targetless: bool = False,
+    max_cases: int | None = None,
+):
     """
     case_root:
       /SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center007/GE_30T_Architect
 
-    creates one json per (case, accel)
+    Creates one json per (case, accel) for a single velocity encoding. Challenge validation/test
+    folders usually do not contain kdata_full.mat; pass targetless=True to use the undersampled
+    k-space as a shape placeholder for the reader while inference uses kspace_masked_ifft.
     """
     json_dir = assert_outputs_not_in_data([json_dir], [case_root])[0]
     json_dir.mkdir(parents=True, exist_ok=True)
@@ -26,6 +40,7 @@ def build_jsons(case_root: Path, json_dir: Path, acquisition: str, encoding_idx:
     scanner = case_root.name                # GE_30T_Architect
 
     manifest = []
+    n_cases = 0
 
     for case_dir in sorted(case_root.iterdir()):
         if not case_dir.is_dir():
@@ -35,30 +50,32 @@ def build_jsons(case_root: Path, json_dir: Path, acquisition: str, encoding_idx:
 
         case_id = case_dir.name
         kspace_full = case_dir / "kdata_full.mat"
-
-        if not kspace_full.exists():
-            print(f"[WARN] Missing {kspace_full}, skip.")
+        if not kspace_full.exists() and not targetless:
+            print(f"[WARN] Missing {kspace_full}, skip. Use --targetless for challenge validation/test folders.")
             continue
 
-        for acc in ACCELS:
+        case_written = False
+        for acc in accelerations:
             us_kspace = case_dir / f"kdata_ktGaussian{acc}.mat"
             mask_path = case_dir / f"usmask_ktGaussian{acc}.mat"
             if not us_kspace.exists() or not mask_path.exists():
                 print(f"[WARN] Missing {us_kspace} or {mask_path}, skip.")
                 continue
             coilmap = case_dir / "coilmap.mat"
+            target_kspace = kspace_full if kspace_full.exists() else us_kspace
 
-            stem = f"{center}__{scanner}__{case_id}__ktGaussian{acc}"
+            stem = f"{center}__{scanner}__{case_id}__ktGaussian{acc}__enc{encoding_idx}"
             json_path = json_dir / f"{stem}.json"
 
             payload = {
                 "kspace": str(us_kspace),
-                "target_kspace": str(kspace_full),
+                "target_kspace": str(target_kspace),
                 "mask": [str(mask_path)],
                 "mask_type": f"ktGaussian{acc}",
                 "acquisition": acquisition,
                 "encoding_idx": encoding_idx,
                 "is_4dflow": True,
+                "targetless": not kspace_full.exists(),
             }
             if coilmap.exists():
                 payload["coilmap"] = str(coilmap)
@@ -73,9 +90,16 @@ def build_jsons(case_root: Path, json_dir: Path, acquisition: str, encoding_idx:
                     "scanner": scanner,
                     "case_id": case_id,
                     "acc": acc,
+                    "encoding_idx": encoding_idx,
                     "json_path": str(json_path),
                 }
             )
+            case_written = True
+
+        if case_written:
+            n_cases += 1
+            if max_cases is not None and n_cases >= max_cases:
+                break
 
     return manifest
 
@@ -103,7 +127,7 @@ def reorganize_outputs(tmp_out_dir: Path, final_out_dir: Path, manifest):
     Expect original inference outputs under:
       tmp_out_dir / val_img4ranking / <stem>.mat
     Copy to:
-      final_out_dir / Center007 / GE_30T_Architect / P076 / kdata_ktGaussian10_recon.mat
+      final_out_dir / Center007 / GE_30T_Architect / P076 / kdata_ktGaussian10_enc0_recon.mat
     """
     src_dir = tmp_out_dir / "val_img4ranking"
     if not src_dir.exists():
@@ -117,7 +141,7 @@ def reorganize_outputs(tmp_out_dir: Path, final_out_dir: Path, manifest):
 
         dst_dir = final_out_dir / item["center"] / item["scanner"] / item["case_id"]
         dst_dir.mkdir(parents=True, exist_ok=True)
-        dst_file = dst_dir / f"kdata_ktGaussian{item['acc']}_recon.mat"
+        dst_file = dst_dir / f"kdata_ktGaussian{item['acc']}_enc{item['encoding_idx']}_recon.mat"
 
         shutil.copy2(src_file, dst_file)
         print(f"[OK] {src_file} -> {dst_file}")
@@ -173,6 +197,23 @@ def main():
         default=0,
         help="Which velocity encoding to use. Current baseline uses only one encoding.",
     )
+    parser.add_argument(
+        "--accelerations",
+        type=parse_accelerations,
+        default=ACCELS,
+        help="Comma-separated acceleration list, for example 20 or 10,20,30.",
+    )
+    parser.add_argument(
+        "--max-cases",
+        type=int,
+        default=None,
+        help="Limit the number of patient folders that produce at least one JSON.",
+    )
+    parser.add_argument(
+        "--targetless",
+        action="store_true",
+        help="Allow challenge validation/test folders without kdata_full.mat.",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -191,9 +232,14 @@ def main():
         json_dir=json_dir,
         acquisition=args.acquisition,
         encoding_idx=args.encoding_idx,
+        accelerations=args.accelerations,
+        targetless=args.targetless,
+        max_cases=args.max_cases,
     )
 
     print(f"[INFO] Generated {len(manifest)} json files")
+    if not manifest:
+        raise RuntimeError("No inference JSONs were generated.")
 
     run_inference(
         repo_root=repo_root,

@@ -275,13 +275,21 @@ def trainer(args):
         shuffle=(train_sampler is None),  # Only shuffle if not using sampler
         sampler=train_sampler,
         num_workers=args.num_workers,
-        pin_memory=False,
-        in_order=True,
+        pin_memory=True,
+        persistent_workers=args.num_workers > 0,
+        in_order=False,
     )
 
     # since there's no randomness in train_transforms, we use it for val_transforms as well
     val_ds = Dataset(data=val_files, transform=val_transforms)
-    val_loader = MultiEpochsDataLoader(val_ds, batch_size=1, shuffle=False, num_workers=args.num_workers)
+    val_loader = MultiEpochsDataLoader(
+        val_ds,
+        batch_size=1,
+        shuffle=False,
+        num_workers=args.num_workers,
+        persistent_workers=args.num_workers > 0,
+        in_order=False,
+    )
 
     # create the loss function
     loss_function = get_loss_function(args, device)
