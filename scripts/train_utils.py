@@ -203,6 +203,8 @@ def apply_phase3_freeze(args, model):
     phase3 = getattr(args, "phase3", None)
     if phase3 is None:
         return
+    if not bool(getattr(phase3, "enable_vaa", False)):
+        return
     freeze = getattr(phase3, "freeze", None)
     if freeze is None:
         return

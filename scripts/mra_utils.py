@@ -137,24 +137,35 @@ def pcmra_from_img(img: torch.Tensor) -> torch.Tensor:
 
 
 def make_vessel_map_2d(pc_mra: np.ndarray, args: Any) -> np.ndarray:
-    # Current 4D Flow path treats raw x as slice. MIP over x leaves a zy prior.
+    # Current 4D Flow path treats raw x as slice. If use_mip=False, keep one
+    # zy vessel prior per raw-x slice; otherwise x-MIP leaves one shared zy prior.
+    use_mip = bool(cfg_get(args, "phase3.mra.use_mip", True))
     projection_axis = int(cfg_get(args, "phase3.mra.projection_axis", 2))
-    mra_mip = np.max(pc_mra.astype(np.float32), axis=projection_axis)
     lower = float(cfg_get(args, "phase3.mra.vessel_map.lower_percentile", 1.0))
     upper = float(cfg_get(args, "phase3.mra.vessel_map.upper_percentile", 99.5))
     smooth_sigma = float(cfg_get(args, "phase3.mra.vessel_map.smooth_sigma", 0.75))
     threshold = cfg_get(args, "phase3.mra.vessel_map.threshold", 0.35)
     binary = bool(cfg_get(args, "phase3.mra.vessel_map.binary", True))
 
-    lo = float(np.percentile(mra_mip, lower))
-    hi = float(np.percentile(mra_mip, upper))
-    vessel = np.clip((mra_mip - lo) / max(hi - lo, 1e-8), 0.0, 1.0)
+    pc_mra = pc_mra.astype(np.float32)
+    if use_mip:
+        mra_source = np.max(pc_mra, axis=projection_axis)
+        smooth = smooth_sigma
+    else:
+        mra_source = pc_mra
+        smooth = (smooth_sigma, smooth_sigma, 0.0)
+
+    lo = float(np.percentile(mra_source, lower))
+    hi = float(np.percentile(mra_source, upper))
+    vessel = np.clip((mra_source - lo) / max(hi - lo, 1e-8), 0.0, 1.0)
     if smooth_sigma > 0:
-        vessel = gaussian_filter(vessel, sigma=smooth_sigma)
+        vessel = gaussian_filter(vessel, sigma=smooth)
         vessel = np.clip(vessel, 0.0, 1.0)
     if binary and threshold is not None:
         vessel = (vessel >= float(threshold)).astype(np.float32)
-    return vessel[None].astype(np.float32)
+    if use_mip:
+        return vessel[None].astype(np.float32)
+    return np.transpose(vessel, (2, 0, 1)).astype(np.float32)
 
 
 def _sanitize(text: str) -> str:
@@ -175,6 +186,7 @@ def mra_cache_path(args: Any, json_data: dict[str, Any], source: str) -> Path:
         "kspace": source_kspace,
         "full_kspace": str(full_kspace),
         "mask_type": source_mask_type,
+        "use_mip": bool(cfg_get(args, "phase3.mra.use_mip", True)),
         "projection_axis": cfg_get(args, "phase3.mra.projection_axis", 2),
         "vessel_map": cfg_get(args, "phase3.mra.vessel_map", {}),
         "sense": cfg_get(args, "phase3.mra.sense", {}),

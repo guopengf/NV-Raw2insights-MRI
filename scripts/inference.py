@@ -240,9 +240,7 @@ def infer(args):
                 inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
                 mas = torch.Tensor(mask[window_idx])
                 sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                mra_prior = None
-                if case_mra_prior is not None:
-                    mra_prior = torch.as_tensor(case_mra_prior, dtype=torch.float32).unsqueeze(0).expand(len(micro_b), -1, -1, -1)
+                mra_prior = select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
                 inp, mas, mean, std = (
                     inp.to(device),
                     mas.to(device),

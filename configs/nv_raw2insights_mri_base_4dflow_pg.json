@@ -1,13 +1,14 @@
 {
     "model_variant": "nv_raw2insights_mri_base",
     "data_path_train": [
-        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/Aorta/"
+        "/SSDHome/share/haosen/4dflow/TrainSet/Aorta/"
     ],
     "data_path_val": [
-        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/Aorta/"
+        "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
+    "resume_ckpt": "/SSDHome/share/haosen/4dflow/4dflow_finetune_ckpts/base_ft_4dflow_pg_0519/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch160.pt",
     "pp_z_score_norm": false,
     "fixed_mask_types": [
         "ktGaussian"
@@ -68,7 +69,7 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 160,
+    "num_epochs": 161,
     "exp_dir": "outputs/4dflow/4dflow_finetune_ckpts/",
     "exp": "base_ft_4dflow_encbatch",
     "lr": 1.0e-05,
@@ -126,15 +127,15 @@
         3
     ],
     "phase3": {
-        "enable_vaa": false,
+        "enable_vaa": true,
         "mra": {
             "source": "gt",
             "method": "pcmra",
-            "use_mip": true,
-            "projection": "x_mip",
+            "use_mip": false,
+            "projection": "slice_zy",
             "projection_axis": 2,
             "use_cache": true,
-            "cache_dir": "/SSDHome/share/haosen/4dflow/mra_cache",
+            "cache_dir": "outputs/4dflow/mra_cache",
             "device": "cpu",
             "vessel_map": {
                 "description": "Normalize PC-MRA x-MIP to a single-channel black/white zy vessel prior.",
@@ -168,12 +169,24 @@
         },
         "loss": {
             "use_phase": false,
+            "use_vascular": false,
             "use_ssim_zy": true,
-            "use_ssim_xy": true,
+            "use_ssim_xy": false,
+            "phase": {
+                "method": "flowvn_unit_complex_l1",
+                "weight": 1.0,
+                "eps": 1e-08
+            },
+            "vascular": {
+                "method": "mra_masked_flowvn_phase_l1",
+                "weight": 1.0,
+                "normalize_by_mask": true
+            },
             "weights": {
                 "magnitude": 1.0,
                 "phase": 0.1,
                 "ssim_zy": 1.0,
+                "vascular": 1.0,
                 "ssim_xy": 0.25
             }
         }

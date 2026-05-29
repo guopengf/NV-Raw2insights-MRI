@@ -106,6 +106,7 @@ __all__ = [
     "reshape_channel_to_batch_dim",
     "Lookahead",
     "windowed_input",
+    "select_mra_prior_for_microbatch",
     "complex_zscore",
     "get_training_set",
     "report_nan_from_any_rank",
@@ -546,6 +547,7 @@ def load_net(
     is_ddp=False,
     find_unused_parameters=False,
     resume_rng_state=False,
+    prepare_model_for_ddp=None,
 ):
     """
     Load the Net model.
@@ -556,6 +558,8 @@ def load_net(
         is_ddp (bool): Whether to use distributed data parallel.
         find_unused_parameters (bool): Whether to find unused parameters.
         resume_rng_state (bool): Whether to resume the random number generator state.
+        prepare_model_for_ddp (Callable, optional): Hook called after loading
+            checkpoint weights and before wrapping the model with DDP.
 
     Returns:
         torch.nn.Module: Loaded Net model.
@@ -624,6 +628,9 @@ def load_net(
                     torch.random.set_rng_state(checkpoint_net["torch_rng_state"].cpu())
                 if "cuda_rng_state" in checkpoint_net:
                     torch.cuda.set_rng_state(checkpoint_net["cuda_rng_state"].cpu())
+
+    if prepare_model_for_ddp is not None:
+        prepare_model_for_ddp(net)
 
     if is_ddp and torch.cuda.device_count() > 1:
         # Get device index from device object
@@ -852,6 +859,27 @@ def windowed_input(input, micro_b, final_shape, num_frames, slice_window_single_
     # gather: shape [B, num_frames, …rest of input.shape…]
     inp = torch.Tensor(input[window_idx])
     return inp, window_idx
+
+
+def select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape):
+    if case_mra_prior is None:
+        return None
+    prior = torch.as_tensor(case_mra_prior, dtype=torch.float32)
+    if prior.dim() == 2:
+        prior = prior.unsqueeze(0)
+    if prior.dim() != 3:
+        raise ValueError(f"Expected mra_prior with shape [1,z,y] or [x,z,y], got {tuple(prior.shape)}")
+
+    if prior.shape[0] == 1:
+        return prior.unsqueeze(0).expand(len(micro_b), -1, -1, -1)
+
+    num_slices = int(final_shape[-4])
+    slice_indices = torch.as_tensor([int(idx) % num_slices for idx in micro_b], dtype=torch.long)
+    if prior.shape[0] != num_slices:
+        raise ValueError(
+            f"Per-slice mra_prior has {prior.shape[0]} slices, but final_shape reports {num_slices} raw-x slices."
+        )
+    return prior.index_select(0, slice_indices).unsqueeze(1)
 
 
 def reshape_channel_to_batch_dim(x: torch.Tensor) -> tuple[torch.Tensor, int]:

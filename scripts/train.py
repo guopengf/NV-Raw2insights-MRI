@@ -33,6 +33,7 @@ from monai.data.fft_utils import fftn_centered, ifftn_centered
 from monai.utils import set_determinism
 from path_safety import assert_outputs_not_in_data
 from mri_data.data_utils import (
+    FlowVNPhaseLoss,
     crop_k_space,
     gather_metric,
     get_loss_function,
@@ -53,6 +54,15 @@ torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.enabled = True
 
 warnings.filterwarnings("ignore")
+
+
+def cfg_get(obj, path, default=None):
+    cur = obj
+    for part in path.split("."):
+        if cur is None:
+            return default
+        cur = getattr(cur, part, default)
+    return cur
 
 
 def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodings=None):
@@ -245,9 +255,15 @@ def trainer(args):
 
     # Auto resume
     pretrained_path = resolve_checkpoint_path(args.model_variant)
-    resume_path = os.path.join(outpath, args.model_filename)
-    if not os.path.exists(resume_path):
-        resume_path = pretrained_path
+    resume_ckpt = getattr(args, "resume_ckpt", None)
+    if resume_ckpt:
+        resume_path = str(resume_ckpt)
+        if not os.path.exists(resume_path):
+            raise FileNotFoundError(f"Configured resume_ckpt does not exist: {resume_path}")
+    else:
+        resume_path = os.path.join(outpath, args.model_filename)
+        if not os.path.exists(resume_path):
+            resume_path = pretrained_path
     # Load the model, optimizer, and scheduler
     (
         model,
@@ -265,9 +281,9 @@ def trainer(args):
         device,
         is_ddp=args.ddp,
         resume_rng_state=args.resume_rng_state,
+        prepare_model_for_ddp=lambda m: apply_phase3_freeze(args, m),
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
-    apply_phase3_freeze(args, model)
     print(f"#model_params: {np.sum([len(p.flatten()) for p in model.parameters()]) * 1.0e-6:.2f}M")
 
     train_transforms = get_train_transforms(args)
@@ -308,6 +324,16 @@ def trainer(args):
 
     # create the loss function
     loss_function = get_loss_function(args, device)
+    phase_loss_function = FlowVNPhaseLoss(
+        eps=float(cfg_get(args, "phase3.loss.phase.eps", 1e-8)),
+        normalize_mask=bool(cfg_get(args, "phase3.loss.vascular.normalize_by_mask", True)),
+    ).to(device)
+    use_phase_loss = bool(cfg_get(args, "phase3.loss.use_phase", False))
+    use_vascular_loss = bool(cfg_get(args, "phase3.loss.use_vascular", False))
+    phase_loss_weight = float(cfg_get(args, "phase3.loss.phase.weight", cfg_get(args, "phase3.loss.weights.phase", 1.0)))
+    vascular_loss_weight = float(
+        cfg_get(args, "phase3.loss.vascular.weight", cfg_get(args, "phase3.loss.weights.vascular", 1.0))
+    )
 
     # create the optimizer and the learning rate scheduler
     eff_batch_size = args.batch_size * dist.get_world_size() if args.ddp else args.batch_size
@@ -447,9 +473,7 @@ def trainer(args):
                 tar = torch.Tensor(target[window_idx])
                 mas = torch.Tensor(mask[window_idx])
                 sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                mra_prior = None
-                if case_mra_prior is not None:
-                    mra_prior = torch.as_tensor(case_mra_prior, dtype=torch.float32).unsqueeze(0).expand(len(micro_b), -1, -1, -1)
+                mra_prior = select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
                 inp, tar, mas, mean, std = (
                     inp.to(device),
                     tar.to(device),
@@ -465,61 +489,80 @@ def trainer(args):
                 output = output * std[window_idx] + mean[window_idx]  # [b, c/1, h, w, 2]
                 output = output[:, args.num_frames // 2]
                 tar = tar[:, args.num_frames // 2]
+                output_complex = crop_k_space(output, (final_shape[-2], final_shape[-1]))
+                target_complex = crop_k_space(tar, (final_shape[-2], final_shape[-1]))
+                output = complex_abs(output_complex)  # [b, c/1, h, w]
+                tar = complex_abs(target_complex)
+
+                output_rss = torch.sqrt(torch.sum(output**2, dim=1, keepdim=True))
+                targets_rss = torch.sqrt(torch.sum(tar**2, dim=1, keepdim=True))
 
                 with autocast("cuda", torch.bfloat16, enabled=False):
-                    output_complex = crop_k_space(output, (final_shape[-2], final_shape[-1]))
-                    target_complex = crop_k_space(tar, (final_shape[-2], final_shape[-1]))
-
-                    if getattr(loss_function, "expects_complex", False):
-                        if sens is not None:
-                            sens_center = sens[:, args.num_frames // 2]
-                            sens_center = crop_k_space(sens_center, (final_shape[-2], final_shape[-1]))
-                            output_complex = sensitivity_map_reduce(output_complex, sens_center)
-                            target_complex = sensitivity_map_reduce(target_complex, sens_center)
-                        loss_dict = loss_function(output_complex.float(), target_complex.float())
-                    else:
-                        output = complex_abs(output_complex)  # [b, c/1, h, w]
-                        tar_mag = complex_abs(target_complex)
-
-                        output_rss = torch.sqrt(torch.sum(output**2, dim=1, keepdim=True))
-                        targets_rss = torch.sqrt(torch.sum(tar_mag**2, dim=1, keepdim=True))
-
-                        output_rss_pp = postprocess_mri_recon(
-                            output_rss,
-                            args,
-                            file_name,
-                            is_training=True,
-                            pp_z_score_norm=args.pp_z_score_norm,
-                            pp_norm=args.pp_norm,
+                    output_rss_pp = postprocess_mri_recon(
+                        output_rss,
+                        args,
+                        file_name,
+                        is_training=True,
+                        pp_z_score_norm=args.pp_z_score_norm,
+                        pp_norm=args.pp_norm,
+                    )
+                    targets_rss_pp = postprocess_mri_recon(
+                        targets_rss,
+                        args,
+                        file_name,
+                        is_training=True,
+                        pp_z_score_norm=args.pp_z_score_norm,
+                        pp_norm=args.pp_norm,
+                    )
+                    if args.loss_type == "ssim":
+                        max_value = (
+                            torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
+                            if "max" not in batch_data["kspace_meta_dict"]
+                            else batch_data["kspace_meta_dict"]["max"][0].item()
                         )
-                        targets_rss_pp = postprocess_mri_recon(
-                            targets_rss,
-                            args,
-                            file_name,
-                            is_training=True,
-                            pp_z_score_norm=args.pp_z_score_norm,
-                            pp_norm=args.pp_norm,
+                        loss_function.data_range = max_value
+                    elif args.loss_type == "ssim_l1":
+                        max_value = (
+                            torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
+                            if "max" not in batch_data["kspace_meta_dict"]
+                            else batch_data["kspace_meta_dict"]["max"][0].item()
                         )
-                        if args.loss_type == "ssim":
-                            max_value = (
-                                torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
-                                if "max" not in batch_data["kspace_meta_dict"]
-                                else batch_data["kspace_meta_dict"]["max"][0].item()
-                            )
-                            loss_function.data_range = max_value
-                        elif args.loss_type == "ssim_l1":
-                            max_value = (
-                                torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
-                                if "max" not in batch_data["kspace_meta_dict"]
-                                else batch_data["kspace_meta_dict"]["max"][0].item()
-                            )
-                            loss_function.ssim_loss.data_range = max_value
-                        loss_dict = loss_function(output_rss_pp, targets_rss_pp)
+                        loss_function.ssim_loss.data_range = max_value
+                    loss_dict = loss_function(output_rss_pp, targets_rss_pp)
 
                 if isinstance(loss_dict, dict):
                     loss = loss_dict["combined_loss"]
                 else:
                     loss = loss_dict
+                weighted_loss_log = {"main_zy_loss_weighted": loss.detach()}
+
+                aux_loss_log = {}
+                if use_phase_loss or use_vascular_loss:
+                    with autocast("cuda", torch.bfloat16, enabled=False):
+                        phase_output = output_complex.float()
+                        phase_target = target_complex.float()
+                        if sens is not None:
+                            sens_center = sens[:, args.num_frames // 2]
+                            sens_center = crop_k_space(sens_center, (final_shape[-2], final_shape[-1]))
+                            phase_output = sensitivity_map_reduce(phase_output, sens_center)
+                            phase_target = sensitivity_map_reduce(phase_target, sens_center)
+                        if use_phase_loss:
+                            phase_loss = phase_loss_function(phase_output, phase_target)
+                            weighted_phase_loss = phase_loss_weight * phase_loss
+                            loss = loss + weighted_phase_loss
+                            aux_loss_log["phase_loss"] = phase_loss.detach()
+                            weighted_loss_log["phase_loss_weighted"] = weighted_phase_loss.detach()
+                        if use_vascular_loss:
+                            if mra_prior is None:
+                                raise RuntimeError(
+                                    "phase3.loss.use_vascular=True requires phase3.enable_vaa=True "
+                                    "so that mra_prior is available."
+                                )
+                            vascular_phase_loss = phase_loss_function(phase_output, phase_target, mask=mra_prior)
+                            weighted_vascular_phase_loss = vascular_loss_weight * vascular_phase_loss
+                            loss = loss + weighted_vascular_phase_loss
+                            aux_loss_log["vascular_phase_loss"] = vascular_phase_loss.detach()
+                            weighted_loss_log["vascular_phase_loss_weighted"] = weighted_vascular_phase_loss.detach()
 
                 loss_tensor = loss.clone().detach()
                 report_nan_from_any_rank(loss_tensor, file_name, micro_b, is_ddp=args.ddp)
@@ -540,6 +583,15 @@ def trainer(args):
                     step_loss = loss_tensor.item() / world_size
                 else:
                     step_loss = loss_tensor.item()
+                step_loss_components = {}
+                for loss_name, loss_value in weighted_loss_log.items():
+                    component_tensor = loss_value.clone().detach()
+                    if args.ddp:
+                        dist.all_reduce(component_tensor, op=dist.ReduceOp.SUM)
+                        step_loss_components[loss_name] = component_tensor.item() / world_size
+                    else:
+                        step_loss_components[loss_name] = component_tensor.item()
+                step_loss_components["loss_sum"] = step_loss
                 if step_loss == step_loss:
                     epoch_loss += step_loss
                 else:
@@ -547,10 +599,13 @@ def trainer(args):
                     step -= 1
 
                 if rank == 0:
+                    loss_parts = ", ".join(
+                        f"{name}: {value:.4f}" for name, value in step_loss_components.items()
+                    )
                     print(
                         f"{b + 1}/{len(train_loader)}, {i + adjusted_micro_batch_size}/{num_samples}, \
                         lr: {optimizer.param_groups[0]['lr']:.2e}, train_loss: {epoch_loss / (step+1e-8):.4f}, \
-                        train_step_loss: {step_loss:.4f}",
+                        {loss_parts}",
                         "\r",
                         end="",
                     )
@@ -564,6 +619,10 @@ def trainer(args):
                             for k, v in loss_dict.items():
                                 if k != "combined_loss":
                                     writer.add_scalar(f"train_step_{k}", v, global_step + step)
+                        for k, v in aux_loss_log.items():
+                            writer.add_scalar(f"train_step_{k}", v, global_step + step)
+                        for k, v in step_loss_components.items():
+                            writer.add_scalar(f"train_step_{k}", v, global_step + step)
 
                     if step != 0 and step % 10000 == 0:
                         save_checkpoint(
@@ -690,9 +749,7 @@ def trainer(args):
                         tar = torch.Tensor(target[window_idx])
                         mas = torch.Tensor(mask[window_idx])
                         sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                        mra_prior = None
-                        if case_mra_prior is not None:
-                            mra_prior = torch.as_tensor(case_mra_prior, dtype=torch.float32).unsqueeze(0).expand(len(micro_b), -1, -1, -1)
+                        mra_prior = select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
                         inp, tar, mas, mean, std = (
                             inp.to(device),
                             tar.to(device),
