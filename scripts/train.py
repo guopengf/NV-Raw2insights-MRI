@@ -652,8 +652,6 @@ def trainer(args):
                         f"{b + 1}/{len(train_loader)} {i + adjusted_micro_batch_size}/{num_samples} "
                         f"lr={optimizer.param_groups[0]['lr']:.2e} "
                         f"train_loss={epoch_loss / (step + 1e-8):.4f} {loss_parts}{gamma_parts}",
-                        "\r",
-                        end="",
                     )
                     if (global_step + step) % 10 == 0:
                         writer.add_scalar(
