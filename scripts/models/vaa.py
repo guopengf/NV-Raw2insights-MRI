@@ -23,9 +23,8 @@ class VascularAttentionAdapter(nn.Module):
         self.gamma_mode = gamma_mode
         self.gamma_raw = nn.Parameter(torch.tensor(float(gamma_init)))
 
-        # Start as a strict identity even when the adapter is enabled.
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.zeros_(self.net[-1].bias)
+        # Strict identity is guaranteed by gamma=0. Keep the adapter branch
+        # non-zero so gamma receives gradient at the first optimization step.
 
     def gamma(self) -> torch.Tensor:
         if self.gamma_mode == "direct_clamp":

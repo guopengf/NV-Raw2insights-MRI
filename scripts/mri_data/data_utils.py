@@ -198,26 +198,31 @@ class SSIML1Loss(object):
 
 
 class FlowVNPhaseLoss(nn.Module):
-    """FlowVN-style L1 loss on unit complex phase vectors.
+    """FlowVN-style L1 loss for complex image residuals.
 
-    FlowVN supervised training uses nn.L1Loss on complex image residuals. For
-    phase-only supervision, this applies the same L1-on-residual style after
-    normalizing each complex pixel to unit magnitude, so wrap-around is handled
-    in the complex plane instead of with naive angle L1.
+    FlowVN supervised training uses nn.L1Loss(recon - gt, zeros_like(recon))
+    on complex image tensors. This class keeps that as the default and supports
+    an optional unit-complex mode for phase-only ablations.
     """
 
-    def __init__(self, eps: float = 1e-8, normalize_mask: bool = True):
+    def __init__(self, eps: float = 1e-8, normalize_mask: bool = True, method: str = "flowvn_complex_l1"):
         super().__init__()
         self.eps = eps
         self.normalize_mask = normalize_mask
+        self.method = method
 
     def _unit_phase(self, x: torch.Tensor) -> torch.Tensor:
         mag = torch.sqrt(torch.sum(x.float() ** 2, dim=-1, keepdim=True).clamp_min(self.eps))
         return x.float() / mag
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
-        diff = self._unit_phase(pred) - self._unit_phase(target)
-        diff_abs = torch.sqrt(torch.sum(diff**2, dim=-1).clamp_min(self.eps))
+        if self.method in ("flowvn_complex_l1", "complex_l1"):
+            diff_abs = torch.abs(pred.float() - target.float()).mean(dim=-1)
+        elif self.method in ("flowvn_unit_complex_l1", "unit_complex_l1"):
+            diff = self._unit_phase(pred) - self._unit_phase(target)
+            diff_abs = torch.abs(diff).mean(dim=-1)
+        else:
+            raise ValueError(f"Unsupported FlowVNPhaseLoss method: {self.method}")
 
         if mask is None:
             return diff_abs.mean()
