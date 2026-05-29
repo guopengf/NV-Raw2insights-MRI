@@ -518,7 +518,7 @@ def trainer(args):
                     output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
                 output_norm = output[:, args.num_frames // 2]
-                target_norm = tar[:, args.num_frames // 2]
+                target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, args.num_frames // 2]
                 output = output * std[window_idx] + mean[window_idx]  # [b, c/1, h, w, 2]
                 output = output[:, args.num_frames // 2]
                 tar = tar[:, args.num_frames // 2]
