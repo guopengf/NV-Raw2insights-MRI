@@ -29,7 +29,7 @@
     "balance_data": false,
     "enable_cas_skips": true,
     "finetune_ms": false,
-    "adaptive_batch_size": true,
+    "adaptive_batch_size": false,
     "constant_input_flow": false,
     "amp": true,
     "acs_lines": 20,
