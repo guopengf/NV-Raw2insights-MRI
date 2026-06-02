@@ -27,7 +27,7 @@ def build_jsons(
 ):
     """
     case_root:
-      /SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center007/GE_30T_Architect
+      /data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/Center007/GE_30T_Architect
 
     Creates one json per (case, accel) for a single velocity encoding. Challenge validation/test
     folders usually do not contain kdata_full.mat; pass targetless=True to use the undersampled
@@ -188,7 +188,7 @@ def main():
     parser.add_argument(
         "--acquisition",
         type=str,
-        default="Flow2d",
+        default="Flow4d",
         help="Acquisition token passed into the existing model",
     )
     parser.add_argument(

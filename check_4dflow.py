@@ -2,7 +2,7 @@ import os
 import scipy.io as sio
 import h5py
 
-case_dir = "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P076"
+case_dir = "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P076"
 
 files = [
     "kdata_full.mat",

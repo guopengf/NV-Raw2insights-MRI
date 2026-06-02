@@ -41,7 +41,7 @@ except ImportError:  # pragma: no cover - exercised on systems without scipy.
     sio = None
 
 
-DEFAULT_ROOT = Path("/SSDHome/share/haosen/4dflow/TrainSet/Aorta")
+DEFAULT_ROOT = Path("/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/Aorta")
 DEFAULT_ACCELERATIONS = (10, 20, 30, 40, 50)
 KDATA_KEYS = ("kdata_full", "kdata", "kspace_full", "kspace")
 

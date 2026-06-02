@@ -33,6 +33,7 @@ from monai.data.fft_utils import fftn_centered, ifftn_centered
 from monai.utils import set_determinism
 from path_safety import assert_outputs_not_in_data
 from mri_data.data_utils import (
+    FlowVNPhaseLoss,
     crop_k_space,
     gather_metric,
     get_loss_function,
@@ -42,7 +43,7 @@ from mri_data.data_utils import (
 from torch.amp import GradScaler, autocast
 from torch.distributed.elastic.multiprocessing.errors import record
 from torch.utils.tensorboard import SummaryWriter
-from train_utils import get_optimizer, get_train_transforms, get_val_transforms
+from train_utils import apply_phase3_freeze, get_optimizer, get_train_transforms, get_val_transforms
 from transforms import *
 from utils import *
 
@@ -53,6 +54,39 @@ torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.enabled = True
 
 warnings.filterwarnings("ignore")
+
+
+def cfg_get(obj, path, default=None):
+    cur = obj
+    for part in path.split("."):
+        if cur is None:
+            return default
+        cur = getattr(cur, part, default)
+    return cur
+
+
+def collect_vaa_gamma(model):
+    module = model.module if hasattr(model, "module") else model
+    gamma_by_location = {}
+    for name, submodule in module.named_modules():
+        if not hasattr(submodule, "gamma_raw") or not callable(getattr(submodule, "gamma", None)):
+            continue
+        location = name
+        if "vaa_adapters." in name:
+            location = name.split("vaa_adapters.", 1)[1].split(".", 1)[0]
+        gamma_by_location.setdefault(location, []).append(float(submodule.gamma().detach().cpu()))
+    return {name: float(np.mean(values)) for name, values in gamma_by_location.items()}
+
+
+def short_train_log_name(name):
+    return {
+        "main_zy_loss_weighted": "main",
+        "phase_loss_weighted": "phase",
+        "vascular_phase_loss_weighted": "vphase",
+        "loss_sum": "sum",
+        "bottleneck": "gb",
+        "intermediate": "gi",
+    }.get(name, name)
 
 
 def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodings=None):
@@ -93,7 +127,7 @@ def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodi
                                 "target_kspace": str(full_kspace),
                                 "mask": [str(us_mask)],
                                 "mask_type": f"ktGaussian{int(acc)}",
-                                "acquisition": "Flow2d",
+                                "acquisition": "Flow4d",
                                 "encoding_idx": int(enc_idx),
                                 "is_4dflow": True,
                             }
@@ -161,6 +195,10 @@ def trainer(args):
         train_manifest_dir = Path(outpath) / "jsons_train"
         val_manifest_dir = Path(outpath) / "jsons_val"
         if rank == 0:
+            for manifest_dir in (train_manifest_dir, val_manifest_dir):
+                manifest_dir.mkdir(parents=True, exist_ok=True)
+                for old_manifest in manifest_dir.glob("*.json"):
+                    old_manifest.unlink()
             build_4dflow_aorta_manifests(
                 args.data_path_train,
                 train_manifest_dir,
@@ -200,12 +238,22 @@ def trainer(args):
     ]  # select a subset of the data according to sample_rate
     train_files = [dict([("kspace", train_files[i])]) for i in range(len(train_files))]
     print(f"#training files: {len(train_files)}")
+    if len(train_files) == 0:
+        raise RuntimeError(
+            "No training files were found. Check data_path_train, four_dflow_accelerations, "
+            "and required files kdata_full/kdata_ktGaussian*/usmask_ktGaussian*/coilmap.mat."
+        )
 
     val_files = val_files[
         : int(args.sample_rate * len(val_files))
     ]  # select a subset of the data according to sample_rate
     val_files = [dict([("kspace", val_files[i])]) for i in range(len(val_files))]
     print(f"#validation files: {len(val_files)}")
+    if len(val_files) < world_size:
+        raise RuntimeError(
+            f"Not enough validation files ({len(val_files)}) for world_size={world_size}. "
+            "Check data_path_val or reduce --nproc_per_node."
+        )
     val_files = partition_dataset(
         data=val_files,
         num_partitions=world_size,
@@ -232,9 +280,15 @@ def trainer(args):
 
     # Auto resume
     pretrained_path = resolve_checkpoint_path(args.model_variant)
-    resume_path = os.path.join(outpath, args.model_filename)
-    if not os.path.exists(resume_path):
-        resume_path = pretrained_path
+    resume_ckpt = getattr(args, "resume_ckpt", None)
+    if resume_ckpt:
+        resume_path = str(resume_ckpt)
+        if not os.path.exists(resume_path):
+            raise FileNotFoundError(f"Configured resume_ckpt does not exist: {resume_path}")
+    else:
+        resume_path = os.path.join(outpath, args.model_filename)
+        if not os.path.exists(resume_path):
+            resume_path = pretrained_path
     # Load the model, optimizer, and scheduler
     (
         model,
@@ -252,6 +306,7 @@ def trainer(args):
         device,
         is_ddp=args.ddp,
         resume_rng_state=args.resume_rng_state,
+        prepare_model_for_ddp=lambda m: apply_phase3_freeze(args, m),
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
     print(f"#model_params: {np.sum([len(p.flatten()) for p in model.parameters()]) * 1.0e-6:.2f}M")
@@ -294,6 +349,23 @@ def trainer(args):
 
     # create the loss function
     loss_function = get_loss_function(args, device)
+    phase_loss_function = FlowVNPhaseLoss(
+        eps=float(cfg_get(args, "phase3.loss.phase.eps", 1e-8)),
+        normalize_mask=bool(cfg_get(args, "phase3.loss.vascular.normalize_by_mask", True)),
+        method=str(cfg_get(args, "phase3.loss.phase.method", "flowvn_complex_l1")),
+    ).to(device)
+    use_main_zy_loss = bool(cfg_get(args, "phase3.loss.use_ssim_zy", True))
+    use_phase_loss = bool(cfg_get(args, "phase3.loss.use_phase", False))
+    use_vascular_loss = bool(cfg_get(args, "phase3.loss.use_vascular", False))
+    if not (use_main_zy_loss or use_phase_loss or use_vascular_loss):
+        raise RuntimeError(
+            "At least one training loss must be enabled: phase3.loss.use_ssim_zy, "
+            "phase3.loss.use_phase, or phase3.loss.use_vascular."
+        )
+    phase_loss_weight = float(cfg_get(args, "phase3.loss.phase.weight", cfg_get(args, "phase3.loss.weights.phase", 1.0)))
+    vascular_loss_weight = float(
+        cfg_get(args, "phase3.loss.vascular.weight", cfg_get(args, "phase3.loss.weights.vascular", 1.0))
+    )
 
     # create the optimizer and the learning rate scheduler
     eff_batch_size = args.batch_size * dist.get_world_size() if args.ddp else args.batch_size
@@ -393,6 +465,8 @@ def trainer(args):
             final_shape = [int(s) for s in final_shape]
             sensitivity_maps = batch_data.get("sensitivity_maps")
             sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
+            case_mra_prior = batch_data.get("mra_prior")
+            case_mra_prior = case_mra_prior[0] if case_mra_prior is not None else None
 
             # iterate through all slices
             sample_list = list(range(input.shape[0]))
@@ -431,6 +505,7 @@ def trainer(args):
                 tar = torch.Tensor(target[window_idx])
                 mas = torch.Tensor(mask[window_idx])
                 sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
+                mra_prior = select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
                 inp, tar, mas, mean, std = (
                     inp.to(device),
                     tar.to(device),
@@ -439,55 +514,96 @@ def trainer(args):
                     std.to(device),
                 )
                 sens = sens.to(device) if sens is not None else None
+                mra_prior = mra_prior.to(device) if mra_prior is not None else None
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
-                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens)
+                    output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
+                output_norm = output[:, args.num_frames // 2]
+                target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, args.num_frames // 2]
                 output = output * std[window_idx] + mean[window_idx]  # [b, c/1, h, w, 2]
                 output = output[:, args.num_frames // 2]
                 tar = tar[:, args.num_frames // 2]
-                output = complex_abs(crop_k_space(output, (final_shape[-2], final_shape[-1])))  # [b, c/1, h, w]
-                tar = complex_abs(crop_k_space(tar, (final_shape[-2], final_shape[-1])))
+                output_complex_norm = crop_k_space(output_norm, (final_shape[-2], final_shape[-1]))
+                target_complex_norm = crop_k_space(target_norm, (final_shape[-2], final_shape[-1]))
+                output_complex = crop_k_space(output, (final_shape[-2], final_shape[-1]))
+                target_complex = crop_k_space(tar, (final_shape[-2], final_shape[-1]))
+                output = complex_abs(output_complex)  # [b, c/1, h, w]
+                tar = complex_abs(target_complex)
 
                 output_rss = torch.sqrt(torch.sum(output**2, dim=1, keepdim=True))
                 targets_rss = torch.sqrt(torch.sum(tar**2, dim=1, keepdim=True))
 
-                with autocast("cuda", torch.bfloat16, enabled=False):
-                    output_rss_pp = postprocess_mri_recon(
-                        output_rss,
-                        args,
-                        file_name,
-                        is_training=True,
-                        pp_z_score_norm=args.pp_z_score_norm,
-                        pp_norm=args.pp_norm,
-                    )
-                    targets_rss_pp = postprocess_mri_recon(
-                        targets_rss,
-                        args,
-                        file_name,
-                        is_training=True,
-                        pp_z_score_norm=args.pp_z_score_norm,
-                        pp_norm=args.pp_norm,
-                    )
-                    if args.loss_type == "ssim":
-                        max_value = (
-                            torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
-                            if "max" not in batch_data["kspace_meta_dict"]
-                            else batch_data["kspace_meta_dict"]["max"][0].item()
+                loss_dict = {}
+                weighted_loss_log = {}
+                if use_main_zy_loss:
+                    with autocast("cuda", torch.bfloat16, enabled=False):
+                        output_rss_pp = postprocess_mri_recon(
+                            output_rss,
+                            args,
+                            file_name,
+                            is_training=True,
+                            pp_z_score_norm=args.pp_z_score_norm,
+                            pp_norm=args.pp_norm,
                         )
-                        loss_function.data_range = max_value
-                    elif args.loss_type == "ssim_l1":
-                        max_value = (
-                            torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
-                            if "max" not in batch_data["kspace_meta_dict"]
-                            else batch_data["kspace_meta_dict"]["max"][0].item()
+                        targets_rss_pp = postprocess_mri_recon(
+                            targets_rss,
+                            args,
+                            file_name,
+                            is_training=True,
+                            pp_z_score_norm=args.pp_z_score_norm,
+                            pp_norm=args.pp_norm,
                         )
-                        loss_function.ssim_loss.data_range = max_value
-                    loss_dict = loss_function(output_rss_pp, targets_rss_pp)
+                        if args.loss_type == "ssim":
+                            max_value = (
+                                torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
+                                if "max" not in batch_data["kspace_meta_dict"]
+                                else batch_data["kspace_meta_dict"]["max"][0].item()
+                            )
+                            loss_function.data_range = max_value
+                        elif args.loss_type == "ssim_l1":
+                            max_value = (
+                                torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
+                                if "max" not in batch_data["kspace_meta_dict"]
+                                else batch_data["kspace_meta_dict"]["max"][0].item()
+                            )
+                            loss_function.ssim_loss.data_range = max_value
+                        loss_dict = loss_function(output_rss_pp, targets_rss_pp)
 
-                if isinstance(loss_dict, dict):
-                    loss = loss_dict["combined_loss"]
+                    if isinstance(loss_dict, dict):
+                        loss = loss_dict["combined_loss"]
+                    else:
+                        loss = loss_dict
+                    weighted_loss_log["main_zy_loss_weighted"] = loss.detach()
                 else:
-                    loss = loss_dict
+                    loss = output_complex.sum() * 0.0
+
+                aux_loss_log = {}
+                if use_phase_loss or use_vascular_loss:
+                    with autocast("cuda", torch.bfloat16, enabled=False):
+                        phase_output = output_complex_norm.float()
+                        phase_target = target_complex_norm.float()
+                        if sens is not None:
+                            sens_center = sens[:, args.num_frames // 2]
+                            sens_center = crop_k_space(sens_center, (final_shape[-2], final_shape[-1]))
+                            phase_output = sensitivity_map_reduce(phase_output, sens_center)
+                            phase_target = sensitivity_map_reduce(phase_target, sens_center)
+                        if use_phase_loss:
+                            phase_loss = phase_loss_function(phase_output, phase_target)
+                            weighted_phase_loss = phase_loss_weight * phase_loss
+                            loss = loss + weighted_phase_loss
+                            aux_loss_log["phase_loss"] = phase_loss.detach()
+                            weighted_loss_log["phase_loss_weighted"] = weighted_phase_loss.detach()
+                        if use_vascular_loss:
+                            if mra_prior is None:
+                                raise RuntimeError(
+                                    "phase3.loss.use_vascular=True requires phase3.enable_vaa=True "
+                                    "so that mra_prior is available."
+                                )
+                            vascular_phase_loss = phase_loss_function(phase_output, phase_target, mask=mra_prior)
+                            weighted_vascular_phase_loss = vascular_loss_weight * vascular_phase_loss
+                            loss = loss + weighted_vascular_phase_loss
+                            aux_loss_log["vascular_phase_loss"] = vascular_phase_loss.detach()
+                            weighted_loss_log["vascular_phase_loss_weighted"] = weighted_vascular_phase_loss.detach()
 
                 loss_tensor = loss.clone().detach()
                 report_nan_from_any_rank(loss_tensor, file_name, micro_b, is_ddp=args.ddp)
@@ -508,6 +624,15 @@ def trainer(args):
                     step_loss = loss_tensor.item() / world_size
                 else:
                     step_loss = loss_tensor.item()
+                step_loss_components = {}
+                for loss_name, loss_value in weighted_loss_log.items():
+                    component_tensor = loss_value.clone().detach()
+                    if args.ddp:
+                        dist.all_reduce(component_tensor, op=dist.ReduceOp.SUM)
+                        step_loss_components[loss_name] = component_tensor.item() / world_size
+                    else:
+                        step_loss_components[loss_name] = component_tensor.item()
+                step_loss_components["loss_sum"] = step_loss
                 if step_loss == step_loss:
                     epoch_loss += step_loss
                 else:
@@ -515,12 +640,19 @@ def trainer(args):
                     step -= 1
 
                 if rank == 0:
+                    loss_parts = ", ".join(
+                        f"{short_train_log_name(name)}={value:.4f}" for name, value in step_loss_components.items()
+                    )
+                    gamma_values = collect_vaa_gamma(model)
+                    gamma_parts = ""
+                    if gamma_values:
+                        gamma_parts = " " + ", ".join(
+                            f"{short_train_log_name(name)}={value:.6f}" for name, value in gamma_values.items()
+                        )
                     print(
-                        f"{b + 1}/{len(train_loader)}, {i + adjusted_micro_batch_size}/{num_samples}, \
-                        lr: {optimizer.param_groups[0]['lr']:.2e}, train_loss: {epoch_loss / (step+1e-8):.4f}, \
-                        train_step_loss: {step_loss:.4f}",
-                        "\r",
-                        end="",
+                        f"{b + 1}/{len(train_loader)} {i + adjusted_micro_batch_size}/{num_samples} "
+                        f"lr={optimizer.param_groups[0]['lr']:.2e} "
+                        f"train_loss={epoch_loss / (step + 1e-8):.4f} {loss_parts}{gamma_parts}",
                     )
                     if (global_step + step) % 10 == 0:
                         writer.add_scalar(
@@ -532,6 +664,12 @@ def trainer(args):
                             for k, v in loss_dict.items():
                                 if k != "combined_loss":
                                     writer.add_scalar(f"train_step_{k}", v, global_step + step)
+                        for k, v in aux_loss_log.items():
+                            writer.add_scalar(f"train_step_{k}", v, global_step + step)
+                        for k, v in step_loss_components.items():
+                            writer.add_scalar(f"train_step_{k}", v, global_step + step)
+                        for k, v in gamma_values.items():
+                            writer.add_scalar(f"train_step_gamma_{k}", v, global_step + step)
 
                     if step != 0 and step % 10000 == 0:
                         save_checkpoint(
@@ -634,6 +772,8 @@ def trainer(args):
                     final_shape = [int(s) for s in final_shape]
                     sensitivity_maps = val_data.get("sensitivity_maps")
                     sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
+                    case_mra_prior = val_data.get("mra_prior")
+                    case_mra_prior = case_mra_prior[0] if case_mra_prior is not None else None
                     input = (
                         fftn_centered(input, spatial_dims=2, is_complex=True)
                         if args.model_type.lower() in ["varnet", "kspace_mar"]
@@ -656,6 +796,7 @@ def trainer(args):
                         tar = torch.Tensor(target[window_idx])
                         mas = torch.Tensor(mask[window_idx])
                         sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
+                        mra_prior = select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
                         inp, tar, mas, mean, std = (
                             inp.to(device),
                             tar.to(device),
@@ -664,9 +805,10 @@ def trainer(args):
                             std.to(device),
                         )
                         sens = sens.to(device) if sens is not None else None
+                        mra_prior = mra_prior.to(device) if mra_prior is not None else None
 
                         with autocast("cuda", torch.bfloat16, enabled=args.amp):
-                            output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens)
+                            output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
                         output = output[:, args.num_frames // 2]
                         tar = tar[:, args.num_frames // 2]

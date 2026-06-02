@@ -103,6 +103,7 @@ class Cascaded_SkipConnected_MRI_Recon(nn.Module):
         sensitivity_maps=None,
         ref_image=None,
         timestep=None,
+        mra_prior=None,
     ) -> Any:
         ref_image = x.clone() if ref_image is None else ref_image
         for i, recon in enumerate(self.recon_models):
@@ -121,6 +122,7 @@ class Cascaded_SkipConnected_MRI_Recon(nn.Module):
                     acq_type,
                     sensitivity_maps,
                     actual_timestep,
+                    mra_prior,
                     use_reentrant=False,
                 )
             else:
@@ -134,6 +136,7 @@ class Cascaded_SkipConnected_MRI_Recon(nn.Module):
                     acq_type,
                     sensitivity_maps,
                     actual_timestep,
+                    mra_prior,
                 )
         if timestep is not None:
             return x, cas_skips, sensitivity_maps
@@ -215,6 +218,7 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
         acc_factor: int = None,
         acq_type: str = None,
         sensitivity_maps: torch.Tensor = None,
+        mra_prior: torch.Tensor = None,
     ) -> torch.Tensor:
         ref_image = x.clone()
         x0 = x
@@ -234,6 +238,7 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
                         step_sensitivity_maps,
                         ref_image,
                         i,
+                        mra_prior,
                         use_reentrant=False,
                     )
                 else:
@@ -247,6 +252,7 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
                         step_sensitivity_maps,
                         ref_image,
                         i,
+                        mra_prior,
                     )
             else:
                 step_sensitivity_maps = sensitivity_maps
@@ -262,6 +268,7 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
                         step_sensitivity_maps,
                         ref_image,
                         i,
+                        mra_prior,
                         use_reentrant=False,
                     )
                 else:
@@ -275,6 +282,7 @@ class Flow_SkipConnected_MRI_Recon(nn.Module):
                         step_sensitivity_maps,
                         ref_image,
                         i,
+                        mra_prior,
                     )
         return x
 

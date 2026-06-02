@@ -12,3 +12,4 @@ cache/
 dataset/
 outputs/
 *.slurm
+.docx

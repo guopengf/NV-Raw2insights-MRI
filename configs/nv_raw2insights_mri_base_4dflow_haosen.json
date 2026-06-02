@@ -1,13 +1,14 @@
 {
     "model_variant": "nv_raw2insights_mri_base",
     "data_path_train": [
-        "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"
+        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/Aorta/"
     ],
     "data_path_val": [
-        "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"
+        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/"
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
+    "resume_ckpt": "outputs/4dflow/4dflow_finetune_ckpts/base_ft_4dflow_encbatch/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch160.pt",
     "pp_z_score_norm": false,
     "fixed_mask_types": [
         "ktGaussian"
@@ -38,11 +39,15 @@
     "cache_rate": 0.0,
     "sample_rate": 1.0,
     "accelerations": [
-        8.0,
-        16.0,
-        24.0
+        10.0,
+        20.0,
+        30.0,
+        40.0,
+        50.0
     ],
     "center_fractions": [
+        0.0,
+        0.0,
         0.0,
         0.0,
         0.0
@@ -53,7 +58,7 @@
     "acq_types": [
         "BlackBlood",
         "Cine",
-        "Flow2d",
+        "Flow4d",
         "LGE",
         "Mapping",
         "Perfusion",
@@ -64,10 +69,10 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 160,
-    "exp_dir": "/SSDHome/share/haosen/4dflow/4dflow_finetune_ckpts/",
+    "num_epochs": 161,
+    "exp_dir": "outputs/4dflow/4dflow_finetune_ckpts/",
     "exp": "base_ft_4dflow_encbatch",
-    "lr": 1.0e-05,
+    "lr": 1e-05,
     "weight_decay": 0.001,
     "loss_type": "ssim",
     "model_type": "restormer",
@@ -121,14 +126,79 @@
         2,
         3
     ],
+    "phase3": {
+        "enable_vaa": true,
+        "mra": {
+            "source": "gt",
+            "method": "pcmra",
+            "use_mip": false,
+            "projection": "slice_zy",
+            "projection_axis": 2,
+            "use_cache": true,
+            "cache_dir": "outputs/4dflow/mra_cache",
+            "device": "cpu",
+            "vessel_map": {
+                "description": "Normalize PC-MRA x-MIP to a single-channel black/white zy vessel prior.",
+                "binary": true,
+                "lower_percentile": 1.0,
+                "upper_percentile": 99.5,
+                "smooth_sigma": 0.75,
+                "threshold": 0.35
+            },
+            "sense": {
+                "description": "Used when source=zf/sense; zf means undersampled k-space reconstructed with CG-SENSE before PC-MRA.",
+                "niter": 5,
+                "lam": 0.0001
+            }
+        },
+        "vaa": {
+            "locations": [
+                "bottleneck",
+                "intermediate"
+            ],
+            "reduction": 4
+        },
+        "freeze": {
+            "backbone": true,
+            "vaa": false
+        },
+        "gamma": {
+            "init": 0.0,
+            "trainable": true,
+            "mode": "shifted_sigmoid"
+        },
+        "loss": {
+            "use_phase": true,
+            "use_vascular": true,
+            "use_ssim_zy": true,
+            "phase": {
+                "method": "flowvn_complex_l1",
+                "weight": 1.0,
+                "eps": 1e-08
+            },
+            "vascular": {
+                "method": "mra_masked_flowvn_phase_l1",
+                "weight": 1.0,
+                "normalize_by_mask": true
+            },
+            "weights": {
+                "magnitude": 1.0,
+                "phase": 0.1,
+                "ssim_zy": 1.0,
+                "vascular": 1.0
+            }
+        }
+    },
     "train_mask_types_for_def_model": [
         "uniform",
         "kt_gaussian",
         "kt_radial"
     ],
     "accelerations_for_def_model": [
-        8,
-        16,
-        24
+        10,
+        20,
+        30,
+        40,
+        50
     ]
 }

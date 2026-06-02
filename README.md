@@ -124,7 +124,7 @@ This branch adapts NV-Raw2insights-MRI for 4D Flow Aorta MRI reconstruction.
 The expected raw data layout is:
 
 ```text
-/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/
+/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/
   Center007/
     GE_30T_Architect/
       P076/
@@ -144,7 +144,7 @@ The expected raw data layout is:
 run `generate_4dflow_ktgaussian_train.py` to generate undersampled kspace and masks:
 ```
 python scripts/generate_4dflow_ktgaussian_train.py   --root path/to/TrainSet/Aorta   --accelerations 10,20,30,40,50   --overwrite
-found 138 patients under /SSDHome/share/haosen/4dflow/TrainSet/Aorta
+found 138 patients under /data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/Aorta
 ```
 
 The 4D Flow k-space shape is expected to be:
@@ -176,13 +176,13 @@ Do not write outputs into the raw data directory.
 Avoid using any output path under:
 
 ```text
-/SSDHome/share/4dFlow/
+/data/CMRx4DFlow2026-ChallengeData/
 ```
 
 Use a workspace, scratch folder, or experiment folder instead, for example:
 
 ```text
-/SSDHome/share/haosen/4dflow/4dflow_finetune_ckpts/
+outputs/4dflow/4dflow_finetune_ckpts/
 outputs/
 ```
 
@@ -199,10 +199,10 @@ Important fields:
 ```json
 {
   "data_path_train": [
-    "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"
+    "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/"
   ],
   "data_path_val": [
-    "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"
+    "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/"
   ],
   "is_4dflow_aorta": true,
   "use_external_csm": true,
@@ -257,7 +257,7 @@ Use this script to verify whether `coilmap.mat` produces a reasonable coil-combi
 
 ```bash
 python scripts/check_4dflow_coilmap_combine.py \
-  --patient-dir "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P076/" \
+  --patient-dir "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P076/" \
   --enc 0 \
   --frame 0
 ```
@@ -282,7 +282,7 @@ Training can generate manifests automatically inside the experiment folder. If y
 
 ```bash
 python scripts/create_4dflow_aorta_json.py \
-  --root "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/" \
+  --root "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/" \
   --out "outputs/4dflow_jsons"
 ```
 

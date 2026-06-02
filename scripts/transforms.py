@@ -1484,4 +1484,7 @@ class RearrangeAndNormalizeMRI(MapTransform):
             )
             d[CMRxReconKeys.SENSITIVITY_MAPS] = torch.as_tensor(csm).contiguous()
 
+        if "mra_prior" in d["kspace_meta_dict"]:
+            d["mra_prior"] = torch.as_tensor(d["kspace_meta_dict"]["mra_prior"], dtype=torch.float32).contiguous()
+
         return d
