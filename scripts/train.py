@@ -278,17 +278,20 @@ def trainer(args):
     except BaseException:
         args.is_multi_coil = True
 
-    # Auto resume
+    # Auto resume from the current experiment first; use resume_ckpt only to
+    # bootstrap a fresh output directory.
     pretrained_path = resolve_checkpoint_path(args.model_variant)
     resume_ckpt = getattr(args, "resume_ckpt", None)
-    if resume_ckpt:
+    resume_path = os.path.join(outpath, args.model_filename)
+    if os.path.exists(resume_path):
+        print(f"Auto-resume from experiment checkpoint: {resume_path}")
+    elif resume_ckpt:
         resume_path = str(resume_ckpt)
         if not os.path.exists(resume_path):
             raise FileNotFoundError(f"Configured resume_ckpt does not exist: {resume_path}")
+        print(f"Resume from configured checkpoint: {resume_path}")
     else:
-        resume_path = os.path.join(outpath, args.model_filename)
-        if not os.path.exists(resume_path):
-            resume_path = pretrained_path
+        resume_path = pretrained_path
     # Load the model, optimizer, and scheduler
     (
         model,
