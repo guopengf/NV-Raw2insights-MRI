@@ -4,11 +4,11 @@
         "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/Aorta/"
     ],
     "data_path_val": [
-        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/"
+        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/Aorta/"
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
-    "resume_ckpt": "outputs/4dflow/4dflow_finetune_ckpts/base_ft_4dflow_encbatch/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch160.pt",
+    "resume_ckpt": "outputs/4dflow/4dflow_finetune_ckpts/base_ft_4dflow_encbatch/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch160_weights_only.pt",
     "pp_z_score_norm": false,
     "fixed_mask_types": [
         "ktGaussian"
@@ -70,9 +70,9 @@
         "fixed"
     ],
     "num_epochs": 161,
-    "exp_dir": "outputs/4dflow/4dflow_finetune_ckpts/",
-    "exp": "base_ft_4dflow_encbatch",
-    "lr": 1e-05,
+    "exp_dir": "outputs/4dflow/4dflow_finetune_phase3_no_vaa/",
+    "exp": "base_ft_4dflow_encbatch_phase3_no_vaa",
+    "lr": 2e-05,
     "weight_decay": 0.001,
     "loss_type": "ssim",
     "model_type": "restormer",
@@ -127,7 +127,7 @@
         3
     ],
     "phase3": {
-        "enable_vaa": true,
+        "enable_vaa": false,
         "mra": {
             "source": "gt",
             "method": "pcmra",
@@ -168,10 +168,9 @@
             "mode": "shifted_sigmoid"
         },
         "loss": {
-            "use_phase": false,
+            "use_phase": true,
             "use_vascular": false,
             "use_ssim_zy": true,
-            "use_ssim_xy": false,
             "phase": {
                 "method": "flowvn_complex_l1",
                 "weight": 1.0,
