@@ -17,6 +17,7 @@
     "val_interval": 40,
     "num_samples_per_case": 8,
     "data_aug": false,
+    "use_multi_epochs_train_loader": true,
     "resume_rng_state": false,
     "do_mapping_shuffle": false,
     "do_center_crop": false,
@@ -69,10 +70,10 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 161,
-    "exp_dir": "outputs/4dflow/4dflow_finetune_phase3_no_vaa/",
+    "num_epochs": 160,
+    "exp_dir": "outputs/4dflow/4dflow_finetune_phase3/",
     "exp": "base_ft_4dflow_encbatch_phase3_no_vaa",
-    "lr": 2e-05,
+    "lr": 1e-05,
     "weight_decay": 0.001,
     "loss_type": "ssim",
     "model_type": "restormer",
@@ -170,7 +171,7 @@
         "loss": {
             "use_phase": true,
             "use_vascular": false,
-            "use_ssim_zy": true,
+            "use_ssim_zy": false,
             "phase": {
                 "method": "flowvn_complex_l1",
                 "weight": 1.0,

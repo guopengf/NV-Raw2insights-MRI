@@ -189,6 +189,7 @@ def trainer(args):
     outpath = os.path.join(args.exp_dir, args.exp)
     assert_outputs_not_in_data([outpath], [*args.data_path_train, *args.data_path_val])
     Path(outpath).mkdir(parents=True, exist_ok=True)  # create output directory to store model checkpoints
+    use_multi_epochs_train_loader = bool(cfg_get(args, "use_multi_epochs_train_loader", False))
 
     # create training-validation data loaders
     if getattr(args, "is_4dflow_aorta", False):
@@ -243,6 +244,13 @@ def trainer(args):
             "No training files were found. Check data_path_train, four_dflow_accelerations, "
             "and required files kdata_full/kdata_ktGaussian*/usmask_ktGaussian*/coilmap.mat."
         )
+    if use_multi_epochs_train_loader:
+        train_files = partition_dataset(
+            data=train_files,
+            num_partitions=world_size,
+            shuffle=True,
+            even_divisible=True,
+        )[rank]
 
     val_files = val_files[
         : int(args.sample_rate * len(val_files))
@@ -327,8 +335,13 @@ def trainer(args):
             num_workers=args.num_workers,
         )
     )
-    train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True) if args.ddp else None
-    train_loader = DataLoader(
+    if use_multi_epochs_train_loader:
+        train_sampler = None
+    else:
+        train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True) if args.ddp else None
+    train_loader_cls = MultiEpochsDataLoader if use_multi_epochs_train_loader else DataLoader
+    print(f"train_loader: {train_loader_cls.__name__}")
+    train_loader = train_loader_cls(
         train_ds,
         batch_size=1,
         shuffle=(train_sampler is None),  # Only shuffle if not using sampler

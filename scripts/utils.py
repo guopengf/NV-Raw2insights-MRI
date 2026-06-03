@@ -222,6 +222,7 @@ class Config:
         setattr(self, "val_interval", 4)
         setattr(self, "num_samples_per_case", 16)
         setattr(self, "data_aug", True)
+        setattr(self, "use_multi_epochs_train_loader", False)
         setattr(self, "resume_rng_state", False)
         setattr(self, "do_mapping_shuffle", False)
         setattr(self, "do_center_crop", True)

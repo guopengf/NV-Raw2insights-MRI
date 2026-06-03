@@ -415,7 +415,7 @@ class CMRxReconReader(ImageReader):
         acquisition_type = json_data.get("acquisition", None)
         if acquisition_type is None:
             m = re.search(r"(?:^|[/\\])MultiCoil[/\\]([^/\\]+)", kspace, flags=re.I)
-            acquisition_type = m.group(1) if m else "Flow2d"
+            acquisition_type = m.group(1) if m else "Flow4d"
 
         kspace_kv = self.read_mat(kspace)
         mask_kv = self.read_mat(mask) if mask else [(None, None)]
