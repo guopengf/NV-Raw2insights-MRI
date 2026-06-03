@@ -181,13 +181,6 @@
                 "method": "mra_masked_flowvn_phase_l1",
                 "weight": 1.0,
                 "normalize_by_mask": true
-            },
-            "weights": {
-                "magnitude": 1.0,
-                "phase": 0.1,
-                "ssim_zy": 1.0,
-                "vascular": 1.0,
-                "ssim_xy": 0.25
             }
         }
     },
