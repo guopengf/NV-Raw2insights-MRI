@@ -320,7 +320,10 @@ def trainer(args):
         prepare_model_for_ddp=lambda m: apply_phase3_freeze(args, m),
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
-    print(f"#model_params: {np.sum([len(p.flatten()) for p in model.parameters()]) * 1.0e-6:.2f}M")
+    model_params = sum(p.numel() for p in model.parameters())
+    trainable_model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"#model_params: {model_params * 1.0e-6:.2f}M")
+    print(f"#trainable_model_params: {trainable_model_params * 1.0e-6:.2f}M")
 
     train_transforms = get_train_transforms(args)
     val_transforms = get_val_transforms(args)

@@ -8,7 +8,7 @@
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
-    "resume_ckpt": "outputs/4dflow/4dflow_finetune_ckpts/base_ft_4dflow_encbatch/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch160_weights_only.pt",
+    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase3/base_ft_4dflow_encbatch_phase3_no_vaa/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch95_weights_only.pt",
     "pp_z_score_norm": false,
     "fixed_mask_types": [
         "ktGaussian"
@@ -72,7 +72,7 @@
     ],
     "num_epochs": 160,
     "exp_dir": "outputs/4dflow/4dflow_finetune_phase3/",
-    "exp": "base_ft_4dflow_encbatch_phase3_no_vaa",
+    "exp": "base_ft_4dflow_encbatch_phase3_vaa",
     "lr": 1e-05,
     "weight_decay": 0.001,
     "loss_type": "ssim",
@@ -128,7 +128,7 @@
         3
     ],
     "phase3": {
-        "enable_vaa": false,
+        "enable_vaa": true,
         "mra": {
             "source": "gt",
             "method": "pcmra",
@@ -160,7 +160,7 @@
             "reduction": 4
         },
         "freeze": {
-            "backbone": false,
+            "backbone": true,
             "vaa": false
         },
         "gamma": {
@@ -170,7 +170,7 @@
         },
         "loss": {
             "use_phase": true,
-            "use_vascular": false,
+            "use_vascular": true,
             "use_ssim_zy": false,
             "phase": {
                 "method": "flowvn_complex_l1",
