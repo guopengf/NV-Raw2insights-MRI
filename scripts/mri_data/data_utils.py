@@ -216,9 +216,20 @@ class FlowVNPhaseLoss(nn.Module):
         return x.float() / mag
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
-        if self.method in ("flowvn_complex_l1", "complex_l1"):
+        if self.method in (
+            "flowvn_complex_l1",
+            "complex_l1",
+            "mra_masked_complex_l1",
+            "mra_masked_flowvn_complex_l1",
+        ):
             diff_abs = torch.abs(pred.float() - target.float()).mean(dim=-1)
-        elif self.method in ("flowvn_unit_complex_l1", "unit_complex_l1"):
+        elif self.method in (
+            "flowvn_unit_complex_l1",
+            "unit_complex_l1",
+            "phase_l1",
+            "mra_masked_phase_l1",
+            "mra_masked_flowvn_phase_l1",
+        ):
             diff = self._unit_phase(pred) - self._unit_phase(target)
             diff_abs = torch.abs(diff).mean(dim=-1)
         else:

@@ -353,6 +353,11 @@ def trainer(args):
         normalize_mask=bool(cfg_get(args, "phase3.loss.vascular.normalize_by_mask", True)),
         method=str(cfg_get(args, "phase3.loss.phase.method", "flowvn_complex_l1")),
     ).to(device)
+    vascular_loss_function = FlowVNPhaseLoss(
+        eps=float(cfg_get(args, "phase3.loss.vascular.eps", cfg_get(args, "phase3.loss.phase.eps", 1e-8))),
+        normalize_mask=bool(cfg_get(args, "phase3.loss.vascular.normalize_by_mask", True)),
+        method=str(cfg_get(args, "phase3.loss.vascular.method", "mra_masked_phase_l1")),
+    ).to(device)
     use_main_zy_loss = bool(cfg_get(args, "phase3.loss.use_ssim_zy", True))
     use_phase_loss = bool(cfg_get(args, "phase3.loss.use_phase", False))
     use_vascular_loss = bool(cfg_get(args, "phase3.loss.use_vascular", False))
@@ -598,7 +603,7 @@ def trainer(args):
                                     "phase3.loss.use_vascular=True requires phase3.enable_vaa=True "
                                     "so that mra_prior is available."
                                 )
-                            vascular_phase_loss = phase_loss_function(phase_output, phase_target, mask=mra_prior)
+                            vascular_phase_loss = vascular_loss_function(phase_output, phase_target, mask=mra_prior)
                             weighted_vascular_phase_loss = vascular_loss_weight * vascular_phase_loss
                             loss = loss + weighted_vascular_phase_loss
                             aux_loss_log["vascular_phase_loss"] = vascular_phase_loss.detach()

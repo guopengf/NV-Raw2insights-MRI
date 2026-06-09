@@ -254,31 +254,33 @@ def infer(args):
                     output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
                 output = output[:, args.num_frames // 2]
-                output = output * std[micro_b] + mean[micro_b]  # [1, c/1, 320, 320, 2]
-                output = complex_abs(crop_k_space(output, (final_shape[-2], final_shape[-1])))  # [b, c/1, 320, 320]
+                output = output * std[micro_b] + mean[micro_b]
+                output = crop_k_space(output, (final_shape[-2], final_shape[-1]))
+                outputs.append(output.data.cpu().numpy())
 
                 outputs.append(output.data.cpu().numpy())
 
             outputs = rearrange_mri_data(
                 [np.vstack(outputs)],
                 args,
-                is_complex=False,
+                is_complex=True,
                 reverse=True,
                 num_slices=final_shape[-4],
                 num_coils=final_shape[-3],
                 temporal_shuffle=temporal_shuffle,
             )  # (time), slice, coil, h, w
 
-            outputs_rss = np.sqrt(np.sum(outputs[0] ** 2, axis=-3)).astype(np.float32)
+            outputs_complex = outputs[0].astype(np.float32)
 
             # keep full spatial size, all slices, all time frames
-            # outputs_rss expected: (t, z, h, w)
-            if outputs_rss.ndim == 4:
-                outputs_to_save = np.transpose(outputs_rss, (3, 2, 1, 0)).astype(np.float32)  # (x, y, z, t)
-            elif outputs_rss.ndim == 3:
-                outputs_to_save = np.transpose(outputs_rss, (2, 1, 0)).astype(np.float32)
+            if outputs_complex.ndim == 6 and outputs_complex.shape[2] == 1:
+                outputs_to_save = np.transpose(outputs_complex[:, :, 0], (3, 2, 1, 0, 4)).astype(np.float32)
+            elif outputs_complex.ndim == 6:
+                outputs_to_save = np.transpose(outputs_complex, (4, 3, 1, 0, 2, 5)).astype(np.float32)
+            elif outputs_complex.ndim == 5:
+                outputs_to_save = np.transpose(outputs_complex, (3, 2, 1, 0, 4)).astype(np.float32)
             else:
-                outputs_to_save = outputs_rss.astype(np.float32)
+                outputs_to_save = outputs_complex.astype(np.float32)
             
             
             output_path = os.path.join(

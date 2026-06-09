@@ -170,14 +170,14 @@
         "loss": {
             "use_phase": true,
             "use_vascular": false,
-            "use_ssim_zy": true,
+            "use_ssim_zy": false,
             "phase": {
                 "method": "flowvn_complex_l1",
                 "weight": 1.0,
                 "eps": 1e-08
             },
             "vascular": {
-                "method": "mra_masked_flowvn_phase_l1",
+                "method": "mra_masked_phase_l1",
                 "weight": 1.0,
                 "normalize_by_mask": true
             }
