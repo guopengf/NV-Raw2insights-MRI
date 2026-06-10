@@ -8,7 +8,7 @@
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
-    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase3/base_ft_4dflow_encbatch_phase3_no_vaa/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch95_weights_only.pt",
+    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase3/base_ft_4dflow_encbatch_phase3_no_vaa/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch120_weights_only.pt",
     "pp_z_score_norm": false,
     "fixed_mask_types": [
         "ktGaussian"
