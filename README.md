@@ -123,7 +123,7 @@ This branch adapts NV-Raw2insights-MRI for 4D Flow Aorta MRI reconstruction.
 
 The expected raw data layout is:
 
-```text
+```
 /SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/
   Center007/
     GE_30T_Architect/
