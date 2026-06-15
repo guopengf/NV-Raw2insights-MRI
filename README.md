@@ -123,7 +123,6 @@ This branch adapts NV-Raw2insights-MRI for 4D Flow Aorta MRI reconstruction.
 
 The expected raw data layout is:
 
-```
 /SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/
   Center007/
     GE_30T_Architect/
@@ -140,23 +139,18 @@ The expected raw data layout is:
         usmask_ktGaussian30.mat
         usmask_ktGaussian40.mat
         usmask_ktGaussian50.mat
-```
 
 The 4D Flow k-space shape is expected to be:
 
-```text
 (enc, t, coil, kz, ky, kx)
-```
 
 This code uses a 1D centered IFFT along `kx`, then treats `x` like the slice dimension used by the original model:
 
-```text
 (enc, t, coil, kz, ky, kx)
 -> IFFT along kx
 (enc, t, coil, kz, ky, x)
 -> transpose
 (enc, t, x, coil, kz, ky)
-```
 
 Each velocity encoding `enc` is split into separate training samples, so the model still sees the original 5D-style input:
 
