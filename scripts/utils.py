@@ -132,12 +132,12 @@ def adjust_learning_rate(optimizer, epoch, args, is_resume_first_ten=False):
             else:
                 raise NotImplementedError
     for param_group in optimizer.param_groups:
+        group_lr = lr
         if "use_muon" in param_group and param_group["use_muon"]:
-            lr = lr * args.muon_scale
+            group_lr = group_lr * args.muon_scale
         if "lr_scale" in param_group:
-            param_group["lr"] = lr * param_group["lr_scale"]
-        else:
-            param_group["lr"] = lr
+            group_lr = group_lr * param_group["lr_scale"]
+        param_group["lr"] = group_lr
     return lr
 
 
@@ -222,6 +222,7 @@ class Config:
         setattr(self, "val_interval", 4)
         setattr(self, "num_samples_per_case", 16)
         setattr(self, "data_aug", True)
+        setattr(self, "use_multi_epochs_train_loader", False)
         setattr(self, "resume_rng_state", False)
         setattr(self, "do_mapping_shuffle", False)
         setattr(self, "do_center_crop", True)

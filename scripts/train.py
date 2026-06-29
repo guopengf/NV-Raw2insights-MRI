@@ -189,6 +189,7 @@ def trainer(args):
     outpath = os.path.join(args.exp_dir, args.exp)
     assert_outputs_not_in_data([outpath], [*args.data_path_train, *args.data_path_val])
     Path(outpath).mkdir(parents=True, exist_ok=True)  # create output directory to store model checkpoints
+    use_multi_epochs_train_loader = bool(cfg_get(args, "use_multi_epochs_train_loader", False))
 
     # create training-validation data loaders
     if getattr(args, "is_4dflow_aorta", False):
@@ -242,6 +243,13 @@ def trainer(args):
             "No training files were found. Check data_path_train, four_dflow_accelerations, "
             "and required files kdata_full/kdata_ktGaussian*/usmask_ktGaussian*/coilmap.mat."
         )
+    if use_multi_epochs_train_loader:
+        train_files = partition_dataset(
+            data=train_files,
+            num_partitions=world_size,
+            shuffle=True,
+            even_divisible=True,
+        )[rank]
 
     val_files = val_files[
         : int(args.sample_rate * len(val_files))
@@ -277,17 +285,20 @@ def trainer(args):
     except BaseException:
         args.is_multi_coil = True
 
-    # Auto resume
+    # Auto resume from the current experiment first; use resume_ckpt only to
+    # bootstrap a fresh output directory.
     pretrained_path = resolve_checkpoint_path(args.model_variant)
     resume_ckpt = getattr(args, "resume_ckpt", None)
-    if resume_ckpt:
+    resume_path = os.path.join(outpath, args.model_filename)
+    if os.path.exists(resume_path):
+        print(f"Auto-resume from experiment checkpoint: {resume_path}")
+    elif resume_ckpt:
         resume_path = str(resume_ckpt)
         if not os.path.exists(resume_path):
             raise FileNotFoundError(f"Configured resume_ckpt does not exist: {resume_path}")
+        print(f"Resume from configured checkpoint: {resume_path}")
     else:
-        resume_path = os.path.join(outpath, args.model_filename)
-        if not os.path.exists(resume_path):
-            resume_path = pretrained_path
+        resume_path = pretrained_path
     # Load the model, optimizer, and scheduler
     (
         model,
@@ -308,7 +319,10 @@ def trainer(args):
         prepare_model_for_ddp=lambda m: apply_phase3_freeze(args, m),
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
-    print(f"#model_params: {np.sum([len(p.flatten()) for p in model.parameters()]) * 1.0e-6:.2f}M")
+    model_params = sum(p.numel() for p in model.parameters())
+    trainable_model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"#model_params: {model_params * 1.0e-6:.2f}M")
+    print(f"#trainable_model_params: {trainable_model_params * 1.0e-6:.2f}M")
 
     train_transforms = get_train_transforms(args)
     val_transforms = get_val_transforms(args)
@@ -323,8 +337,13 @@ def trainer(args):
             num_workers=args.num_workers,
         )
     )
-    train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True) if args.ddp else None
-    train_loader = DataLoader(
+    if use_multi_epochs_train_loader:
+        train_sampler = None
+    else:
+        train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True) if args.ddp else None
+    train_loader_cls = MultiEpochsDataLoader if use_multi_epochs_train_loader else DataLoader
+    print(f"train_loader: {train_loader_cls.__name__}")
+    train_loader = train_loader_cls(
         train_ds,
         batch_size=1,
         shuffle=(train_sampler is None),  # Only shuffle if not using sampler

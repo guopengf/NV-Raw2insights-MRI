@@ -258,8 +258,6 @@ def infer(args):
                 output = crop_k_space(output, (final_shape[-2], final_shape[-1]))
                 outputs.append(output.data.cpu().numpy())
 
-                outputs.append(output.data.cpu().numpy())
-
             outputs = rearrange_mri_data(
                 [np.vstack(outputs)],
                 args,
