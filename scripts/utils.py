@@ -896,12 +896,15 @@ def windowed_input_x_slab(input, micro_b, final_shape, num_frames, num_slices):
     frame_offsets = range(-frame_half, num_frames - frame_half)
     slice_offsets = range(-slice_half, num_slices - slice_half)
 
+    def clamp_slice_index(value):
+        return max(0, min(total_slices - 1, value))
+
     window_idx = []
     for idx in micro_b:
         slice_i, frame_i = ind2xy(int(idx), total_frames, total_slices)
         slice_rows = []
         for slice_off in slice_offsets:
-            s = (slice_i + slice_off) % total_slices
+            s = clamp_slice_index(slice_i + slice_off)
             frame_idxs = []
             for frame_off in frame_offsets:
                 f = (frame_i + frame_off) % total_frames
@@ -957,7 +960,7 @@ def select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, n
     rows = []
     for idx in micro_b:
         slice_i, _frame_i = ind2xy(int(idx), int(final_shape[-5]), total_slices)
-        rows.append([(slice_i + off) % total_slices for off in offsets])
+        rows.append([max(0, min(total_slices - 1, slice_i + off)) for off in offsets])
     slice_indices = torch.tensor(rows, dtype=torch.long)
     return prior[slice_indices]
 
