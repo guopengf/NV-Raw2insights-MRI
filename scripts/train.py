@@ -112,6 +112,7 @@ def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodi
 
                     full_kspace = patient_dir / "kdata_full.mat"
                     coilmap = patient_dir / "coilmap.mat"
+                    segmask = patient_dir / "segmask.mat"
                     if not full_kspace.exists():
                         continue
 
@@ -133,6 +134,8 @@ def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodi
                             }
                             if coilmap.exists():
                                 item["coilmap"] = str(coilmap)
+                            if segmask.exists():
+                                item["segmask"] = str(segmask)
 
                             out_name = (
                                 f"{center_dir.name}__{scanner_dir.name}__{patient_dir.name}"
@@ -380,6 +383,8 @@ def trainer(args):
     use_main_zy_loss = bool(cfg_get(args, "phase3.loss.use_ssim_zy", True))
     use_phase_loss = bool(cfg_get(args, "phase3.loss.use_phase", False))
     use_vascular_loss = bool(cfg_get(args, "phase3.loss.use_vascular", False))
+    recon_slab = is_slab_recon(args)
+    recon_num_slices = slab_num_slices(args)
     if not (use_main_zy_loss or use_phase_loss or use_vascular_loss):
         raise RuntimeError(
             "At least one training loss must be enabled: phase3.loss.use_ssim_zy, "
@@ -524,11 +529,20 @@ def trainer(args):
                 optimizer.zero_grad()
 
                 # forward pass
-                inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
+                if recon_slab:
+                    inp, window_idx = windowed_input_x_slab(
+                        input, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
+                    )
+                else:
+                    inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
                 tar = torch.Tensor(target[window_idx])
                 mas = torch.Tensor(mask[window_idx])
                 sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                mra_prior = select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
+                mra_prior = (
+                    select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
+                    if recon_slab
+                    else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
+                )
                 inp, tar, mas, mean, std = (
                     inp.to(device),
                     tar.to(device),
@@ -541,11 +555,19 @@ def trainer(args):
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
                     output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
-                output_norm = output[:, args.num_frames // 2]
-                target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, args.num_frames // 2]
+                if recon_slab:
+                    output_norm = output[:, :, args.num_frames // 2]
+                    target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, :, args.num_frames // 2]
+                else:
+                    output_norm = output[:, args.num_frames // 2]
+                    target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, args.num_frames // 2]
                 output = output * std[window_idx] + mean[window_idx]  # [b, c/1, h, w, 2]
-                output = output[:, args.num_frames // 2]
-                tar = tar[:, args.num_frames // 2]
+                if recon_slab:
+                    output = output[:, :, args.num_frames // 2]
+                    tar = tar[:, :, args.num_frames // 2]
+                else:
+                    output = output[:, args.num_frames // 2]
+                    tar = tar[:, args.num_frames // 2]
                 output_complex_norm = crop_k_space(output_norm, (final_shape[-2], final_shape[-1]))
                 target_complex_norm = crop_k_space(target_norm, (final_shape[-2], final_shape[-1]))
                 output_complex = crop_k_space(output, (final_shape[-2], final_shape[-1]))
@@ -553,8 +575,12 @@ def trainer(args):
                 output = complex_abs(output_complex)  # [b, c/1, h, w]
                 tar = complex_abs(target_complex)
 
-                output_rss = torch.sqrt(torch.sum(output**2, dim=1, keepdim=True))
-                targets_rss = torch.sqrt(torch.sum(tar**2, dim=1, keepdim=True))
+                if recon_slab:
+                    output_rss = torch.sqrt(torch.sum(output**2, dim=2, keepdim=True)).transpose(1, 2)
+                    targets_rss = torch.sqrt(torch.sum(tar**2, dim=2, keepdim=True)).transpose(1, 2)
+                else:
+                    output_rss = torch.sqrt(torch.sum(output**2, dim=1, keepdim=True))
+                    targets_rss = torch.sqrt(torch.sum(tar**2, dim=1, keepdim=True))
 
                 loss_dict = {}
                 weighted_loss_log = {}
@@ -577,15 +603,17 @@ def trainer(args):
                             pp_norm=args.pp_norm,
                         )
                         if args.loss_type == "ssim":
+                            dims = tuple(range(1, targets_rss_pp.dim()))
                             max_value = (
-                                torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
+                                targets_rss_pp.amax(dim=dims).to(device)
                                 if "max" not in batch_data["kspace_meta_dict"]
                                 else batch_data["kspace_meta_dict"]["max"][0].item()
                             )
                             loss_function.data_range = max_value
                         elif args.loss_type == "ssim_l1":
+                            dims = tuple(range(1, targets_rss_pp.dim()))
                             max_value = (
-                                torch.Tensor(targets_rss_pp.amax(dim=(1, 2, 3))).to(device)
+                                targets_rss_pp.amax(dim=dims).to(device)
                                 if "max" not in batch_data["kspace_meta_dict"]
                                 else batch_data["kspace_meta_dict"]["max"][0].item()
                             )
@@ -606,23 +634,35 @@ def trainer(args):
                         phase_output = output_complex_norm.float()
                         phase_target = target_complex_norm.float()
                         if sens is not None:
-                            sens_center = sens[:, args.num_frames // 2]
+                            sens_center = sens[:, :, args.num_frames // 2] if recon_slab else sens[:, args.num_frames // 2]
                             sens_center = crop_k_space(sens_center, (final_shape[-2], final_shape[-1]))
                             phase_output = sensitivity_map_reduce(phase_output, sens_center)
                             phase_target = sensitivity_map_reduce(phase_target, sens_center)
+                        if recon_slab:
+                            b_slab, s_slab = phase_output.shape[:2]
+                            phase_output_for_loss = phase_output.reshape(b_slab * s_slab, *phase_output.shape[2:])
+                            phase_target_for_loss = phase_target.reshape(b_slab * s_slab, *phase_target.shape[2:])
+                            mra_prior_for_loss = (
+                                mra_prior.reshape(b_slab * s_slab, 1, *mra_prior.shape[-2:])
+                                if mra_prior is not None
+                                else None
+                            )
+                        else:
+                            phase_output_for_loss = phase_output
+                            phase_target_for_loss = phase_target
+                            mra_prior_for_loss = mra_prior
                         if use_phase_loss:
-                            phase_loss = phase_loss_function(phase_output, phase_target)
+                            phase_loss = phase_loss_function(phase_output_for_loss, phase_target_for_loss)
                             weighted_phase_loss = phase_loss_weight * phase_loss
                             loss = loss + weighted_phase_loss
                             aux_loss_log["phase_loss"] = phase_loss.detach()
                             weighted_loss_log["phase_loss_weighted"] = weighted_phase_loss.detach()
                         if use_vascular_loss:
-                            if mra_prior is None:
-                                raise RuntimeError(
-                                    "phase3.loss.use_vascular=True requires phase3.enable_vaa=True "
-                                    "so that mra_prior is available."
-                                )
-                            vascular_phase_loss = vascular_loss_function(phase_output, phase_target, mask=mra_prior)
+                            if mra_prior_for_loss is None:
+                                raise RuntimeError("phase3.loss.use_vascular=True requires a vascular prior.")
+                            vascular_phase_loss = vascular_loss_function(
+                                phase_output_for_loss, phase_target_for_loss, mask=mra_prior_for_loss
+                            )
                             weighted_vascular_phase_loss = vascular_loss_weight * vascular_phase_loss
                             loss = loss + weighted_vascular_phase_loss
                             aux_loss_log["vascular_phase_loss"] = vascular_phase_loss.detach()
@@ -815,11 +855,20 @@ def trainer(args):
                         pad_last=False,
                     ):
                         # forward pass
-                        inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
+                        if recon_slab:
+                            inp, window_idx = windowed_input_x_slab(
+                                input, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
+                            )
+                        else:
+                            inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
                         tar = torch.Tensor(target[window_idx])
                         mas = torch.Tensor(mask[window_idx])
                         sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                        mra_prior = select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
+                        mra_prior = (
+                            select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
+                            if recon_slab
+                            else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
+                        )
                         inp, tar, mas, mean, std = (
                             inp.to(device),
                             tar.to(device),
@@ -833,11 +882,21 @@ def trainer(args):
                         with autocast("cuda", torch.bfloat16, enabled=args.amp):
                             output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
-                        output = output[:, args.num_frames // 2]
-                        tar = tar[:, args.num_frames // 2]
-                        inp = inp[:, args.num_frames // 2]
-                        inp = inp * std[micro_b] + mean[micro_b]
-                        output = output * std[micro_b] + mean[micro_b]  # [1, c/1, h, w, 2]
+                        if recon_slab:
+                            center_s = recon_num_slices // 2
+                            center_t = args.num_frames // 2
+                            output = output[:, center_s, center_t]
+                            tar = tar[:, center_s, center_t]
+                            center_idx = window_idx[:, center_s, center_t]
+                            inp = inp[:, center_s, center_t]
+                            inp = inp * std[center_idx] + mean[center_idx]
+                            output = output * std[center_idx] + mean[center_idx]
+                        else:
+                            output = output[:, args.num_frames // 2]
+                            tar = tar[:, args.num_frames // 2]
+                            inp = inp[:, args.num_frames // 2]
+                            inp = inp * std[micro_b] + mean[micro_b]
+                            output = output * std[micro_b] + mean[micro_b]  # [1, c/1, h, w, 2]
                         output = complex_abs(crop_k_space(output, (final_shape[-2], final_shape[-1])))  # [b, c/1, h, w]
                         tar = complex_abs(crop_k_space(tar, (final_shape[-2], final_shape[-1])))
 

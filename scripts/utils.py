@@ -106,7 +106,11 @@ __all__ = [
     "reshape_channel_to_batch_dim",
     "Lookahead",
     "windowed_input",
+    "is_slab_recon",
+    "slab_num_slices",
+    "windowed_input_x_slab",
     "select_mra_prior_for_microbatch",
+    "select_mra_prior_slab_for_microbatch",
     "complex_zscore",
     "get_training_set",
     "report_nan_from_any_rank",
@@ -862,6 +866,54 @@ def windowed_input(input, micro_b, final_shape, num_frames, slice_window_single_
     return inp, window_idx
 
 
+def is_slab_recon(args) -> bool:
+    phase3 = getattr(args, "phase3", None)
+    mode = getattr(phase3, "recon_mode", "slice") if phase3 is not None else "slice"
+    return str(mode).lower() == "slab"
+
+
+def slab_num_slices(args) -> int:
+    if not is_slab_recon(args):
+        return 1
+    phase3 = getattr(args, "phase3", None)
+    num_slices = int(getattr(phase3, "num_slices", 3)) if phase3 is not None else 3
+    if num_slices < 1 or num_slices % 2 == 0:
+        raise ValueError(f"phase3.num_slices must be a positive odd integer, got {num_slices}")
+    return num_slices
+
+
+def windowed_input_x_slab(input, micro_b, final_shape, num_frames, num_slices):
+    """
+    Gather a raw-x slice slab and temporal window for each center sample.
+
+    input has flattened first dimension [time * raw_x_slice, ...].
+    Returns inp with shape [B, S, T, ...] and window_idx [B, S, T].
+    """
+    total_frames = int(final_shape[-5])
+    total_slices = int(final_shape[-4])
+    frame_half = num_frames // 2
+    slice_half = num_slices // 2
+    frame_offsets = range(-frame_half, num_frames - frame_half)
+    slice_offsets = range(-slice_half, num_slices - slice_half)
+
+    window_idx = []
+    for idx in micro_b:
+        slice_i, frame_i = ind2xy(int(idx), total_frames, total_slices)
+        slice_rows = []
+        for slice_off in slice_offsets:
+            s = (slice_i + slice_off) % total_slices
+            frame_idxs = []
+            for frame_off in frame_offsets:
+                f = (frame_i + frame_off) % total_frames
+                frame_idxs.append(xy2ind(s, f, total_frames, total_slices))
+            slice_rows.append(frame_idxs)
+        window_idx.append(slice_rows)
+
+    window_idx = torch.tensor(window_idx, dtype=torch.long, device=input.device)
+    inp = torch.Tensor(input[window_idx])
+    return inp, window_idx
+
+
 def select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape):
     if case_mra_prior is None:
         return None
@@ -881,6 +933,33 @@ def select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape):
             f"Per-slice mra_prior has {prior.shape[0]} slices, but final_shape reports {num_slices} raw-x slices."
         )
     return prior.index_select(0, slice_indices).unsqueeze(1)
+
+
+def select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, num_slices):
+    if case_mra_prior is None:
+        return None
+    prior = torch.as_tensor(case_mra_prior, dtype=torch.float32)
+    if prior.dim() == 2:
+        prior = prior.unsqueeze(0)
+    if prior.dim() != 3:
+        raise ValueError(f"Expected mra_prior with shape [1,z,y] or [x,z,y], got {tuple(prior.shape)}")
+
+    if prior.shape[0] == 1:
+        return prior.expand(num_slices, -1, -1).unsqueeze(0).expand(len(micro_b), -1, -1, -1)
+
+    total_slices = int(final_shape[-4])
+    if prior.shape[0] != total_slices:
+        raise ValueError(
+            f"Per-slice mra_prior has {prior.shape[0]} slices, but final_shape reports {total_slices} raw-x slices."
+        )
+    slice_half = num_slices // 2
+    offsets = range(-slice_half, num_slices - slice_half)
+    rows = []
+    for idx in micro_b:
+        slice_i, _frame_i = ind2xy(int(idx), int(final_shape[-5]), total_slices)
+        rows.append([(slice_i + off) % total_slices for off in offsets])
+    slice_indices = torch.tensor(rows, dtype=torch.long)
+    return prior[slice_indices]
 
 
 def reshape_channel_to_batch_dim(x: torch.Tensor) -> tuple[torch.Tensor, int]:

@@ -71,7 +71,7 @@
     ],
     "num_epochs": 161,
     "exp_dir": "outputs/4dflow/4dflow_finetune_ckpts/",
-    "exp": "base_ft_4dflow_encbatch",
+    "exp": "base_ft_4dflow_mask_vaa_slab",
     "lr": 1.0e-05,
     "weight_decay": 0.001,
     "loss_type": "ssim",
@@ -80,7 +80,7 @@
     "warmup_epochs": 5,
     "lr_schedule": "cosine",
     "min_lr": 7.5e-06,
-    "model_filename": "nv_raw2insights_mri_base_ft_4dflow_encbatch.pt",
+    "model_filename": "nv_raw2insights_mri_base_ft_4dflow_mask_vaa_slab.pt",
     "use_csm": true,
     "use_tau_csm": false,
     "use_acs_region": false,
@@ -127,7 +127,7 @@
         3
     ],
     "phase3": {
-        "recon_mode": "slice",
+        "recon_mode": "slab",
         "num_slices": 3,
         "enable_vaa": true,
         "mra": {
@@ -179,7 +179,7 @@
             "threshold": 0.5
         },
         "freeze": {
-            "backbone": true,
+            "backbone": false,
             "vaa": false
         },
         "gamma": {
@@ -189,7 +189,7 @@
         },
         "loss": {
             "use_phase": false,
-            "use_vascular": false,
+            "use_vascular": true,
             "use_ssim_zy": true,
             "use_ssim_xy": false,
             "ssim_spatial_dims": "auto",

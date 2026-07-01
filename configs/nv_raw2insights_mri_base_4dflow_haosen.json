@@ -127,6 +127,8 @@
         3
     ],
     "phase3": {
+        "recon_mode": "slice",
+        "num_slices": 3,
         "enable_vaa": false,
         "mra": {
             "source": "gt",
@@ -152,11 +154,29 @@
             }
         },
         "vaa": {
+            "prior_source": "mask",
+            "attention": "qkv",
             "locations": [
                 "bottleneck",
                 "intermediate"
             ],
-            "reduction": 4
+            "reduction": 4,
+            "num_heads": 4,
+            "attention_stride": 2,
+            "use_mask_bias": true
+        },
+        "mask": {
+            "field": "segmask",
+            "keys": [
+                "segmask",
+                "vessel_mask",
+                "mask",
+                "seg",
+                "label"
+            ],
+            "axis_order": "zyx",
+            "binary": true,
+            "threshold": 0.5
         },
         "freeze": {
             "backbone": false,
@@ -171,6 +191,8 @@
             "use_phase": true,
             "use_vascular": false,
             "use_ssim_zy": false,
+            "ssim_spatial_dims": "auto",
+            "ssim_win_size": "auto",
             "phase": {
                 "method": "flowvn_complex_l1",
                 "weight": 1.0,
@@ -181,6 +203,9 @@
                 "weight": 1.0,
                 "normalize_by_mask": true
             }
+        },
+        "inference": {
+            "output_merge": "center"
         }
     },
     "train_mask_types_for_def_model": [

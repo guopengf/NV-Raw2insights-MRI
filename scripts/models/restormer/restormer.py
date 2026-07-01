@@ -659,11 +659,16 @@ class Restormer(nn.Module):
         self.enable_vaa = bool(getattr(phase3, "enable_vaa", False)) if phase3 is not None else False
         vaa_cfg = getattr(phase3, "vaa", None) if phase3 is not None else None
         gamma_cfg = getattr(phase3, "gamma", None) if phase3 is not None else None
+        recon_mode = str(getattr(phase3, "recon_mode", "slice")).lower() if phase3 is not None else "slice"
+        prior_channels = int(getattr(phase3, "num_slices", 1)) if recon_mode == "slab" else 1
         self.vaa_locations = list(getattr(vaa_cfg, "locations", [])) if vaa_cfg is not None else []
         gamma_init = float(getattr(gamma_cfg, "init", 0.0)) if gamma_cfg is not None else 0.0
         gamma_mode = getattr(gamma_cfg, "mode", "shifted_sigmoid") if gamma_cfg is not None else "shifted_sigmoid"
         gamma_trainable = bool(getattr(gamma_cfg, "trainable", True)) if gamma_cfg is not None else True
         reduction = int(getattr(vaa_cfg, "reduction", 4)) if vaa_cfg is not None else 4
+        vaa_heads = int(getattr(vaa_cfg, "num_heads", 4)) if vaa_cfg is not None else 4
+        attention_stride = int(getattr(vaa_cfg, "attention_stride", 1)) if vaa_cfg is not None else 1
+        use_mask_bias = bool(getattr(vaa_cfg, "use_mask_bias", True)) if vaa_cfg is not None else True
         L = self.L
 
         self.emb_channels = channels[0] * time_embed_scale if time_cond else None
@@ -752,6 +757,10 @@ class Restormer(nn.Module):
                     reduction=reduction,
                     gamma_init=gamma_init,
                     gamma_mode=gamma_mode,
+                    prior_channels=prior_channels,
+                    num_heads=vaa_heads,
+                    attention_stride=attention_stride,
+                    use_mask_bias=use_mask_bias,
                 )
             if "intermediate" in self.vaa_locations:
                 self.vaa_adapters["intermediate"] = VascularAttentionAdapter(
@@ -759,6 +768,10 @@ class Restormer(nn.Module):
                     reduction=reduction,
                     gamma_init=gamma_init,
                     gamma_mode=gamma_mode,
+                    prior_channels=prior_channels,
+                    num_heads=vaa_heads,
+                    attention_stride=attention_stride,
+                    use_mask_bias=use_mask_bias,
                 )
             for adapter in self.vaa_adapters.values():
                 adapter.gamma_raw.requires_grad = gamma_trainable
@@ -1028,6 +1041,8 @@ class restormer_mri(nn.Module):
         self.use_external_csm = getattr(args, "use_external_csm", False)
         self.use_acs_region = use_acs_region if use_acs_region is not None else args.use_acs_region
         self.num_frames = int(args.num_frames)
+        self.recon_slab = is_slab_recon(args)
+        self.num_slices = slab_num_slices(args)
         self.num_coils = 10
         self.num_reduced_coils = int(args.num_reduced_coils) if hasattr(args, "num_reduced_coils") else 1
 
@@ -1112,8 +1127,8 @@ class restormer_mri(nn.Module):
                 for param in self.coil_sensitivity_model.parameters():
                     param.requires_grad = False
             self.recon_model = restormer(
-                in_channel=self.num_frames * self.num_reduced_coils * 2,
-                out_channel=self.num_frames * self.num_reduced_coils * 2,
+                in_channel=self.num_slices * self.num_frames * self.num_reduced_coils * 2,
+                out_channel=self.num_slices * self.num_frames * self.num_reduced_coils * 2,
                 num_experts=self.num_experts,
                 top_k=self.top_k,
                 expansion_factor=self.mlp_ratio,
@@ -1133,8 +1148,8 @@ class restormer_mri(nn.Module):
             )
         else:
             self.recon_model = restormer(
-                in_channel=self.num_frames * self.num_coils * 2,
-                out_channel=self.num_frames * self.num_coils * 2,
+                in_channel=self.num_slices * self.num_frames * self.num_coils * 2,
+                out_channel=self.num_slices * self.num_frames * self.num_coils * 2,
                 num_experts=self.num_experts,
                 top_k=self.top_k,
                 expansion_factor=self.mlp_ratio,
@@ -1179,11 +1194,15 @@ class restormer_mri(nn.Module):
         current_model_dict = recon_model.state_dict()
         new_state_dict = {}
         loaded_keys = []
+        skipped_shape_keys = []
         for k in current_model_dict.keys():
             if k in loaded_state_dict:
                 if loaded_state_dict[k].size() == current_model_dict[k].size():
                     new_state_dict[k] = loaded_state_dict[k]
                     loaded_keys.append(k)
+                else:
+                    new_state_dict[k] = current_model_dict[k]
+                    skipped_shape_keys.append(k)
             else:
                 new_state_dict[k] = current_model_dict[k]
 
@@ -1193,6 +1212,10 @@ class restormer_mri(nn.Module):
             f"Loaded {len(loaded_keys)} keys from pretrained Recon model with {len(loaded_state_dict)} keys \
             from {self.args.pretrained_recon}."
         )
+        if skipped_shape_keys:
+            preview = ", ".join(skipped_shape_keys[:8])
+            suffix = "..." if len(skipped_shape_keys) > 8 else ""
+            print(f"Skipped {len(skipped_shape_keys)} pretrained Recon keys due to shape mismatch: {preview}{suffix}")
         return recon_model
 
     def load_csm_model(self):
@@ -1290,19 +1313,29 @@ class restormer_mri(nn.Module):
         timestep: int = None,
         mra_prior: torch.Tensor = None,
     ) -> tuple[Tensor | Any, Any]:
-        # x shape: (B,T,C,H,W,2) undersampled image
-        # mask shape: (B,T,C,H,W,2) mask
-
-        B, T, C, H, W, two = x.shape
-        x = rearrange(x, "b t c h w two-> (b t) c h w two")
-        ref_image = rearrange(ref_image, "b t c h w two-> (b t) c h w two")
-        mask = rearrange(mask, "b t c h w two-> (b t) c h w two")
+        # slice mode: x shape (B,T,C,H,W,2)
+        # slab mode:  x shape (B,S,T,C,H,W,2)
+        if self.recon_slab:
+            B, S, T, C, H, W, two = x.shape
+            if S != self.num_slices:
+                raise ValueError(f"Expected slab with S={self.num_slices}, got {S}")
+            x = rearrange(x, "b s t c h w two-> (b s t) c h w two")
+            ref_image = rearrange(ref_image, "b s t c h w two-> (b s t) c h w two")
+            mask = rearrange(mask, "b s t c h w two-> (b s t) c h w two")
+        else:
+            B, T, C, H, W, two = x.shape
+            S = 1
+            x = rearrange(x, "b t c h w two-> (b t) c h w two")
+            ref_image = rearrange(ref_image, "b t c h w two-> (b t) c h w two")
+            mask = rearrange(mask, "b t c h w two-> (b t) c h w two")
 
         skip = x.clone()
 
         if self.use_csm:
             if sensitivity_maps is not None:
-                if sensitivity_maps.dim() == 6:
+                if self.recon_slab and sensitivity_maps.dim() == 7:
+                    sensitivity_maps = rearrange(sensitivity_maps, "b s t c h w two -> (b s t) c h w two")
+                elif sensitivity_maps.dim() == 6:
                     sensitivity_maps = rearrange(sensitivity_maps, "b t c h w two -> (b t) c h w two")
                 sensitivity_maps = sensitivity_maps.to(device=x.device, dtype=x.dtype)
             elif self.use_external_csm:
@@ -1321,7 +1354,10 @@ class restormer_mri(nn.Module):
                         sensitivity_maps = checkpoint(self.coil_sensitivity_model, x, use_reentrant=False)
             x = sensitivity_map_reduce(x, sensitivity_maps, k=self.num_reduced_coils)  # x will be of shape (B,1,H,W,2)
 
-        x = rearrange(x, "(b t) c h w two -> b (t c two) h w", t=T, two=2)
+        if self.recon_slab:
+            x = rearrange(x, "(b s t) c h w two -> b (s t c two) h w", b=B, s=S, t=T, two=2)
+        else:
+            x = rearrange(x, "(b t) c h w two -> b (t c two) h w", t=T, two=2)
         mask_idx = next((i for i, sub in enumerate(self.mask_types) if sub in mask_type.lower()), -1)
         acc_idx = next((i for i, sub in enumerate(self.acc_factors) if int(sub) == acc_factor), -1)
         if acc_idx == -1:
@@ -1336,26 +1372,48 @@ class restormer_mri(nn.Module):
             x, cas_skips = self.recon_model(x, cas_skips)
         else:
             x, cas_skips = self.recon_model(x, cas_skips, timestep, label, mra_prior)
-        x = rearrange(x, "b (t c two) h w -> (b t) c h w two", t=T, two=2)
+        if self.recon_slab:
+            x = rearrange(x, "b (s t c two) h w -> (b s t) c h w two", s=S, t=T, two=2)
+        else:
+            x = rearrange(x, "b (t c two) h w -> (b t) c h w two", t=T, two=2)
 
         if self.last_cascade:
-            skip = rearrange(skip, "(b t) c h w two -> b t c h w two", t=T)[:, T // 2 : T // 2 + 1, :, :, :, :].expand(
-                -1, T, -1, -1, -1, -1
-            )
-            skip = rearrange(skip, "b t c h w two-> (b t) c h w two")
-            ref_image = rearrange(ref_image, "(b t) c h w two -> b t c h w two", t=T)[
-                :, T // 2 : T // 2 + 1, :, :, :, :
-            ].expand(-1, T, -1, -1, -1, -1)
-            ref_image = rearrange(ref_image, "b t c h w two-> (b t) c h w two")
-            mask = rearrange(mask, "(b t) c h w two -> b t c h w two", t=T)[:, T // 2 : T // 2 + 1, :, :, :, :].expand(
-                -1, T, -1, -1, -1, -1
-            )
-            mask = rearrange(mask, "b t c h w two-> (b t) c h w two")
-            if self.use_csm:
-                sensitivity_maps = rearrange(sensitivity_maps, "(b t) c h w two -> b t c h w two", t=T)[
+            if self.recon_slab:
+                skip = rearrange(skip, "(b s t) c h w two -> b s t c h w two", b=B, s=S, t=T)[
+                    :, :, T // 2 : T // 2 + 1, :, :, :, :
+                ].expand(-1, -1, T, -1, -1, -1, -1)
+                skip = rearrange(skip, "b s t c h w two-> (b s t) c h w two")
+                ref_image = rearrange(ref_image, "(b s t) c h w two -> b s t c h w two", b=B, s=S, t=T)[
+                    :, :, T // 2 : T // 2 + 1, :, :, :, :
+                ].expand(-1, -1, T, -1, -1, -1, -1)
+                ref_image = rearrange(ref_image, "b s t c h w two-> (b s t) c h w two")
+                mask = rearrange(mask, "(b s t) c h w two -> b s t c h w two", b=B, s=S, t=T)[
+                    :, :, T // 2 : T // 2 + 1, :, :, :, :
+                ].expand(-1, -1, T, -1, -1, -1, -1)
+                mask = rearrange(mask, "b s t c h w two-> (b s t) c h w two")
+                if self.use_csm:
+                    sensitivity_maps = rearrange(
+                        sensitivity_maps, "(b s t) c h w two -> b s t c h w two", b=B, s=S, t=T
+                    )[:, :, T // 2 : T // 2 + 1, :, :, :, :].expand(-1, -1, T, -1, -1, -1, -1)
+                    sensitivity_maps = rearrange(sensitivity_maps, "b s t c h w two-> (b s t) c h w two")
+            else:
+                skip = rearrange(skip, "(b t) c h w two -> b t c h w two", t=T)[:, T // 2 : T // 2 + 1, :, :, :, :].expand(
+                    -1, T, -1, -1, -1, -1
+                )
+                skip = rearrange(skip, "b t c h w two-> (b t) c h w two")
+                ref_image = rearrange(ref_image, "(b t) c h w two -> b t c h w two", t=T)[
                     :, T // 2 : T // 2 + 1, :, :, :, :
                 ].expand(-1, T, -1, -1, -1, -1)
-                sensitivity_maps = rearrange(sensitivity_maps, "b t c h w two-> (b t) c h w two")
+                ref_image = rearrange(ref_image, "b t c h w two-> (b t) c h w two")
+                mask = rearrange(mask, "(b t) c h w two -> b t c h w two", t=T)[:, T // 2 : T // 2 + 1, :, :, :, :].expand(
+                    -1, T, -1, -1, -1, -1
+                )
+                mask = rearrange(mask, "b t c h w two-> (b t) c h w two")
+                if self.use_csm:
+                    sensitivity_maps = rearrange(sensitivity_maps, "(b t) c h w two -> b t c h w two", t=T)[
+                        :, T // 2 : T // 2 + 1, :, :, :, :
+                    ].expand(-1, T, -1, -1, -1, -1)
+                    sensitivity_maps = rearrange(sensitivity_maps, "b t c h w two-> (b t) c h w two")
 
         if self.use_csm:
             x = sensitivity_map_expand(x, sensitivity_maps)  # x will be of shape (B,C,H,W,2)
@@ -1372,9 +1430,15 @@ class restormer_mri(nn.Module):
                     skip = self.soft_dc(skip.float(), ref_image, mask, mask_type=mask_type)  # (B,C,H,W,2)
             x = skip + x
 
-        x = rearrange(x, "(b t) c h w two -> b t c h w two", t=T)
+        if self.recon_slab:
+            x = rearrange(x, "(b s t) c h w two -> b s t c h w two", b=B, s=S, t=T)
+        else:
+            x = rearrange(x, "(b t) c h w two -> b t c h w two", t=T)
 
         if self.last_cascade:
-            x = torch.mean(x, dim=1, keepdim=True).expand(-1, T, -1, -1, -1, -1)
+            if self.recon_slab:
+                x = torch.mean(x, dim=2, keepdim=True).expand(-1, -1, T, -1, -1, -1, -1)
+            else:
+                x = torch.mean(x, dim=1, keepdim=True).expand(-1, T, -1, -1, -1, -1)
 
         return x, cas_skips, sensitivity_maps

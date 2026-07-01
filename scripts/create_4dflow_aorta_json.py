@@ -32,6 +32,7 @@ def main():
 
                 full_kspace = patient_dir / "kdata_full.mat"
                 coilmap = patient_dir / "coilmap.mat"
+                segmask = patient_dir / "segmask.mat"
                 if not full_kspace.exists():
                     continue
 
@@ -54,6 +55,8 @@ def main():
                         }
                         if coilmap.exists():
                             item["coilmap"] = str(coilmap)
+                        if segmask.exists():
+                            item["segmask"] = str(segmask)
 
                         out_name = (
                             f"{center_dir.name}__{vendor_dir.name}__{patient_dir.name}"

@@ -180,8 +180,8 @@ def rearrange_mri_data(
 
 
 class SSIML1Loss(object):
-    def __init__(self, device, ssim_scale=10, l1_scale=1):
-        self.ssim_loss = SSIMLoss(spatial_dims=2).to(device)
+    def __init__(self, device, spatial_dims=2, win_size=11, ssim_scale=10, l1_scale=1):
+        self.ssim_loss = SSIMLoss(spatial_dims=spatial_dims, win_size=win_size).to(device)
         self.l1_loss = torch.nn.L1Loss().to(device)
         self.ssim_scale = ssim_scale
         self.l1_scale = l1_scale
@@ -251,17 +251,40 @@ class FlowVNPhaseLoss(nn.Module):
         return weighted.mean()
 
 
+def _cfg_get(obj, path: str, default=None):
+    cur = obj
+    for part in path.split("."):
+        if cur is None:
+            return default
+        cur = getattr(cur, part, default)
+    return cur
+
+
 def get_loss_function(args, device=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
+    phase3 = getattr(args, "phase3", None)
+    recon_mode = str(getattr(phase3, "recon_mode", "slice")).lower() if phase3 is not None else "slice"
+    spatial_dims_cfg = _cfg_get(args, "phase3.loss.ssim_spatial_dims", "auto")
+    if str(spatial_dims_cfg).lower() == "auto":
+        spatial_dims = 3 if recon_mode == "slab" else 2
+    else:
+        spatial_dims = int(spatial_dims_cfg)
+    win_size_cfg = _cfg_get(args, "phase3.loss.ssim_win_size", "auto")
+    if str(win_size_cfg).lower() == "auto":
+        win_size = (int(_cfg_get(args, "phase3.num_slices", 3)), 11, 11) if spatial_dims == 3 else 11
+    elif isinstance(win_size_cfg, (list, tuple)):
+        win_size = tuple(int(v) for v in win_size_cfg)
+    else:
+        win_size = int(win_size_cfg)
     if args.loss_type == "l1":
         loss_function = torch.nn.L1Loss().to(device)
     elif args.loss_type == "l2":
         loss_function = torch.nn.MSELoss().to(device)
     elif args.loss_type == "ssim":
-        loss_function = SSIMLoss(spatial_dims=2, ssim_scale=10).to(device)
+        loss_function = SSIMLoss(spatial_dims=spatial_dims, win_size=win_size, ssim_scale=10).to(device)
     elif args.loss_type == "ssim_l1":
-        loss_function = SSIML1Loss(device)
+        loss_function = SSIML1Loss(device, spatial_dims=spatial_dims, win_size=win_size)
     else:
         raise ValueError(f"Loss function {args.loss_type} not supported.")
 

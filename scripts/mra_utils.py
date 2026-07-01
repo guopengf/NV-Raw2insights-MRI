@@ -31,6 +31,10 @@ def phase3_enabled(args: Any) -> bool:
     return bool(cfg_get(args, "phase3.enable_vaa", False))
 
 
+def vascular_prior_needed(args: Any) -> bool:
+    return phase3_enabled(args) or bool(cfg_get(args, "phase3.loss.use_vascular", False))
+
+
 def to_complex_np(arr: np.ndarray) -> np.ndarray:
     arr = np.asarray(arr)
     if np.iscomplexobj(arr):
@@ -61,6 +65,47 @@ def read_mat_array(path: str | Path, preferred_keys: tuple[str, ...]) -> np.ndar
             if not key.startswith("__"):
                 return to_complex_np(value)
     raise ValueError(f"No array found in {path}")
+
+
+def read_real_mat_array(path: str | Path, preferred_keys: tuple[str, ...]) -> np.ndarray:
+    path = Path(path)
+    try:
+        with h5py.File(path, "r") as f:
+            for key in preferred_keys:
+                if key in f:
+                    return np.asarray(f[key][()])
+            for key in f:
+                if isinstance(f[key], h5py.Dataset):
+                    return np.asarray(f[key][()])
+    except OSError:
+        dat = scipy.io.loadmat(path)
+        for key in preferred_keys:
+            if key in dat:
+                return np.asarray(dat[key])
+        for key, value in dat.items():
+            if not key.startswith("__"):
+                return np.asarray(value)
+    raise ValueError(f"No array found in {path}")
+
+
+def load_vessel_mask_prior(path: str | Path, args: Any) -> np.ndarray:
+    keys = cfg_get(args, "phase3.mask.keys", ("segmask", "vessel_mask", "mask", "seg", "label"))
+    if isinstance(keys, str):
+        keys = tuple(k.strip() for k in keys.split(",") if k.strip())
+    keys = tuple(keys)
+    arr = np.asarray(read_real_mat_array(path, keys)).squeeze().astype(np.float32)
+    axis_order = str(cfg_get(args, "phase3.mask.axis_order", "zyx")).lower()
+    if arr.ndim != len(axis_order):
+        raise ValueError(f"Vessel mask shape/order mismatch: shape={arr.shape}, axis_order={axis_order!r}")
+    if sorted(axis_order) != ["x", "y", "z"]:
+        raise ValueError(f"phase3.mask.axis_order must be a permutation of zyx, got {axis_order!r}")
+    arr = np.transpose(arr, tuple(axis_order.index(axis) for axis in "xzy"))
+    if bool(cfg_get(args, "phase3.mask.binary", True)):
+        threshold = float(cfg_get(args, "phase3.mask.threshold", 0.5))
+        arr = (arr >= threshold).astype(np.float32)
+    else:
+        arr = np.clip(arr, 0.0, 1.0).astype(np.float32)
+    return arr
 
 
 def temporal_mean_kspace(path: str | Path, key: str, *, device: torch.device, nonzero: bool) -> tuple[torch.Tensor, torch.Tensor]:
@@ -197,7 +242,7 @@ def mra_cache_path(args: Any, json_data: dict[str, Any], source: str) -> Path:
 
 
 def generate_or_load_mra_prior(args: Any, json_data: dict[str, Any]) -> np.ndarray | None:
-    if not phase3_enabled(args):
+    if not vascular_prior_needed(args):
         return None
 
     source = str(cfg_get(args, "phase3.mra.source", "gt")).lower()
