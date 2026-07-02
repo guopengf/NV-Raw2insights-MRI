@@ -22,6 +22,7 @@ from readers import CestMRIReader, CMRxReconReader, FastMRIReader
 from run4ranking import run4Ranking
 from torch.nn.modules.loss import _Loss
 from torchvision.transforms.functional import center_crop
+from utils import normalize_recon_mode, normalize_ssim_spatial_dims
 
 
 class FrequencyDownsampling(nn.Module):
@@ -263,13 +264,12 @@ def _cfg_get(obj, path: str, default=None):
 def get_loss_function(args, device=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-    phase3 = getattr(args, "phase3", None)
-    recon_mode = str(getattr(phase3, "recon_mode", "slice")).lower() if phase3 is not None else "slice"
-    spatial_dims_cfg = _cfg_get(args, "phase3.loss.ssim_spatial_dims", "auto")
-    if str(spatial_dims_cfg).lower() == "auto":
+    recon_mode = normalize_recon_mode(args)
+    spatial_dims_cfg = normalize_ssim_spatial_dims(_cfg_get(args, "phase3.loss.ssim_spatial_dims", "auto"), recon_mode)
+    if spatial_dims_cfg == "auto":
         spatial_dims = 3 if recon_mode == "slab" else 2
     else:
-        spatial_dims = int(spatial_dims_cfg)
+        spatial_dims = spatial_dims_cfg
     win_size_cfg = _cfg_get(args, "phase3.loss.ssim_win_size", "auto")
     if str(win_size_cfg).lower() == "auto":
         win_size = (int(_cfg_get(args, "phase3.num_slices", 3)), 11, 11) if spatial_dims == 3 else 11

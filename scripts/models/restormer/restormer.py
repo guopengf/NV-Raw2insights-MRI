@@ -659,13 +659,14 @@ class Restormer(nn.Module):
         self.enable_vaa = bool(getattr(phase3, "enable_vaa", False)) if phase3 is not None else False
         vaa_cfg = getattr(phase3, "vaa", None) if phase3 is not None else None
         gamma_cfg = getattr(phase3, "gamma", None) if phase3 is not None else None
-        recon_mode = str(getattr(phase3, "recon_mode", "slice")).lower() if phase3 is not None else "slice"
+        recon_mode = normalize_recon_mode(getattr(phase3, "recon_mode", "slice") if phase3 is not None else "slice")
         prior_channels = int(getattr(phase3, "num_slices", 1)) if recon_mode == "slab" else 1
         self.vaa_locations = list(getattr(vaa_cfg, "locations", [])) if vaa_cfg is not None else []
         gamma_init = float(getattr(gamma_cfg, "init", 0.0)) if gamma_cfg is not None else 0.0
         gamma_mode = getattr(gamma_cfg, "mode", "shifted_sigmoid") if gamma_cfg is not None else "shifted_sigmoid"
         gamma_trainable = bool(getattr(gamma_cfg, "trainable", True)) if gamma_cfg is not None else True
         reduction = int(getattr(vaa_cfg, "reduction", 4)) if vaa_cfg is not None else 4
+        attention = getattr(vaa_cfg, "attention", "gate") if vaa_cfg is not None else "gate"
         vaa_heads = int(getattr(vaa_cfg, "num_heads", 4)) if vaa_cfg is not None else 4
         attention_stride = int(getattr(vaa_cfg, "attention_stride", 1)) if vaa_cfg is not None else 1
         use_mask_bias = bool(getattr(vaa_cfg, "use_mask_bias", True)) if vaa_cfg is not None else True
@@ -758,6 +759,7 @@ class Restormer(nn.Module):
                     gamma_init=gamma_init,
                     gamma_mode=gamma_mode,
                     prior_channels=prior_channels,
+                    attention=attention,
                     num_heads=vaa_heads,
                     attention_stride=attention_stride,
                     use_mask_bias=use_mask_bias,
@@ -769,6 +771,7 @@ class Restormer(nn.Module):
                     gamma_init=gamma_init,
                     gamma_mode=gamma_mode,
                     prior_channels=prior_channels,
+                    attention=attention,
                     num_heads=vaa_heads,
                     attention_stride=attention_stride,
                     use_mask_bias=use_mask_bias,
