@@ -57,22 +57,65 @@ def to_namespace(value):
     return value
 
 
-def check_configs() -> dict[str, str]:
+def check_configs() -> dict[str, object]:
     expected = {
-        "nv_raw2insights_mri_base_4dflow_pg.json": "legacy",
-        "nv_raw2insights_mri_base_4dflow_vaa_pg.json": "legacy",
-        "nv_raw2insights_mri_base_4dflow_mask_vaa_slice.json": "qkv",
-        "nv_raw2insights_mri_base_4dflow_mask_vaa_slab.json": "qkv",
+        "nv_raw2insights_mri_base_4dflow_pg.json": {
+            "attention": "legacy",
+            "recon_mode": "slice",
+            "enable_vaa": False,
+        },
+        "nv_raw2insights_mri_base_4dflow_vaa_pg.json": {
+            "attention": "legacy",
+            "recon_mode": "slice",
+            "enable_vaa": True,
+        },
+        "nv_raw2insights_mri_base_4dflow_slab_no_vaa.json": {
+            "attention": None,
+            "recon_mode": "slab",
+            "enable_vaa": False,
+            "freeze_backbone": False,
+            "freeze_vaa": True,
+        },
+        "nv_raw2insights_mri_base_4dflow_mask_vaa_slab.json": {
+            "attention": "qkv",
+            "recon_mode": "slab",
+            "enable_vaa": True,
+            "freeze_backbone": True,
+            "freeze_vaa": False,
+        },
     }
     observed = {}
-    for name, expected_attention in expected.items():
+    raw_configs = {}
+    for name, expected_values in expected.items():
         data = json.loads((REPO_ROOT / "configs" / name).read_text())
+        raw_configs[name] = data
         args = to_namespace(data)
         validate_phase3_config(args)
-        attention = args.phase3.vaa.attention
-        if attention != expected_attention:
-            raise AssertionError(f"{name}: expected attention={expected_attention}, got {attention}")
-        observed[name] = attention
+        vaa = getattr(args.phase3, "vaa", None)
+        freeze = getattr(args.phase3, "freeze", None)
+        values = {
+            "attention": getattr(vaa, "attention", None),
+            "recon_mode": args.phase3.recon_mode,
+            "enable_vaa": args.phase3.enable_vaa,
+        }
+        if freeze is not None:
+            values.update(
+                freeze_backbone=freeze.backbone,
+                freeze_vaa=freeze.vaa,
+            )
+        for key, expected_value in expected_values.items():
+            if values.get(key) != expected_value:
+                raise AssertionError(f"{name}: expected {key}={expected_value!r}, got {values.get(key)!r}")
+        observed[name] = values
+
+    baseline = raw_configs["nv_raw2insights_mri_base_4dflow_slab_no_vaa.json"]
+    followup = raw_configs["nv_raw2insights_mri_base_4dflow_mask_vaa_slab.json"]
+    expected_resume = str(Path(baseline["exp_dir"]) / baseline["exp"] / baseline["model_filename"])
+    if followup["resume_ckpt"] != expected_resume:
+        raise AssertionError(
+            "Slab VAA checkpoint handoff mismatch: "
+            f"expected {expected_resume!r}, got {followup['resume_ckpt']!r}"
+        )
     return observed
 
 

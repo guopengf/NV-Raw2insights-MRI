@@ -8,7 +8,7 @@
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
-    "resume_ckpt": "outputs/4dflow/4dflow_finetune_ckpts/base_ft_4dflow_encbatch/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch160.pt",
+    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase4/base_ft_4dflow_slab_no_vaa/nv_raw2insights_mri_base_ft_4dflow_slab_no_vaa.pt",
     "pp_z_score_norm": false,
     "fixed_mask_types": [
         "ktGaussian"
@@ -69,7 +69,7 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 161,
+    "num_epochs": 162,
     "exp_dir": "outputs/4dflow/4dflow_finetune_phase4/",
     "exp": "base_ft_4dflow_mask_vaa_slab",
     "lr": 1.0e-05,
@@ -179,7 +179,7 @@
             "threshold": 0.5
         },
         "freeze": {
-            "backbone": false,
+            "backbone": true,
             "vaa": false
         },
         "gamma": {
