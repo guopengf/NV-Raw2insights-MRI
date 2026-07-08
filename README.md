@@ -116,7 +116,7 @@ Please also cite the [CMRxRecon dataset](https://www.synapse.org/Synapse:syn5981
 - [SDUM Paper](https://arxiv.org/abs/2512.17137) — arXiv
 - [HuggingFace Model](https://huggingface.co/nvidia/NV-Raw2Insights-MRI) — Weights and model card
 - [CMRxRecon2025 Challenge](https://www.synapse.org/Synapse:syn59814210/wiki/634966) — Benchmark -->
-```markdown
+
 # 4D Flow Aorta MRI Finetuning Usage
 
 This branch adapts NV-Raw2insights-MRI for 4D Flow Aorta MRI reconstruction.

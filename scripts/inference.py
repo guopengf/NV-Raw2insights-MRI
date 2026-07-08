@@ -78,6 +78,8 @@ def infer(args):
         set_determinism(seed=args.seed)
     if args.debug is True:
         set_determinism(seed=0)
+    recon_slab = is_slab_recon(args)
+    recon_num_slices = slab_num_slices(args)
 
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     if rank != 0:
@@ -237,10 +239,19 @@ def infer(args):
                 pad_last=False,
             ):
                 # forward pass
-                inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
+                if recon_slab:
+                    inp, window_idx = windowed_input_x_slab(
+                        input, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
+                    )
+                else:
+                    inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
                 mas = torch.Tensor(mask[window_idx])
                 sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                mra_prior = select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
+                mra_prior = (
+                    select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
+                    if recon_slab
+                    else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
+                )
                 inp, mas, mean, std = (
                     inp.to(device),
                     mas.to(device),
@@ -253,8 +264,15 @@ def infer(args):
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
                     output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
-                output = output[:, args.num_frames // 2]
-                output = output * std[micro_b] + mean[micro_b]
+                if recon_slab:
+                    center_s = recon_num_slices // 2
+                    center_t = args.num_frames // 2
+                    output = output[:, center_s, center_t]
+                    center_idx = window_idx[:, center_s, center_t]
+                    output = output * std[center_idx] + mean[center_idx]
+                else:
+                    output = output[:, args.num_frames // 2]
+                    output = output * std[micro_b] + mean[micro_b]
                 output = crop_k_space(output, (final_shape[-2], final_shape[-1]))
                 outputs.append(output.data.cpu().numpy())
 

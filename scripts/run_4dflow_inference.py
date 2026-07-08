@@ -62,6 +62,7 @@ def build_jsons(
                 print(f"[WARN] Missing {us_kspace} or {mask_path}, skip.")
                 continue
             coilmap = case_dir / "coilmap.mat"
+            segmask = case_dir / "segmask.mat"
             target_kspace = kspace_full if kspace_full.exists() else us_kspace
 
             stem = f"{center}__{scanner}__{case_id}__ktGaussian{acc}__enc{encoding_idx}"
@@ -79,6 +80,8 @@ def build_jsons(
             }
             if coilmap.exists():
                 payload["coilmap"] = str(coilmap)
+            if segmask.exists():
+                payload["segmask"] = str(segmask)
 
             with open(json_path, "w") as f:
                 json.dump(payload, f, indent=2)

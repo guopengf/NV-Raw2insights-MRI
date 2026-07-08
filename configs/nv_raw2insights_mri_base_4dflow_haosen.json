@@ -34,7 +34,7 @@
     "amp": true,
     "acs_lines": 20,
     "pp_norm": false,
-    "batch_size": 1,
+    "batch_size": 8,
     "num_workers": 1,
     "cache_rate": 0.0,
     "sample_rate": 1.0,
@@ -69,8 +69,8 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 161,
-    "exp_dir": "outputs/4dflow/4dflow_finetune_ckpts/",
+    "num_epochs": 320,
+    "exp_dir": "outputs/4dflow/4dflow_finetune_phase_novaa_ckpts/",
     "exp": "base_ft_4dflow_encbatch",
     "lr": 1e-05,
     "weight_decay": 0.001,
@@ -127,7 +127,9 @@
         3
     ],
     "phase3": {
-        "enable_vaa": true,
+        "recon_mode": "slice",
+        "num_slices": 3,
+        "enable_vaa": false,
         "mra": {
             "source": "gt",
             "method": "pcmra",
@@ -152,15 +154,33 @@
             }
         },
         "vaa": {
+            "prior_source": "mask",
+            "attention": "qkv",
             "locations": [
                 "bottleneck",
                 "intermediate"
             ],
-            "reduction": 4
+            "reduction": 4,
+            "num_heads": 4,
+            "attention_stride": 2,
+            "use_mask_bias": true
+        },
+        "mask": {
+            "field": "segmask",
+            "keys": [
+                "segmask",
+                "vessel_mask",
+                "mask",
+                "seg",
+                "label"
+            ],
+            "axis_order": "zyx",
+            "binary": true,
+            "threshold": 0.5
         },
         "freeze": {
-            "backbone": true,
-            "vaa": false
+            "backbone": false,
+            "vaa": true
         },
         "gamma": {
             "init": 0.0,
@@ -169,24 +189,23 @@
         },
         "loss": {
             "use_phase": true,
-            "use_vascular": true,
-            "use_ssim_zy": true,
+            "use_vascular": false,
+            "use_ssim_zy": false,
+            "ssim_spatial_dims": "auto",
+            "ssim_win_size": "auto",
             "phase": {
                 "method": "flowvn_complex_l1",
                 "weight": 1.0,
                 "eps": 1e-08
             },
             "vascular": {
-                "method": "mra_masked_flowvn_phase_l1",
+                "method": "mra_masked_phase_l1",
                 "weight": 1.0,
                 "normalize_by_mask": true
-            },
-            "weights": {
-                "magnitude": 1.0,
-                "phase": 0.1,
-                "ssim_zy": 1.0,
-                "vascular": 1.0
             }
+        },
+        "inference": {
+            "output_merge": "center"
         }
     },
     "train_mask_types_for_def_model": [

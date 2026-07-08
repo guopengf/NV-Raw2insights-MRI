@@ -19,7 +19,7 @@ from collections.abc import Sequence
 
 import numpy as np
 import scipy
-from mra_utils import generate_or_load_mra_prior, phase3_enabled
+from mra_utils import cfg_get, generate_or_load_mra_prior, load_vessel_mask_prior, vascular_prior_needed
 from monai.config import PathLike
 from monai.data.image_reader import ImageReader
 from monai.data.utils import is_supported_format
@@ -400,8 +400,16 @@ class CMRxReconReader(ImageReader):
                     json_data["coilmap"],
                     preferred_keys=("coilmap", "csm", "sensitivity_maps", "sens_maps"),
                 )
-            if phase3_enabled(self.args):
-                dat["mra_prior"] = generate_or_load_mra_prior(self.args, json_data)
+            if vascular_prior_needed(self.args):
+                prior_source = str(cfg_get(self.args, "phase3.vaa.prior_source", "mra")).lower()
+                if prior_source == "mask":
+                    field = str(cfg_get(self.args, "phase3.mask.field", "segmask"))
+                    mask_path = json_data.get(field, json_data.get("segmask"))
+                    if not mask_path:
+                        raise ValueError(f"phase3.vaa.prior_source=mask requires JSON field '{field}' or 'segmask': {data}")
+                    dat["mra_prior"] = load_vessel_mask_prior(mask_path, self.args)
+                else:
+                    dat["mra_prior"] = generate_or_load_mra_prior(self.args, json_data)
             return dat
 
         kspace = json_data["kspace"]

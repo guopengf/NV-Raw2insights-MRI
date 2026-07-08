@@ -22,6 +22,7 @@ from readers import CestMRIReader, CMRxReconReader, FastMRIReader
 from run4ranking import run4Ranking
 from torch.nn.modules.loss import _Loss
 from torchvision.transforms.functional import center_crop
+from utils import normalize_recon_mode, normalize_ssim_spatial_dims
 
 
 class FrequencyDownsampling(nn.Module):
@@ -180,8 +181,8 @@ def rearrange_mri_data(
 
 
 class SSIML1Loss(object):
-    def __init__(self, device, ssim_scale=10, l1_scale=1):
-        self.ssim_loss = SSIMLoss(spatial_dims=2).to(device)
+    def __init__(self, device, spatial_dims=2, win_size=11, ssim_scale=10, l1_scale=1):
+        self.ssim_loss = SSIMLoss(spatial_dims=spatial_dims, win_size=win_size).to(device)
         self.l1_loss = torch.nn.L1Loss().to(device)
         self.ssim_scale = ssim_scale
         self.l1_scale = l1_scale
@@ -216,9 +217,20 @@ class FlowVNPhaseLoss(nn.Module):
         return x.float() / mag
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
-        if self.method in ("flowvn_complex_l1", "complex_l1"):
+        if self.method in (
+            "flowvn_complex_l1",
+            "complex_l1",
+            "mra_masked_complex_l1",
+            "mra_masked_flowvn_complex_l1",
+        ):
             diff_abs = torch.abs(pred.float() - target.float()).mean(dim=-1)
-        elif self.method in ("flowvn_unit_complex_l1", "unit_complex_l1"):
+        elif self.method in (
+            "flowvn_unit_complex_l1",
+            "unit_complex_l1",
+            "phase_l1",
+            "mra_masked_phase_l1",
+            "mra_masked_flowvn_phase_l1",
+        ):
             diff = self._unit_phase(pred) - self._unit_phase(target)
             diff_abs = torch.abs(diff).mean(dim=-1)
         else:
@@ -240,17 +252,39 @@ class FlowVNPhaseLoss(nn.Module):
         return weighted.mean()
 
 
+def _cfg_get(obj, path: str, default=None):
+    cur = obj
+    for part in path.split("."):
+        if cur is None:
+            return default
+        cur = getattr(cur, part, default)
+    return cur
+
+
 def get_loss_function(args, device=None):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
+    recon_mode = normalize_recon_mode(args)
+    spatial_dims_cfg = normalize_ssim_spatial_dims(_cfg_get(args, "phase3.loss.ssim_spatial_dims", "auto"), recon_mode)
+    if spatial_dims_cfg == "auto":
+        spatial_dims = 3 if recon_mode == "slab" else 2
+    else:
+        spatial_dims = spatial_dims_cfg
+    win_size_cfg = _cfg_get(args, "phase3.loss.ssim_win_size", "auto")
+    if str(win_size_cfg).lower() == "auto":
+        win_size = (int(_cfg_get(args, "phase3.num_slices", 3)), 11, 11) if spatial_dims == 3 else 11
+    elif isinstance(win_size_cfg, (list, tuple)):
+        win_size = tuple(int(v) for v in win_size_cfg)
+    else:
+        win_size = int(win_size_cfg)
     if args.loss_type == "l1":
         loss_function = torch.nn.L1Loss().to(device)
     elif args.loss_type == "l2":
         loss_function = torch.nn.MSELoss().to(device)
     elif args.loss_type == "ssim":
-        loss_function = SSIMLoss(spatial_dims=2, ssim_scale=10).to(device)
+        loss_function = SSIMLoss(spatial_dims=spatial_dims, win_size=win_size, ssim_scale=10).to(device)
     elif args.loss_type == "ssim_l1":
-        loss_function = SSIML1Loss(device)
+        loss_function = SSIML1Loss(device, spatial_dims=spatial_dims, win_size=win_size)
     else:
         raise ValueError(f"Loss function {args.loss_type} not supported.")
 

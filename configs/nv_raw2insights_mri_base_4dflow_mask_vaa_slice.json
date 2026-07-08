@@ -8,7 +8,7 @@
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
-    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase3/base_ft_4dflow_encbatch_phase3_no_vaa/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch120_weights_only.pt",
+    "resume_ckpt": "outputs/4dflow/4dflow_finetune_ckpts/base_ft_4dflow_encbatch/nv_raw2insights_mri_base_ft_4dflow_encbatch_epoch160.pt",
     "pp_z_score_norm": false,
     "fixed_mask_types": [
         "ktGaussian"
@@ -17,7 +17,6 @@
     "val_interval": 40,
     "num_samples_per_case": 8,
     "data_aug": false,
-    "use_multi_epochs_train_loader": true,
     "resume_rng_state": false,
     "do_mapping_shuffle": false,
     "do_center_crop": false,
@@ -30,7 +29,7 @@
     "balance_data": false,
     "enable_cas_skips": true,
     "finetune_ms": false,
-    "adaptive_batch_size": false,
+    "adaptive_batch_size": true,
     "constant_input_flow": false,
     "amp": true,
     "acs_lines": 20,
@@ -70,10 +69,10 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 160,
-    "exp_dir": "outputs/4dflow/4dflow_finetune_phase3/",
-    "exp": "base_ft_4dflow_encbatch_phase3_vaa",
-    "lr": 1e-05,
+    "num_epochs": 161,
+    "exp_dir": "outputs/4dflow/4dflow_finetune_phase4/",
+    "exp": "base_ft_4dflow_mask_vaa_slice",
+    "lr": 1.0e-05,
     "weight_decay": 0.001,
     "loss_type": "ssim",
     "model_type": "restormer",
@@ -81,7 +80,7 @@
     "warmup_epochs": 5,
     "lr_schedule": "cosine",
     "min_lr": 7.5e-06,
-    "model_filename": "nv_raw2insights_mri_base_ft_4dflow_encbatch.pt",
+    "model_filename": "nv_raw2insights_mri_base_ft_4dflow_mask_vaa_slice.pt",
     "use_csm": true,
     "use_tau_csm": false,
     "use_acs_region": false,
@@ -128,6 +127,8 @@
         3
     ],
     "phase3": {
+        "recon_mode": "slice",
+        "num_slices": 3,
         "enable_vaa": true,
         "mra": {
             "source": "gt",
@@ -153,13 +154,29 @@
             }
         },
         "vaa": {
-            "prior_source": "mra",
-            "attention": "legacy",
+            "prior_source": "mask",
+            "attention": "qkv",
             "locations": [
                 "bottleneck",
                 "intermediate"
             ],
-            "reduction": 4
+            "reduction": 4,
+            "num_heads": 4,
+            "attention_stride": 2,
+            "use_mask_bias": true
+        },
+        "mask": {
+            "field": "segmask",
+            "keys": [
+                "segmask",
+                "vessel_mask",
+                "mask",
+                "seg",
+                "label"
+            ],
+            "axis_order": "zyx",
+            "binary": true,
+            "threshold": 0.5
         },
         "freeze": {
             "backbone": true,
@@ -171,19 +188,25 @@
             "mode": "shifted_sigmoid"
         },
         "loss": {
-            "use_phase": true,
+            "use_phase": false,
             "use_vascular": true,
-            "use_ssim_zy": false,
+            "use_ssim_zy": true,
+            "use_ssim_xy": false,
+            "ssim_spatial_dims": "auto",
+            "ssim_win_size": "auto",
             "phase": {
                 "method": "flowvn_complex_l1",
                 "weight": 1.0,
                 "eps": 1e-08
             },
             "vascular": {
-                "method": "mra_masked_flowvn_phase_l1",
+                "method": "mra_masked_phase_l1",
                 "weight": 1.0,
                 "normalize_by_mask": true
             }
+        },
+        "inference": {
+            "output_merge": "center"
         }
     },
     "train_mask_types_for_def_model": [
