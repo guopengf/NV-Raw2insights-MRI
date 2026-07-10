@@ -15,6 +15,7 @@ import json
 import os
 import random
 import re
+import time
 from collections.abc import Sequence
 
 import numpy as np
@@ -343,12 +344,31 @@ class CMRxReconReader(ImageReader):
                 return k
         return None
 
+    def _worker_timing_enabled(self) -> bool:
+        return self.args is not None and bool(
+            cfg_get(self.args, "performance_timing.worker_timing_enabled", False)
+        )
+
+    def _timed_call(self, timings: dict | None, name: str, func):
+        if timings is None:
+            return func()
+        started = time.perf_counter()
+        try:
+            return func()
+        finally:
+            timings[name] = (time.perf_counter() - started) * 1000.0
+
     def read(self, data: Sequence[PathLike] | PathLike) -> dict:  # type: ignore
         if isinstance(data, (tuple, list)):
             data = data[0]
 
-        with open(data, "r") as f:
-            json_data = json.load(f)
+        worker_timings = {} if self._worker_timing_enabled() else None
+
+        def load_json():
+            with open(data, "r") as f:
+                return json.load(f)
+
+        json_data = self._timed_call(worker_timings, "json_open_ms", load_json)
 
         if bool(json_data.get("is_4dflow", False)):
             kspace = json_data["kspace"]
@@ -365,17 +385,25 @@ class CMRxReconReader(ImageReader):
 
             enc_idx = int(json_data.get("encoding_idx", 0))
             encoding_selection = (slice(enc_idx, enc_idx + 1), Ellipsis)
-            kspace_input, input_shape = self.read_first_mat_array(
-                kspace,
-                preferred_keys=("kdata", "kdata_ktGaussian", "kus", "kspace", "kspace_full"),
-                selection=encoding_selection,
-                return_shape=True,
+            kspace_input, input_shape = self._timed_call(
+                worker_timings,
+                "input_read_ms",
+                lambda: self.read_first_mat_array(
+                    kspace,
+                    preferred_keys=("kdata", "kdata_ktGaussian", "kus", "kspace", "kspace_full"),
+                    selection=encoding_selection,
+                    return_shape=True,
+                ),
             )
-            kspace_target, target_shape = self.read_first_mat_array(
-                target_kspace,
-                preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
-                selection=encoding_selection,
-                return_shape=True,
+            kspace_target, target_shape = self._timed_call(
+                worker_timings,
+                "target_read_ms",
+                lambda: self.read_first_mat_array(
+                    target_kspace,
+                    preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
+                    selection=encoding_selection,
+                    return_shape=True,
+                ),
             )
 
             dat = {
@@ -390,15 +418,25 @@ class CMRxReconReader(ImageReader):
                 "kspace_4dflow_input": kspace_input,
                 "kspace_4dflow_target": kspace_target,
             }
+            if worker_timings is not None:
+                dat["worker_timing"] = worker_timings
             if mask:
-                dat[CMRxReconKeys.MASK] = self.read_first_mat_array(
-                    mask,
-                    preferred_keys=("mask", "usmask", "sampling_mask"),
+                dat[CMRxReconKeys.MASK] = self._timed_call(
+                    worker_timings,
+                    "mask_read_ms",
+                    lambda: self.read_first_mat_array(
+                        mask,
+                        preferred_keys=("mask", "usmask", "sampling_mask"),
+                    ),
                 )
             if "coilmap" in json_data and json_data["coilmap"]:
-                dat[CMRxReconKeys.SENSITIVITY_MAPS] = self.read_first_mat_array(
-                    json_data["coilmap"],
-                    preferred_keys=("coilmap", "csm", "sensitivity_maps", "sens_maps"),
+                dat[CMRxReconKeys.SENSITIVITY_MAPS] = self._timed_call(
+                    worker_timings,
+                    "coilmap_read_ms",
+                    lambda: self.read_first_mat_array(
+                        json_data["coilmap"],
+                        preferred_keys=("coilmap", "csm", "sensitivity_maps", "sens_maps"),
+                    ),
                 )
             if vascular_prior_needed(self.args):
                 prior_source = str(cfg_get(self.args, "phase3.vaa.prior_source", "mra")).lower()
@@ -458,9 +496,18 @@ class CMRxReconReader(ImageReader):
         #   do NOT merge enc*t here
         # ----------------------------------------------------------
         if dat.get("is_4dflow", False):
+            worker_timings = dat.get("worker_timing")
             if "kspace_4dflow_input" in dat and "kspace_4dflow_target" in dat:
-                raw_input = self._to_complex_array(dat["kspace_4dflow_input"])
-                raw_target = self._to_complex_array(dat["kspace_4dflow_target"])
+                raw_input = self._timed_call(
+                    worker_timings,
+                    "input_complex_ms",
+                    lambda: self._to_complex_array(dat["kspace_4dflow_input"]),
+                )
+                raw_target = self._timed_call(
+                    worker_timings,
+                    "target_complex_ms",
+                    lambda: self._to_complex_array(dat["kspace_4dflow_target"]),
+                )
             else:
                 kspace_key = self._find_first_existing_key(
                     dat,
@@ -468,8 +515,14 @@ class CMRxReconReader(ImageReader):
                 )
                 if kspace_key is None:
                     raise ValueError("Could not find 4D flow k-space key in .mat file.")
-                raw_input = self._to_complex_array(dat[kspace_key])
+                raw_input = self._timed_call(
+                    worker_timings,
+                    "input_complex_ms",
+                    lambda: self._to_complex_array(dat[kspace_key]),
+                )
                 raw_target = raw_input
+                if worker_timings is not None:
+                    worker_timings["target_complex_ms"] = 0.0
 
             if raw_input.ndim != 6 or raw_target.ndim != 6:
                 raise ValueError(
@@ -544,9 +597,27 @@ class CMRxReconReader(ImageReader):
 
             header["kspace_4dflow_input"] = raw_input
             if CMRxReconKeys.SENSITIVITY_MAPS in dat:
-                header[CMRxReconKeys.SENSITIVITY_MAPS] = self._to_complex_array(dat[CMRxReconKeys.SENSITIVITY_MAPS])
+                header[CMRxReconKeys.SENSITIVITY_MAPS] = self._timed_call(
+                    worker_timings,
+                    "coilmap_complex_ms",
+                    lambda: self._to_complex_array(dat[CMRxReconKeys.SENSITIVITY_MAPS]),
+                )
             if "mra_prior" in dat and dat["mra_prior"] is not None:
                 header["mra_prior"] = np.asarray(dat["mra_prior"], dtype=np.float32)
+
+            if worker_timings is not None:
+                for timing_name in (
+                    "json_open_ms",
+                    "input_read_ms",
+                    "target_read_ms",
+                    "mask_read_ms",
+                    "coilmap_read_ms",
+                    "input_complex_ms",
+                    "target_complex_ms",
+                    "coilmap_complex_ms",
+                ):
+                    worker_timings.setdefault(timing_name, 0.0)
+                header["worker_timing"] = worker_timings
 
             return data, header
 

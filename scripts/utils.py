@@ -14,7 +14,9 @@ import math
 import os
 import random
 import socket
+import time
 import warnings
+from collections.abc import Mapping, Sequence as SequenceABC
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -98,6 +100,7 @@ __all__ = [
     "reshape_channel_complex_to_last_dim",
     "complex_normalize",
     "MultiEpochsDataLoader",
+    "TimedDefaultCollate",
     "load_net",
     "save_checkpoint",
     "get_acs_image",
@@ -779,6 +782,111 @@ def complex_zscore(real_imag: torch.Tensor, dim=None, unbiased: bool = False):
 
 
 # https://discuss.pytorch.org/t/enumerate-dataloader-slow/87778
+def _tensor_payload_summary(value):
+    if isinstance(value, torch.Tensor):
+        return value.numel() * value.element_size(), 1
+    if isinstance(value, np.ndarray):
+        return value.nbytes, 1
+    if isinstance(value, Mapping):
+        total_bytes = 0
+        tensor_count = 0
+        for item in value.values():
+            item_bytes, item_count = _tensor_payload_summary(item)
+            total_bytes += item_bytes
+            tensor_count += item_count
+        return total_bytes, tensor_count
+    if isinstance(value, SequenceABC) and not isinstance(value, (str, bytes, bytearray)):
+        total_bytes = 0
+        tensor_count = 0
+        for item in value:
+            item_bytes, item_count = _tensor_payload_summary(item)
+            total_bytes += item_bytes
+            tensor_count += item_count
+        return total_bytes, tensor_count
+    return 0, 0
+
+
+def _shared_memory_snapshot():
+    try:
+        stat = os.statvfs("/dev/shm")
+    except OSError:
+        return {"shm_total_bytes": -1, "shm_free_bytes": -1, "shm_used_bytes": -1}
+    total_bytes = int(stat.f_blocks * stat.f_frsize)
+    free_bytes = int(stat.f_bavail * stat.f_frsize)
+    return {
+        "shm_total_bytes": total_bytes,
+        "shm_free_bytes": free_bytes,
+        "shm_used_bytes": total_bytes - free_bytes,
+    }
+
+
+def _singleton_view_collate(value):
+    if isinstance(value, torch.Tensor):
+        return value.unsqueeze(0)
+    if isinstance(value, np.ndarray):
+        return torch.as_tensor(value).unsqueeze(0)
+    if isinstance(value, np.generic):
+        return torch.as_tensor(value).reshape(1)
+    if isinstance(value, Mapping):
+        return {name: _singleton_view_collate(item) for name, item in value.items()}
+    if isinstance(value, SequenceABC) and not isinstance(value, (str, bytes, bytearray)):
+        return [_singleton_view_collate(item) for item in value]
+    if isinstance(value, (int, float, bool)):
+        return torch.tensor([value])
+    if isinstance(value, (str, bytes, bytearray)):
+        return [value]
+    return [value]
+
+
+class TimedDefaultCollate:
+    """Measure default collation and the worker-to-consumer handoff boundary."""
+
+    def __init__(self, enabled=True, track_shared_memory=True, singleton_view=False):
+        self.enabled = enabled
+        self.track_shared_memory = track_shared_memory
+        self.singleton_view = singleton_view
+
+    def __call__(self, batch):
+        if not self.enabled:
+            if self.singleton_view:
+                if len(batch) != 1:
+                    raise ValueError("singleton_view collate requires DataLoader batch_size=1")
+                return _singleton_view_collate(batch[0])
+            return torch.utils.data.default_collate(batch)
+
+        collate_start_ns = time.monotonic_ns()
+        input_payload_bytes, input_tensor_count = _tensor_payload_summary(batch)
+        shm_before = _shared_memory_snapshot() if self.track_shared_memory else {}
+        if self.singleton_view:
+            if len(batch) != 1:
+                raise ValueError("singleton_view collate requires DataLoader batch_size=1")
+            collated = _singleton_view_collate(batch[0])
+        else:
+            collated = torch.utils.data.default_collate(batch)
+        default_collate_end_ns = time.monotonic_ns()
+        output_payload_bytes, output_tensor_count = _tensor_payload_summary(collated)
+        shm_after = _shared_memory_snapshot() if self.track_shared_memory else {}
+        collate_end_ns = time.monotonic_ns()
+
+        meta = collated.get("kspace_meta_dict") if isinstance(collated, Mapping) else None
+        if isinstance(meta, dict):
+            meta["post_worker_timing"] = {
+                "collate_start_ns": collate_start_ns,
+                "default_collate_end_ns": default_collate_end_ns,
+                "collate_end_ns": collate_end_ns,
+                "default_collate_ms": (default_collate_end_ns - collate_start_ns) / 1.0e6,
+                "collate_ms": (collate_end_ns - collate_start_ns) / 1.0e6,
+                "input_payload_bytes": int(input_payload_bytes),
+                "output_payload_bytes": int(output_payload_bytes),
+                "input_tensor_count": int(input_tensor_count),
+                "output_tensor_count": int(output_tensor_count),
+                "collate_mode": "singleton_view" if self.singleton_view else "default",
+                **{f"{name}_before": value for name, value in shm_before.items()},
+                **{f"{name}_after": value for name, value in shm_after.items()},
+            }
+        return collated
+
+
 class MultiEpochsDataLoader(torch.utils.data.DataLoader):
 
     def __init__(self, *args, **kwargs):
@@ -1006,7 +1114,7 @@ def save_checkpoint(
     numpy_rng_state=None,
     torch_rng_state=None,
     cuda_rng_state=None,
-) -> None:
+) -> dict:
     """
     Save checkpoint.
 
@@ -1017,7 +1125,9 @@ def save_checkpoint(
         model_filename (str): model filename.
         epoch_finished (bool): epoch finished
     """
+    checkpoint_started = time.perf_counter()
     ckpt_path = assert_not_in_known_raw_data_path(f"{ckpt_folder}/{model_filename}", what="checkpoint output file")
+    state_prepare_started = time.perf_counter()
     net_state_dict = net.module.state_dict() if is_ddp else net.state_dict()
     optimizer_state_dict = optimizer.state_dict()
     scaler_state_dict = scaler.state_dict()
@@ -1025,6 +1135,8 @@ def save_checkpoint(
         scheduler_state_dict = lr_scheduler.state_dict()
     else:
         scheduler_state_dict = None
+    state_prepare_s = time.perf_counter() - state_prepare_started
+    torch_save_started = time.perf_counter()
     torch.save(
         {
             "epoch": epoch + 1,
@@ -1044,7 +1156,21 @@ def save_checkpoint(
         },
         ckpt_path,
     )
-    print(f"Save ckpt to {ckpt_path}.")
+    torch_save_s = time.perf_counter() - torch_save_started
+    total_s = time.perf_counter() - checkpoint_started
+    size_bytes = os.path.getsize(ckpt_path)
+    print(
+        f"Save ckpt to {ckpt_path}. state_prepare={state_prepare_s:.2f}s "
+        f"torch_save={torch_save_s:.2f}s total={total_s:.2f}s "
+        f"size={size_bytes / (1024**3):.2f}GiB"
+    )
+    return {
+        "path": str(ckpt_path),
+        "state_prepare_s": state_prepare_s,
+        "torch_save_s": torch_save_s,
+        "total_s": total_s,
+        "size_bytes": size_bytes,
+    }
 
 
 def get_acs_region(mask: torch.Tensor) -> tuple[int, int, int, int]:

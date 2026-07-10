@@ -43,7 +43,22 @@ from mri_data.data_utils import (
 from torch.amp import GradScaler, autocast
 from torch.distributed.elastic.multiprocessing.errors import record
 from torch.utils.tensorboard import SummaryWriter
-from train_utils import apply_phase3_freeze, get_optimizer, get_train_transforms, get_val_transforms
+from train_utils import (
+    apply_phase3_freeze,
+    build_lightweight_performance_event,
+    gather_and_log_lightweight_performance,
+    gather_and_log_slow_loader_events,
+    gather_and_log_worker_loader_events,
+    get_optimizer,
+    get_train_transforms,
+    get_val_transforms,
+    log_checkpoint_timing,
+    log_epoch_performance,
+    log_step_performance,
+    record_loader_performance,
+    start_phase_timing,
+    stop_phase_timing,
+)
 from transforms import *
 from utils import *
 
@@ -346,23 +361,48 @@ def trainer(args):
     else:
         train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True) if args.ddp else None
     train_loader_cls = MultiEpochsDataLoader if use_multi_epochs_train_loader else DataLoader
-    print(f"train_loader: {train_loader_cls.__name__}")
-    train_loader = train_loader_cls(
-        train_ds,
-        batch_size=1,
-        shuffle=(train_sampler is None),  # Only shuffle if not using sampler
-        sampler=train_sampler,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        persistent_workers=args.num_workers > 0,
-        in_order=False,
+    train_prefetch_factor = max(1, int(cfg_get(args, "train_prefetch_factor", 2)))
+    train_pin_memory = bool(cfg_get(args, "train_pin_memory", True))
+    post_worker_timing_enabled = bool(
+        cfg_get(args, "performance_timing.post_worker_timing_enabled", False)
     )
+    singleton_view_collate = bool(
+        cfg_get(
+            args,
+            "train_singleton_view_collate",
+            cfg_get(args, "performance_timing.singleton_view_collate", False),
+        )
+    )
+    train_loader_kwargs = {
+        "batch_size": 1,
+        "shuffle": train_sampler is None,
+        "sampler": train_sampler,
+        "num_workers": args.num_workers,
+        "pin_memory": train_pin_memory,
+        "persistent_workers": args.num_workers > 0,
+        "in_order": False,
+    }
+    if post_worker_timing_enabled or singleton_view_collate:
+        train_loader_kwargs["collate_fn"] = TimedDefaultCollate(
+            enabled=post_worker_timing_enabled,
+            track_shared_memory=post_worker_timing_enabled,
+            singleton_view=singleton_view_collate,
+        )
+    if args.num_workers > 0:
+        train_loader_kwargs["prefetch_factor"] = train_prefetch_factor
+    print(
+        f"train_loader: {train_loader_cls.__name__}, workers={args.num_workers}, "
+        f"prefetch_factor={train_prefetch_factor if args.num_workers > 0 else 'disabled'}, "
+        f"pin_memory={train_pin_memory}, post_worker_timing={post_worker_timing_enabled}, "
+        f"singleton_view_collate={singleton_view_collate}"
+    )
+    train_loader = train_loader_cls(train_ds, **train_loader_kwargs)
 
     # since there's no randomness in train_transforms, we use it for val_transforms as well
     val_ds = Dataset(data=val_files, transform=val_transforms)
     val_loader = MultiEpochsDataLoader(
         val_ds,
-        batch_size=1,
+        batch_size=1, # This has to be 1 for compatability with faster collate_fn
         shuffle=False,
         num_workers=args.num_workers,
         persistent_workers=args.num_workers > 0,
@@ -435,6 +475,63 @@ def trainer(args):
     print(f"val_interval: {val_interval}")
     global_step = start_global_step
     args.num_epochs = start_epoch + 1 if args.val else args.num_epochs
+    performance_timing_enabled = bool(cfg_get(args, "performance_timing.enabled", False))
+    performance_timing_interval = max(1, int(cfg_get(args, "performance_timing.sample_interval", 10)))
+    performance_timing_cuda_sync = bool(cfg_get(args, "performance_timing.cuda_synchronize", True))
+    performance_timing_rank_details = bool(cfg_get(args, "performance_timing.log_rank_details", True))
+    slow_loader_threshold_ms = max(0.0, float(cfg_get(args, "performance_timing.slow_loader_threshold_ms", 0.0)))
+    slow_loader_max_events = max(
+        0,
+        int(cfg_get(args, "performance_timing.slow_loader_max_events_per_rank", 100)),
+    )
+    worker_timing_enabled = bool(cfg_get(args, "performance_timing.worker_timing_enabled", False))
+    worker_loader_max_events = max(
+        0,
+        int(cfg_get(args, "performance_timing.worker_loader_max_events_per_rank", 300)),
+    )
+    lightweight_timing_enabled = bool(
+        cfg_get(args, "performance_timing.lightweight_enabled", False)
+    )
+    skip_fixed_compute_cost_allreduce = bool(
+        cfg_get(args, "efficiency.skip_fixed_compute_cost_allreduce", False)
+    )
+    combine_batch_metadata_allreduce = bool(
+        cfg_get(args, "efficiency.combine_batch_metadata_allreduce", False)
+    )
+    defer_metric_allreduce = bool(
+        cfg_get(args, "efficiency.defer_metric_allreduce", False)
+    )
+    debug_max_train_batches = max(
+        0,
+        int(cfg_get(args, "performance_timing.debug_max_train_batches", 0)),
+    )
+    performance_run_tag = str(
+        os.getenv(
+            "RAW2INS_PERF_RUN_TAG",
+            cfg_get(args, "performance_timing.run_tag", "default"),
+        )
+    )
+    if rank == 0:
+        print(
+            "performance_timing: "
+            f"enabled={performance_timing_enabled}, interval={performance_timing_interval}, "
+            f"cuda_synchronize={performance_timing_cuda_sync}, "
+            f"log_rank_details={performance_timing_rank_details}, "
+            f"worker_timing_enabled={worker_timing_enabled}, "
+            f"post_worker_timing_enabled={post_worker_timing_enabled}, "
+            f"lightweight_timing_enabled={lightweight_timing_enabled}, "
+            f"worker_loader_max_events_per_rank={worker_loader_max_events}, "
+            f"slow_loader_threshold_ms={slow_loader_threshold_ms}, "
+            f"slow_loader_max_events_per_rank={slow_loader_max_events}, "
+            f"debug_max_train_batches={debug_max_train_batches}, "
+            f"run_tag={performance_run_tag}"
+        )
+        print(
+            "efficiency: "
+            f"skip_fixed_compute_cost_allreduce={skip_fixed_compute_cost_allreduce}, "
+            f"combine_batch_metadata_allreduce={combine_batch_metadata_allreduce}, "
+            f"defer_metric_allreduce={defer_metric_allreduce}"
+        )
 
     if rank == 0:
         writer = SummaryWriter(
@@ -460,9 +557,24 @@ def trainer(args):
         epoch_loss = 0
         step = 0
         nan_loss_count = 0
+        epoch_timing_samples = []
+        slow_loader_events = []
+        slow_loader_event_count = 0
+        worker_loader_events = []
+        lightweight_events = []
+        diagnostic_stop_requested = False
+        data_request_ns = time.monotonic_ns()
         for b, batch_data in enumerate(train_loader):
+            batch_received_ns = time.monotonic_ns()
+            loader_wait_ms = (batch_received_ns - data_request_ns) / 1.0e6
             if args.val:
                 break
+            next_global_step = global_step + step + 1
+            time_batch_setup = performance_timing_enabled and (
+                next_global_step % performance_timing_interval == 0
+            )
+            batch_timings = {"loader_wait_ms": loader_wait_ms} if time_batch_setup else {}
+            batch_setup_started = start_phase_timing(time_batch_setup, performance_timing_cuda_sync)
             if start_epoch == epoch and step <= 10:
                 adjust_learning_rate(optimizer, b / len(train_loader) + epoch, args, is_resume_first_ten=True)
             else:
@@ -492,6 +604,28 @@ def trainer(args):
             )
 
             final_shape = [int(s) for s in final_shape]
+            slow_loader_event_count += record_loader_performance(
+                batch_data,
+                batch_timings,
+                time_batch_setup,
+                data_request_ns,
+                batch_received_ns,
+                loader_wait_ms,
+                worker_timing_enabled,
+                post_worker_timing_enabled,
+                slow_loader_threshold_ms,
+                slow_loader_max_events,
+                worker_loader_max_events,
+                slow_loader_events,
+                worker_loader_events,
+                epoch,
+                next_global_step,
+                b,
+                rank,
+                performance_run_tag,
+                file_name,
+                final_shape,
+            )
             sensitivity_maps = batch_data.get("sensitivity_maps")
             sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
             case_mra_prior = batch_data.get("mra_prior")
@@ -502,21 +636,67 @@ def trainer(args):
             num_samples = min(input.shape[0], args.num_samples_per_case)
             micro_batch_size = args.batch_size
             compute_cost = input.shape[-2] * input.shape[-3]
-            if compute_cost > max_compute_cost:
-                max_compute_cost = torch.tensor(compute_cost, device=device)
-
-            if args.ddp:
-                dist.all_reduce(max_compute_cost, op=dist.ReduceOp.MAX)
+            needs_compute_cost_allreduce = (
+                args.adaptive_batch_size or not skip_fixed_compute_cost_allreduce
+            )
+            if needs_compute_cost_allreduce:
+                if compute_cost > max_compute_cost:
+                    max_compute_cost = torch.tensor(compute_cost, device=device)
+                collective_started = start_phase_timing(time_batch_setup, performance_timing_cuda_sync)
+                if args.ddp:
+                    dist.all_reduce(max_compute_cost, op=dist.ReduceOp.MAX)
+                stop_phase_timing(
+                    batch_timings,
+                    "compute_cost_allreduce_ms",
+                    collective_started,
+                    performance_timing_cuda_sync,
+                )
             batch_size_scale = max_compute_cost.item() / compute_cost if args.adaptive_batch_size else 1
             adjusted_micro_batch_size = int(batch_size_scale * micro_batch_size)
 
             max_num_batches = math.ceil(num_samples / adjusted_micro_batch_size)
             # find min num_samples across GPUs
             if args.ddp:
-                num_samples = torch.tensor(num_samples, device=device)
-                dist.all_reduce(num_samples, op=dist.ReduceOp.MIN)
-                max_num_batches = torch.tensor(max_num_batches, device=device)
-                dist.all_reduce(max_num_batches, op=dist.ReduceOp.MIN)
+                if combine_batch_metadata_allreduce:
+                    batch_metadata = torch.tensor(
+                        [num_samples, max_num_batches], dtype=torch.int64, device=device
+                    )
+                    collective_started = start_phase_timing(time_batch_setup, performance_timing_cuda_sync)
+                    dist.all_reduce(batch_metadata, op=dist.ReduceOp.MIN)
+                    stop_phase_timing(
+                        batch_timings,
+                        "num_samples_allreduce_ms",
+                        collective_started,
+                        performance_timing_cuda_sync,
+                    )
+                    num_samples = int(batch_metadata[0].item())
+                    max_num_batches = int(batch_metadata[1].item())
+                else:
+                    num_samples = torch.tensor(num_samples, device=device)
+                    collective_started = start_phase_timing(time_batch_setup, performance_timing_cuda_sync)
+                    dist.all_reduce(num_samples, op=dist.ReduceOp.MIN)
+                    stop_phase_timing(
+                        batch_timings,
+                        "num_samples_allreduce_ms",
+                        collective_started,
+                        performance_timing_cuda_sync,
+                    )
+                    max_num_batches = torch.tensor(max_num_batches, device=device)
+                    collective_started = start_phase_timing(time_batch_setup, performance_timing_cuda_sync)
+                    dist.all_reduce(max_num_batches, op=dist.ReduceOp.MIN)
+                    stop_phase_timing(
+                        batch_timings,
+                        "num_batches_allreduce_ms",
+                        collective_started,
+                        performance_timing_cuda_sync,
+                    )
+            stop_phase_timing(
+                batch_timings,
+                "batch_setup_ms",
+                batch_setup_started,
+                performance_timing_cuda_sync,
+            )
+            first_microbatch = True
 
             for micro_b, i in mini_dataloader(
                 sample_list,
@@ -527,6 +707,12 @@ def trainer(args):
             ):
 
                 step += 1
+                timing_this_step = performance_timing_enabled and (
+                    (global_step + step) % performance_timing_interval == 0
+                )
+                step_timings = dict(batch_timings) if timing_this_step and first_microbatch else {}
+                step_total_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
+                phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
                 optimizer.zero_grad()
 
                 # forward pass
@@ -553,9 +739,23 @@ def trainer(args):
                 )
                 sens = sens.to(device) if sens is not None else None
                 mra_prior = mra_prior.to(device) if mra_prior is not None else None
+                stop_phase_timing(
+                    step_timings,
+                    "prep_h2d_ms",
+                    phase_started,
+                    performance_timing_cuda_sync,
+                )
+                phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
                     output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
+                stop_phase_timing(
+                    step_timings,
+                    "forward_ms",
+                    phase_started,
+                    performance_timing_cuda_sync,
+                )
 
+                phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
                 if recon_slab:
                     output_norm = output[:, :, args.num_frames // 2]
                     target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, :, args.num_frames // 2]
@@ -668,40 +868,106 @@ def trainer(args):
                             loss = loss + weighted_vascular_phase_loss
                             aux_loss_log["vascular_phase_loss"] = vascular_phase_loss.detach()
                             weighted_loss_log["vascular_phase_loss_weighted"] = weighted_vascular_phase_loss.detach()
+                stop_phase_timing(
+                    step_timings,
+                    "loss_ms",
+                    phase_started,
+                    performance_timing_cuda_sync,
+                )
 
                 loss_tensor = loss.clone().detach()
+                phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
                 report_nan_from_any_rank(loss_tensor, file_name, micro_b, is_ddp=args.ddp)
+                stop_phase_timing(
+                    step_timings,
+                    "nan_guard_allreduce_ms",
+                    phase_started,
+                    performance_timing_cuda_sync,
+                )
                 if not torch.isfinite(loss):
                     loss = zero_grad_scalar_fast(model)  # zero-grad scalar
+                phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
                 scaler.scale(loss).backward()
+                stop_phase_timing(
+                    step_timings,
+                    "backward_ddp_ms",
+                    phase_started,
+                    performance_timing_cuda_sync,
+                )
+                phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
                 # Unscales the gradients of optimizer's assigned params in-place
                 scaler.unscale_(optimizer)
                 # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 scaler.step(optimizer)
                 scaler.update()
+                stop_phase_timing(
+                    step_timings,
+                    "optimizer_ms",
+                    phase_started,
+                    performance_timing_cuda_sync,
+                )
 
-                if args.ddp:
+                phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
+                if args.ddp and not defer_metric_allreduce:
                     # sum loss_tensor across all processes in-place
                     dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
                     # compute average and add to epoch_loss
                     step_loss = loss_tensor.item() / world_size
                 else:
                     step_loss = loss_tensor.item()
+                stop_phase_timing(
+                    step_timings,
+                    "loss_allreduce_ms",
+                    phase_started,
+                    performance_timing_cuda_sync,
+                )
                 step_loss_components = {}
+                phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
                 for loss_name, loss_value in weighted_loss_log.items():
                     component_tensor = loss_value.clone().detach()
-                    if args.ddp:
+                    if args.ddp and not defer_metric_allreduce:
                         dist.all_reduce(component_tensor, op=dist.ReduceOp.SUM)
                         step_loss_components[loss_name] = component_tensor.item() / world_size
                     else:
                         step_loss_components[loss_name] = component_tensor.item()
+                stop_phase_timing(
+                    step_timings,
+                    "loss_components_allreduce_ms",
+                    phase_started,
+                    performance_timing_cuda_sync,
+                )
                 step_loss_components["loss_sum"] = step_loss
                 if step_loss == step_loss:
                     epoch_loss += step_loss
                 else:
                     nan_loss_count += 1
                     step -= 1
+
+                if timing_this_step:
+                    stop_phase_timing(
+                        step_timings,
+                        "step_total_ms",
+                        step_total_started,
+                        performance_timing_cuda_sync,
+                    )
+                    step_timings["step_total_ms"] += step_timings.get("loader_wait_ms", 0.0)
+                    step_timings["step_total_ms"] += step_timings.get("batch_setup_ms", 0.0)
+                    timing_stats = log_step_performance(
+                        step_timings,
+                        final_shape,
+                        compute_cost,
+                        device,
+                        rank,
+                        world_size,
+                        args.ddp,
+                        performance_timing_cuda_sync,
+                        performance_timing_rank_details,
+                        global_step + step,
+                        writer=writer if rank == 0 else None,
+                    )
+                    if timing_stats is not None:
+                        epoch_timing_samples.append(timing_stats)
 
                 if rank == 0:
                     loss_parts = ", ".join(
@@ -736,7 +1002,7 @@ def trainer(args):
                             writer.add_scalar(f"train_step_gamma_{k}", v, global_step + step)
 
                     if step != 0 and step % 10000 == 0:
-                        save_checkpoint(
+                        checkpoint_timing = save_checkpoint(
                             epoch,
                             global_step,
                             model,
@@ -751,19 +1017,91 @@ def trainer(args):
                             is_ddp=args.ddp,
                             wandb_run_id=run.id,
                         )
+                        log_checkpoint_timing(
+                            "mid_epoch",
+                            checkpoint_timing,
+                            writer,
+                            global_step + step,
+                        )
+                first_microbatch = False
+            batch_finished_ns = time.monotonic_ns()
+            if lightweight_timing_enabled:
+                lightweight_events.append(
+                    build_lightweight_performance_event(
+                        rank=rank,
+                        epoch=epoch,
+                        global_step=global_step + step,
+                        batch_index=b,
+                        run_tag=performance_run_tag,
+                        file_name=file_name,
+                        final_shape=final_shape,
+                        request_ns=data_request_ns,
+                        received_ns=batch_received_ns,
+                        finished_ns=batch_finished_ns,
+                    )
+                )
+            if debug_max_train_batches > 0 and (b + 1) >= debug_max_train_batches:
+                diagnostic_stop_requested = True
+            else:
+                data_request_ns = batch_finished_ns
+            if diagnostic_stop_requested:
+                break
+        if not args.val and slow_loader_threshold_ms > 0:
+            gather_and_log_slow_loader_events(
+                slow_loader_events,
+                slow_loader_event_count,
+                rank,
+                world_size,
+                args.ddp,
+                outpath,
+                epoch,
+                slow_loader_threshold_ms,
+            )
+        if not args.val and worker_timing_enabled:
+            gather_and_log_worker_loader_events(
+                worker_loader_events,
+                rank,
+                world_size,
+                args.ddp,
+                outpath,
+                epoch,
+            )
+        if not args.val and lightweight_timing_enabled:
+            gather_and_log_lightweight_performance(
+                lightweight_events,
+                rank,
+                world_size,
+                args.ddp,
+                outpath,
+                epoch,
+                performance_run_tag,
+            )
+        if diagnostic_stop_requested:
+            if rank == 0:
+                print(
+                    f"[perf][debug_stop] run_tag={performance_run_tag} "
+                    f"batches={b + 1} checkpoint_saved=False"
+                )
+                writer.close()
+                run.finish()
+            if args.ddp:
+                dist.barrier()
+                dist.destroy_process_group()
+            return
         global_step += step
         if scheduler is not None:
             scheduler.step()
+        if defer_metric_allreduce and args.ddp:
+            epoch_loss_tensor = torch.tensor(epoch_loss, dtype=torch.float64, device=device)
+            dist.all_reduce(epoch_loss_tensor, op=dist.ReduceOp.SUM)
+            epoch_loss = epoch_loss_tensor.item() / world_size
 
         if rank == 0 and not args.val:
             writer.add_scalar("train_loss", epoch_loss / step, epoch + 1)
-            run.log(
-                {
-                    "train/loss": epoch_loss / step,
-                },
-                step=epoch + 1,
-            )
-            save_checkpoint(
+            epoch_log = {"train/loss": epoch_loss / step}
+            log_epoch_performance(epoch_timing_samples, epoch, writer, epoch_log)
+            run.log(epoch_log, step=epoch + 1)
+            checkpoint_timing = save_checkpoint(
                 epoch,
                 global_step,
                 model,
@@ -778,8 +1116,14 @@ def trainer(args):
                 is_ddp=args.ddp,
                 wandb_run_id=run.id,
             )
+            log_checkpoint_timing(
+                "rolling",
+                checkpoint_timing,
+                writer,
+                global_step,
+            )
             if (epoch + 1) % 5 == 0:
-                save_checkpoint(
+                checkpoint_timing = save_checkpoint(
                     epoch,
                     global_step,
                     model,
@@ -793,6 +1137,12 @@ def trainer(args):
                     epoch_finished=True,
                     is_ddp=args.ddp,
                     wandb_run_id=run.id,
+                )
+                log_checkpoint_timing(
+                    "milestone",
+                    checkpoint_timing,
+                    writer,
+                    global_step,
                 )
 
             print(
@@ -963,7 +1313,7 @@ def trainer(args):
                     best_metric = metric
                     best_metric_epoch = epoch + 1
                     if rank == 0:
-                        save_checkpoint(
+                        checkpoint_timing = save_checkpoint(
                             epoch,
                             global_step,
                             model,
@@ -981,6 +1331,12 @@ def trainer(args):
                             numpy_rng_state=np.random.get_state(),
                             torch_rng_state=torch.random.get_rng_state(),
                             cuda_rng_state=torch.cuda.get_rng_state(),
+                        )
+                        log_checkpoint_timing(
+                            "best",
+                            checkpoint_timing,
+                            writer,
+                            global_step,
                         )
                     print("saved new best metric model")
                 print(
