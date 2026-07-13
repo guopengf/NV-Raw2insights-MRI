@@ -555,6 +555,8 @@ def trainer(args):
         print(f"epoch {epoch + 1}/{args.num_epochs}")
         model.train()
         epoch_loss = 0
+        epoch_vphase_sum = 0.0
+        epoch_vphase_count = 0
         step = 0
         nan_loss_count = 0
         epoch_timing_samples = []
@@ -940,6 +942,10 @@ def trainer(args):
                 step_loss_components["loss_sum"] = step_loss
                 if step_loss == step_loss:
                     epoch_loss += step_loss
+                    vphase = step_loss_components.get("vascular_phase_loss_weighted")
+                    if vphase is not None and math.isfinite(vphase):
+                        epoch_vphase_sum += vphase
+                        epoch_vphase_count += 1
                 else:
                     nan_loss_count += 1
                     step -= 1
@@ -1096,9 +1102,29 @@ def trainer(args):
             dist.all_reduce(epoch_loss_tensor, op=dist.ReduceOp.SUM)
             epoch_loss = epoch_loss_tensor.item() / world_size
 
+        epoch_vphase = None
+        if use_vascular_loss:
+            vphase_stats = torch.tensor(
+                [epoch_vphase_sum, epoch_vphase_count], dtype=torch.float64, device=device
+            )
+            if args.ddp:
+                dist.all_reduce(vphase_stats, op=dist.ReduceOp.SUM)
+            if vphase_stats[1].item() > 0:
+                epoch_vphase = (vphase_stats[0] / vphase_stats[1]).item()
+
         if rank == 0 and not args.val:
             writer.add_scalar("train_loss", epoch_loss / step, epoch + 1)
             epoch_log = {"train/loss": epoch_loss / step}
+            if epoch_vphase is not None:
+                writer.add_scalar("train_vphase", epoch_vphase, epoch + 1)
+                epoch_log["train/vphase"] = epoch_vphase
+            epoch_gamma_values = collect_vaa_gamma(model)
+            for location in ("bottleneck", "intermediate"):
+                if location not in epoch_gamma_values:
+                    continue
+                metric_name = short_train_log_name(location)
+                writer.add_scalar(f"train_{metric_name}", epoch_gamma_values[location], epoch + 1)
+                epoch_log[f"train/{metric_name}"] = epoch_gamma_values[location]
             log_epoch_performance(epoch_timing_samples, epoch, writer, epoch_log)
             run.log(epoch_log, step=epoch + 1)
             checkpoint_timing = save_checkpoint(

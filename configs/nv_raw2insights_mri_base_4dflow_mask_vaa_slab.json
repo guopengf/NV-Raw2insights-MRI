@@ -8,7 +8,7 @@
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
-    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase4/base_ft_4dflow_slab_no_vaa/nv_raw2insights_mri_base_ft_4dflow_slab_no_vaa.pt",
+    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase4/base_ft_4dflow_encbatch_phase4_no_vaa/nv_raw2insights_mri_base_ft_4dflow_slab_no_vaa_epoch205_weights_only.pt",
     "pp_z_score_norm": false,
     "fixed_mask_types": [
         "ktGaussian"
@@ -17,6 +17,7 @@
     "val_interval": 40,
     "num_samples_per_case": 8,
     "data_aug": false,
+    "use_multi_epochs_train_loader": true,
     "resume_rng_state": false,
     "do_mapping_shuffle": false,
     "do_center_crop": false,
@@ -29,13 +30,33 @@
     "balance_data": false,
     "enable_cas_skips": true,
     "finetune_ms": false,
-    "adaptive_batch_size": true,
+    "adaptive_batch_size": false,
     "constant_input_flow": false,
     "amp": true,
     "acs_lines": 20,
     "pp_norm": false,
     "batch_size": 8,
-    "num_workers": 8,
+    "num_workers": 4,
+    "train_prefetch_factor": 2,
+    "train_singleton_view_collate": true,
+    "performance_timing": {
+        "enabled": false,
+        "sample_interval": 10,
+        "cuda_synchronize": false,
+        "log_rank_details": true,
+        "worker_timing_enabled": false,
+        "post_worker_timing_enabled": false,
+        "lightweight_enabled": true,
+        "worker_loader_max_events_per_rank": 300,
+        "slow_loader_threshold_ms": 500.0,
+        "slow_loader_max_events_per_rank": 100,
+        "run_tag": "phase4_production_lightweight"
+    },
+    "efficiency": {
+        "skip_fixed_compute_cost_allreduce": false,
+        "combine_batch_metadata_allreduce": false,
+        "defer_metric_allreduce": false
+    },
     "cache_rate": 0.0,
     "sample_rate": 1.0,
     "accelerations": [
@@ -69,10 +90,10 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 162,
+    "num_epochs": 320,
     "exp_dir": "outputs/4dflow/4dflow_finetune_phase4/",
     "exp": "base_ft_4dflow_mask_vaa_slab",
-    "lr": 1.0e-05,
+    "lr": 1.0e-04,
     "weight_decay": 0.001,
     "loss_type": "ssim",
     "model_type": "restormer",
@@ -188,9 +209,9 @@
             "mode": "shifted_sigmoid"
         },
         "loss": {
-            "use_phase": false,
+            "use_phase": true,
             "use_vascular": true,
-            "use_ssim_zy": true,
+            "use_ssim_zy": false,
             "use_ssim_xy": false,
             "ssim_spatial_dims": "auto",
             "ssim_win_size": "auto",

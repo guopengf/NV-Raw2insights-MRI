@@ -90,7 +90,7 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 161,
+    "num_epochs": 320,
     "exp_dir": "outputs/4dflow/4dflow_finetune_phase4/",
     "exp": "base_ft_4dflow_encbatch_phase4_no_vaa",
     "lr": 1.0e-05,
