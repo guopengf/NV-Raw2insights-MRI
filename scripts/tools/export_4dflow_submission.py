@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 import zipfile
 from collections import defaultdict
 from pathlib import Path
@@ -10,6 +11,10 @@ from pathlib import Path
 import h5py
 import numpy as np
 import scipy.io
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
 
 from path_safety import assert_outputs_not_in_data
 
