@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -107,7 +109,15 @@ def build_jsons(
     return manifest
 
 
-def run_inference(repo_root: Path, config_path: str, input_json_dir: Path, tmp_out_dir: Path, ckpt: str | None):
+def run_inference(
+    repo_root: Path,
+    config_path: str,
+    input_json_dir: Path,
+    tmp_out_dir: Path,
+    ckpt: str | None,
+    *,
+    save_coil_combined_output: bool,
+):
     cmd = [
         sys.executable,
         str(repo_root / "scripts" / "inference.py"),
@@ -120,6 +130,8 @@ def run_inference(repo_root: Path, config_path: str, input_json_dir: Path, tmp_o
     ]
     if ckpt:
         cmd.extend(["-m", ckpt])
+    if save_coil_combined_output:
+        cmd.append("--save-coil-combined-output")
 
     print("[RUN]", " ".join(cmd))
     subprocess.run(cmd, check=True)
@@ -217,6 +229,11 @@ def main():
         action="store_true",
         help="Allow challenge validation/test folders without kdata_full.mat.",
     )
+    parser.add_argument(
+        "--preserve-multicoil-output",
+        action="store_true",
+        help="Keep the legacy coil-resolved output instead of saving exporter-ready coil-combined output.",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -250,6 +267,7 @@ def main():
         input_json_dir=json_dir,
         tmp_out_dir=tmp_out_dir,
         ckpt=args.ckpt,
+        save_coil_combined_output=not args.preserve_multicoil_output,
     )
 
     reorganize_outputs(

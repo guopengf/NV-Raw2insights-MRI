@@ -11,6 +11,7 @@ import numpy as np
 import scipy.io
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
+from mri_data.coil_combine import combine_yzxtc_to_yzxt, complex_to_ri, to_complex_np  # noqa: E402
 from path_safety import assert_outputs_not_in_data  # noqa: E402
 
 
@@ -52,24 +53,6 @@ def read_mat_shape(path: Path, preferred_keys: tuple[str, ...]) -> tuple[int, ..
     except OSError:
         return tuple(int(v) for v in read_mat_array(path, preferred_keys).shape)
     raise ValueError(f"No dataset found in {path}")
-
-
-def to_complex_np(arr: np.ndarray) -> np.ndarray:
-    arr = np.asarray(arr)
-    if arr.dtype.fields is not None and "real" in arr.dtype.fields and "imag" in arr.dtype.fields:
-        return (arr["real"] + 1j * arr["imag"]).astype(np.complex64, copy=False)
-    if np.iscomplexobj(arr):
-        return arr.astype(np.complex64, copy=False)
-    if arr.ndim > 0 and arr.shape[-1] == 2 and np.issubdtype(arr.dtype, np.floating):
-        return (arr[..., 0] + 1j * arr[..., 1]).astype(np.complex64, copy=False)
-    return arr
-
-
-def complex_to_ri(arr: np.ndarray) -> np.ndarray:
-    arr = np.asarray(arr)
-    if not np.iscomplexobj(arr):
-        raise ValueError(f"Expected complex array, got dtype={arr.dtype}")
-    return np.stack([arr.real, arr.imag], axis=-1).astype(np.float32, copy=False)
 
 
 def parse_case_from_parts(parts: tuple[str, ...], default_anatomy: str, label: str) -> tuple[str, str, str, str]:
@@ -117,25 +100,6 @@ def load_case_meta(data_root: Path, anatomy: str, center: str, scanner: str, pat
             f"coilmap shape mismatch for {coilmap_path}: got {coilmap.shape}, expected {(nc, spe, pe, fe)}"
         )
     return (nv, nt, nc, spe, pe, fe), coilmap.astype(np.complex64, copy=False)
-
-
-def combine_yzxtc_to_yzxt(img_yzxtc: np.ndarray, coilmap_czyx: np.ndarray, eps: float) -> np.ndarray:
-    if img_yzxtc.ndim != 5:
-        raise ValueError(f"Expected image shape (y,z,x,t,c), got {img_yzxtc.shape}")
-
-    pe, spe, fe, nt, nc = img_yzxtc.shape
-    if coilmap_czyx.shape != (nc, spe, pe, fe):
-        raise ValueError(
-            f"coilmap shape mismatch: got {coilmap_czyx.shape}, expected {(nc, spe, pe, fe)} "
-            f"for image shape {img_yzxtc.shape}"
-        )
-
-    img_tzyxc = np.transpose(img_yzxtc, (3, 1, 0, 2, 4)).astype(np.complex64, copy=False)
-    coil_zyxc = np.transpose(coilmap_czyx, (1, 2, 3, 0)).astype(np.complex64, copy=False)
-    numerator = np.sum(img_tzyxc * np.conj(coil_zyxc)[None, ...], axis=-1)
-    denominator = np.sum(np.abs(coil_zyxc) ** 2, axis=-1)[None, ...] + eps
-    combined_tzyx = numerator / denominator
-    return np.transpose(combined_tzyx, (2, 1, 3, 0)).astype(np.complex64, copy=False)
 
 
 def fix_one_file(

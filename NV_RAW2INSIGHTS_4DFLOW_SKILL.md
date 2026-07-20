@@ -357,7 +357,9 @@ The wrapper creates final organized outputs like:
 final/Center007/GE_30T_Architect/P076/kdata_ktGaussian10_enc0_recon.mat
 ```
 
-Inference output currently saves magnitude `img4ranking`, not complex recon. True phase-based PCMRA cannot be computed from magnitude-only outputs.
+Run the wrapper once for each encoding index `0,1,2,3`. It saves coil-combined complex real/imag output by default,
+which preserves phase and is directly compatible with `scripts/tools/export_4dflow_submission.py`. Pass
+`--preserve-multicoil-output` only for legacy/debug coil-resolved output.
 
 ## Evaluation: 2D XY/ZY SSIM
 
@@ -534,17 +536,10 @@ Wrong shape: expected 7 dims. Received 6-dim tensor.
 Likely cause: external coilmap was passed without the expected batch dimension during rearrange.
 Wrap sensitivity maps as a list/with batch dimension before `rearrange_mri_data`.
 
-### True PCMRA Not Available
+### Complex Output and PCMRA
 
-Current inference saves magnitude after:
-
-```python
-complex_abs(...)
-```
-
-So phase is gone.
-
-True PCMRA requires saving complex recon before magnitude conversion.
+The 4D Flow wrapper saves coil-combined complex real/imag output. Do not replace this save path with
+`complex_abs(...)`; phase is required for PCMRA and the official flow metrics.
 
 ## Key Files
 

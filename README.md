@@ -301,6 +301,64 @@ Each generated JSON contains:
 }
 ```
 
+## Submission Export and Evaluation
+
+`scripts/run_4dflow_inference.py` sensitivity-combines multi-coil complex output by default, so its organized
+`final` tree is directly exportable. Use `--preserve-multicoil-output` only when coil-resolved output is needed for
+debugging. Existing coil-resolved runs must first be converted with `scripts/tools/fix_4dflow_recon_coil_dim.py`.
+
+Export the per-encoding complex `.mat` reconstructions to the official sparse NPZ submission tree with:
+
+```bash
+python scripts/tools/export_4dflow_submission.py \
+  --recon-root "/path/to/inference/R1R2/final/Aorta" \
+  --data-root "/path/to/ChallengeData/TaskR1&R2/ValidationSet/Aorta" \
+  --out-root "/path/to/inference/R1R2/submission" \
+  --task TaskR1R2 \
+  --split ValidationSet \
+  --anatomy Aorta \
+  --recon-layout yzxt \
+  --overwrite
+```
+
+The exporter expects one complex reconstruction per encoding and acceleration. It supports either flat inference files:
+
+```text
+Center007__GE_30T_Architect__P076__ktGaussian10__enc0.mat
+```
+
+or organized files:
+
+```text
+Center007/GE_30T_Architect/P076/kdata_ktGaussian10_enc0_recon.mat
+```
+
+It writes:
+
+```text
+TaskR1R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P076/img_ktGaussian10.npz
+```
+
+The output is multiplied by the official `segmask.mat`, matching the challenge sparse-submission format. By default the result is a directory tree, not a zip file. Add `--zip` only if a `Submission.zip` archive is needed.
+
+For TaskS2, run the exporter once per anatomy folder, changing `--recon-root`, `--data-root`, and `--anatomy` accordingly.
+
+Evaluate an exported validation submission against local GT with:
+
+```bash
+python scripts/tools/evaluate_4dflow_submission.py \
+  --submission-root "/path/to/inference/R1R2/submission" \
+  --gt-root "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData_GT" \
+  --eval-code-dir "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData_GT/EvaluationCode" \
+  --out-csv "/path/to/inference/R1R2/submission/eval_metrics.csv" \
+  --out-json "/path/to/inference/R1R2/submission/eval_summary.json" \
+  --task TaskR1R2 \
+  --include-complex-diff \
+  --skip-errors
+```
+
+`--gt-root` should point to the directory that contains the task folders, for example `TaskR1R2/ValidationSet/Aorta/...`. The evaluator records per-case metrics in the CSV and summary means in the JSON.
+
 ## Modified / Added Scripts
 
 ### `scripts/readers.py`
@@ -404,7 +462,14 @@ Aorta
 
 Utility script for running inference over 4D Flow Aorta cases and organizing results.
 
-It creates temporary JSON inputs, runs `scripts/inference.py`, then copies outputs into an organized output folder.
+It creates temporary JSON inputs, runs `scripts/inference.py`, sensitivity-combines multi-coil output, then copies
+exporter-ready complex reconstructions into an organized output folder. Pass `--preserve-multicoil-output` to retain
+the legacy coil-resolved output instead.
+
+### `scripts/tools/fix_4dflow_recon_coil_dim.py`
+
+Legacy utility for sensitivity-combining coil-resolved complex `.mat` files created by older inference runs or by
+`run_4dflow_inference.py --preserve-multicoil-output`.
 
 ### `scripts/reorganize_4dflow_outputs.py`
 
@@ -413,6 +478,14 @@ Utility script for reorganizing flat inference outputs into:
 ```text
 Center/Scanner/Patient/
 ```
+
+### `scripts/tools/export_4dflow_submission.py`
+
+Utility script for converting complex 4D Flow inference `.mat` files into the official CMRx4DFlow sparse NPZ submission format.
+
+### `scripts/tools/evaluate_4dflow_submission.py`
+
+Utility script for computing validation metrics from an exported submission tree using the official EvaluationCode utilities.
 
 ### `scripts/visualize_4dflow_gt_img4ranking.py`
 

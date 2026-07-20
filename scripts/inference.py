@@ -29,6 +29,7 @@ from monai.data import Dataset, partition_dataset
 from monai.data.fft_utils import fftn_centered, ifftn_centered
 from monai.transforms import Compose, EnsureTyped, Identityd, Lambdad, LoadImaged, ResizeWithPadOrCropd
 from monai.utils import set_determinism
+from mri_data.coil_combine import combine_tschw_ri_to_tshw_ri
 from mri_data.data_utils import crop_k_space, get_reader, postprocess_mri_recon, rearrange_mri_data
 from path_safety import assert_outputs_not_in_data
 from torch.amp import autocast
@@ -41,6 +42,42 @@ torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.enabled = True
 
 warnings.filterwarnings("ignore")
+
+
+def prepare_inference_output_for_save(
+    outputs_complex,
+    *,
+    sensitivity_maps,
+    args,
+    final_shape,
+    temporal_shuffle,
+):
+    outputs_complex = np.asarray(outputs_complex, dtype=np.float32)
+    if outputs_complex.ndim == 6 and outputs_complex.shape[2] == 1:
+        output_tshw_ri = outputs_complex[:, :, 0]
+    elif outputs_complex.ndim == 6 and getattr(args, "save_coil_combined_output", False):
+        if sensitivity_maps is None:
+            raise ValueError("Coil-combined output requested, but sensitivity maps were not loaded")
+        if torch.is_tensor(sensitivity_maps):
+            sensitivity_maps = sensitivity_maps.detach().cpu().numpy()
+        sensitivity_full = rearrange_mri_data(
+            [np.asarray(sensitivity_maps)],
+            args,
+            is_complex=True,
+            reverse=True,
+            num_slices=final_shape[-4],
+            num_coils=final_shape[-3],
+            temporal_shuffle=temporal_shuffle,
+        )[0]
+        output_tshw_ri = combine_tschw_ri_to_tshw_ri(outputs_complex, sensitivity_full)
+    elif outputs_complex.ndim == 6:
+        return np.transpose(outputs_complex, (4, 3, 1, 0, 2, 5)).astype(np.float32)
+    elif outputs_complex.ndim == 5:
+        output_tshw_ri = outputs_complex
+    else:
+        return outputs_complex.astype(np.float32)
+
+    return np.transpose(output_tshw_ri, (3, 2, 1, 0, 4)).astype(np.float32)
 
 
 @record
@@ -286,19 +323,14 @@ def infer(args):
                 temporal_shuffle=temporal_shuffle,
             )  # (time), slice, coil, h, w
 
-            outputs_complex = outputs[0].astype(np.float32)
+            outputs_to_save = prepare_inference_output_for_save(
+                outputs[0],
+                sensitivity_maps=sensitivity_maps,
+                args=args,
+                final_shape=final_shape,
+                temporal_shuffle=temporal_shuffle,
+            )
 
-            # keep full spatial size, all slices, all time frames
-            if outputs_complex.ndim == 6 and outputs_complex.shape[2] == 1:
-                outputs_to_save = np.transpose(outputs_complex[:, :, 0], (3, 2, 1, 0, 4)).astype(np.float32)
-            elif outputs_complex.ndim == 6:
-                outputs_to_save = np.transpose(outputs_complex, (4, 3, 1, 0, 2, 5)).astype(np.float32)
-            elif outputs_complex.ndim == 5:
-                outputs_to_save = np.transpose(outputs_complex, (3, 2, 1, 0, 4)).astype(np.float32)
-            else:
-                outputs_to_save = outputs_complex.astype(np.float32)
-            
-            
             output_path = os.path.join(
                 args.output_path,
                 "val_img4ranking",
@@ -365,6 +397,11 @@ if __name__ == "__main__":
         default=False,
         help="Debug mode",
     )
+    parser.add_argument(
+        "--save-coil-combined-output",
+        action="store_true",
+        help="Sensitivity-combine multi-coil complex output before saving.",
+    )
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -374,6 +411,9 @@ if __name__ == "__main__":
     config.output_path = args.output_path
     config.data_path_test = args.input_path
     config.debug = args.debug
+    config.save_coil_combined_output = args.save_coil_combined_output or getattr(
+        config, "save_coil_combined_output", False
+    )
     if config.ddp and ("MASTER_PORT" not in os.environ.keys()):
         port = str(find_free_network_port())
         print(f"using port {port}")
