@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from models.flowvn_mixer import FlowVNMultiPlaneMixer
 from models.vaa import VascularAttentionAdapter
 from models.varnet import CoilSensitivityModel_DCAE
 from monai.apps.reconstruction.networks.nets.utils import divisible_pad_t, inverse_divisible_pad_t
@@ -116,6 +117,75 @@ def to(x):
 
 def pair(x):
     return (x, x) if not isinstance(x, tuple) else x
+
+
+def conv_nd(spatial_dims: int):
+    if spatial_dims == 2:
+        return nn.Conv2d
+    if spatial_dims == 3:
+        return nn.Conv3d
+    raise ValueError(f"spatial_dims must be 2 or 3, got {spatial_dims}")
+
+
+def divisible_pad_zy(x: torch.Tensor, factor: int) -> tuple[torch.Tensor, tuple[int, int, int, int]]:
+    """Symmetrically pad only Z/Y for a [B,C,X,Z,Y] tensor."""
+
+    z, y = x.shape[-2:]
+    pad_z = (factor - z % factor) % factor
+    pad_y = (factor - y % factor) % factor
+    pad_top = pad_z // 2
+    pad_bottom = pad_z - pad_top
+    pad_left = pad_y // 2
+    pad_right = pad_y - pad_left
+    if pad_z or pad_y:
+        x = F.pad(x, (pad_left, pad_right, pad_top, pad_bottom, 0, 0))
+    return x, (pad_left, pad_right, pad_top, pad_bottom)
+
+
+def inverse_divisible_pad_zy(x: torch.Tensor, padding: tuple[int, int, int, int]) -> torch.Tensor:
+    pad_left, pad_right, pad_top, pad_bottom = padding
+    z_end = x.shape[-2] - pad_bottom if pad_bottom else x.shape[-2]
+    y_end = x.shape[-1] - pad_right if pad_right else x.shape[-1]
+    return x[..., pad_top:z_end, pad_left:y_end]
+
+
+class PixelUnshuffleZY(nn.Module):
+    """Pixel-unshuffle Z/Y while preserving the raw-x depth."""
+
+    def __init__(self, factor: int = 2):
+        super().__init__()
+        self.factor = int(factor)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        factor = self.factor
+        if x.shape[-2] % factor or x.shape[-1] % factor:
+            raise ValueError(f"Z/Y shape {tuple(x.shape[-2:])} is not divisible by {factor}")
+        return rearrange(
+            x,
+            "b c d (z rz) (y ry) -> b (c rz ry) d z y",
+            rz=factor,
+            ry=factor,
+        )
+
+
+class PixelShuffleZY(nn.Module):
+    """Pixel-shuffle Z/Y while preserving the raw-x depth."""
+
+    def __init__(self, factor: int = 2):
+        super().__init__()
+        self.factor = int(factor)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        factor = self.factor
+        divisor = factor * factor
+        if x.shape[1] % divisor:
+            raise ValueError(f"Channel count {x.shape[1]} is not divisible by {divisor}")
+        return rearrange(
+            x,
+            "b (c rz ry) d z y -> b c d (z rz) (y ry)",
+            rz=factor,
+            ry=factor,
+        )
 
 
 def expand_dim(t, dim, k):
@@ -254,13 +324,14 @@ class OCAB(nn.Module):
 
 
 class MDTA(nn.Module):
-    def __init__(self, channels, num_heads):
+    def __init__(self, channels, num_heads, spatial_dims=2):
         super(MDTA, self).__init__()
         self.num_heads = num_heads
         self.temperature = nn.Parameter(torch.ones(1, num_heads, 1, 1))
+        conv = conv_nd(spatial_dims)
 
-        self.qkv = nn.Conv2d(channels, channels * 3, kernel_size=1, bias=False)
-        self.qkv_conv = nn.Conv2d(
+        self.qkv = conv(channels, channels * 3, kernel_size=1, bias=False)
+        self.qkv_conv = conv(
             channels * 3,
             channels * 3,
             kernel_size=3,
@@ -268,29 +339,32 @@ class MDTA(nn.Module):
             groups=channels * 3,
             bias=False,
         )
-        self.project_out = nn.Conv2d(channels, channels, kernel_size=1, bias=False)
+        self.project_out = conv(channels, channels, kernel_size=1, bias=False)
 
     def forward(self, x):
-        b, c, h, w = x.shape
+        b, c = x.shape[:2]
+        spatial_shape = x.shape[2:]
+        spatial_points = math.prod(spatial_shape)
         q, k, v = self.qkv_conv(self.qkv(x)).chunk(3, dim=1)
 
-        q = q.reshape(b, self.num_heads, -1, h * w)
-        k = k.reshape(b, self.num_heads, -1, h * w)
-        v = v.reshape(b, self.num_heads, -1, h * w)
+        q = q.reshape(b, self.num_heads, -1, spatial_points)
+        k = k.reshape(b, self.num_heads, -1, spatial_points)
+        v = v.reshape(b, self.num_heads, -1, spatial_points)
         q, k = F.normalize(q, dim=-1), F.normalize(k, dim=-1)
 
         attn = torch.softmax(torch.matmul(q, k.transpose(-2, -1).contiguous()) * self.temperature, dim=-1)
-        out = self.project_out(torch.matmul(attn, v).reshape(b, -1, h, w))
+        out = self.project_out(torch.matmul(attn, v).reshape(b, -1, *spatial_shape))
         return out
 
 
 class GDFN(nn.Module):
-    def __init__(self, channels, expansion_factor, emb_channels=None):
+    def __init__(self, channels, expansion_factor, emb_channels=None, spatial_dims=2):
         super(GDFN, self).__init__()
 
+        conv = conv_nd(spatial_dims)
         hidden_channels = int(channels * expansion_factor)
-        self.project_in = nn.Conv2d(channels, hidden_channels * 2, kernel_size=1, bias=False)
-        self.conv = nn.Conv2d(
+        self.project_in = conv(channels, hidden_channels * 2, kernel_size=1, bias=False)
+        self.conv = conv(
             hidden_channels * 2,
             hidden_channels * 2,
             kernel_size=3,
@@ -298,7 +372,7 @@ class GDFN(nn.Module):
             groups=hidden_channels * 2,
             bias=False,
         )
-        self.project_out = nn.Conv2d(hidden_channels, channels, kernel_size=1, bias=False)
+        self.project_out = conv(hidden_channels, channels, kernel_size=1, bias=False)
 
         if emb_channels is not None:
             self.emb_layers = nn.Sequential(
@@ -332,22 +406,28 @@ class MoE(nn.Module):
     and computes a weighted sum of their outputs.
     """
 
-    def __init__(self, channels, expansion_factor, num_experts=4, top_k=1):
+    def __init__(self, channels, expansion_factor, num_experts=4, top_k=1, spatial_dims=2):
         super(MoE, self).__init__()
         self.num_experts = num_experts
         self.top_k = top_k
 
         # Expert networks
-        self.experts = nn.ModuleList([GDFN(channels, expansion_factor) for _ in range(self.num_experts)])
+        self.spatial_dims = int(spatial_dims)
+        self.experts = nn.ModuleList(
+            [GDFN(channels, expansion_factor, spatial_dims=self.spatial_dims) for _ in range(self.num_experts)]
+        )
 
         # Gating network
         self.gate = nn.Linear(channels, self.num_experts)
 
     def forward(self, x):
-        b, c, h, w = x.shape
+        b, c = x.shape[:2]
 
         # 1. Use global average pooling to get a feature vector for routing
-        gating_input = F.adaptive_avg_pool2d(x, (1, 1)).view(b, -1)
+        if self.spatial_dims == 3:
+            gating_input = F.adaptive_avg_pool3d(x, (1, 1, 1)).view(b, -1)
+        else:
+            gating_input = F.adaptive_avg_pool2d(x, (1, 1)).view(b, -1)
 
         # 2. Get router logits from the gate
         router_logits = self.gate(gating_input)  # Shape: (b, num_experts)
@@ -370,8 +450,7 @@ class MoE(nn.Module):
         # For true computational savings, a more complex dispatching mechanism is needed.
         expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
 
-        # Reshape weights for broadcasting: (b, num_experts) -> (b, num_experts, 1, 1, 1)
-        routing_weights = sparse_weights.view(b, self.num_experts, 1, 1, 1)
+        routing_weights = sparse_weights.view(b, self.num_experts, *([1] * (x.ndim - 1)))
 
         # Compute the weighted sum of expert outputs (only top-k will have non-zero weights)
         weighted_output = torch.sum(routing_weights * expert_outputs, dim=1)
@@ -391,6 +470,7 @@ class TransformerBlock(TimestepBlock):
         norm_type=None,
         post_norm=False,
         emb_channels=None,
+        spatial_dims=2,
     ):
         super(TransformerBlock, self).__init__()
 
@@ -399,42 +479,49 @@ class TransformerBlock(TimestepBlock):
             self.norm1 = nn.LayerNorm(channels)
             self.norm2 = nn.LayerNorm(channels)
         elif self.norm_type == "bn":
-            self.norm1 = nn.BatchNorm2d(channels)
-            self.norm2 = nn.BatchNorm2d(channels)
+            norm = nn.BatchNorm3d if spatial_dims == 3 else nn.BatchNorm2d
+            self.norm1 = norm(channels)
+            self.norm2 = norm(channels)
         elif self.norm_type is None:
             self.norm1 = nn.Identity()
             self.norm2 = nn.Identity()
         else:
             raise NotImplementedError("Norm {} is not implemented. (bn or ln or null)".format(norm_type))
-        self.attn = MDTA(channels, num_heads)
+        self.attn = MDTA(channels, num_heads, spatial_dims=spatial_dims)
 
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         # Conditionally use MoE or a single GDFN
         if num_experts and num_experts > 0:
-            self.ffn = MoE(channels, expansion_factor, num_experts, top_k)
+            self.ffn = MoE(channels, expansion_factor, num_experts, top_k, spatial_dims=spatial_dims)
         else:
-            self.ffn = GDFN(channels, expansion_factor, emb_channels=emb_channels)
+            self.ffn = GDFN(
+                channels,
+                expansion_factor,
+                emb_channels=emb_channels,
+                spatial_dims=spatial_dims,
+            )
 
         self.post_norm = post_norm
 
     def forward(self, x, emb=None):
-        b, c, h, w = x.shape
+        b, c = x.shape[:2]
+        spatial_shape = x.shape[2:]
         if self.norm_type == "ln":
             if self.post_norm:
                 x = x + self.norm1(
                     self.drop_path(self.attn(x)).reshape(b, c, -1).transpose(-2, -1).contiguous()
-                ).transpose(-2, -1).contiguous().reshape(b, c, h, w)
+                ).transpose(-2, -1).contiguous().reshape(b, c, *spatial_shape)
                 x = x + self.norm2(
                     self.drop_path(self.ffn(x, emb)).reshape(b, c, -1).transpose(-2, -1).contiguous()
-                ).transpose(-2, -1).contiguous().reshape(b, c, h, w)
+                ).transpose(-2, -1).contiguous().reshape(b, c, *spatial_shape)
             else:
                 x = x + self.drop_path(
                     self.attn(
                         self.norm1(x.reshape(b, c, -1).transpose(-2, -1).contiguous())
                         .transpose(-2, -1)
                         .contiguous()
-                        .reshape(b, c, h, w)
+                        .reshape(b, c, *spatial_shape)
                     )
                 )
                 x = x + self.drop_path(
@@ -442,7 +529,7 @@ class TransformerBlock(TimestepBlock):
                         self.norm2(x.reshape(b, c, -1).transpose(-2, -1).contiguous())
                         .transpose(-2, -1)
                         .contiguous()
-                        .reshape(b, c, h, w),
+                        .reshape(b, c, *spatial_shape),
                         emb,
                     )
                 )
@@ -568,11 +655,13 @@ class HybridTransformerBlock(nn.Module):
 
 
 class DownSample(nn.Module):
-    def __init__(self, channels):
+    def __init__(self, channels, spatial_dims=2):
         super(DownSample, self).__init__()
+        conv = conv_nd(spatial_dims)
+        shuffle = PixelUnshuffleZY(2) if spatial_dims == 3 else nn.PixelUnshuffle(2)
         self.body = nn.Sequential(
-            nn.Conv2d(channels, channels // 2, kernel_size=3, padding=1, bias=False),
-            nn.PixelUnshuffle(2),
+            conv(channels, channels // 2, kernel_size=3, padding=1, bias=False),
+            shuffle,
         )
 
     def forward(self, x):
@@ -580,11 +669,13 @@ class DownSample(nn.Module):
 
 
 class UpSample(nn.Module):
-    def __init__(self, channels):
+    def __init__(self, channels, spatial_dims=2):
         super(UpSample, self).__init__()
+        conv = conv_nd(spatial_dims)
+        shuffle = PixelShuffleZY(2) if spatial_dims == 3 else nn.PixelShuffle(2)
         self.body = nn.Sequential(
-            nn.Conv2d(channels, channels * 2, kernel_size=3, padding=1, bias=False),
-            nn.PixelShuffle(2),
+            conv(channels, channels * 2, kernel_size=3, padding=1, bias=False),
+            shuffle,
         )
 
     def forward(self, x):
@@ -640,6 +731,7 @@ class Restormer(nn.Module):
         class_dropout_prob=0.1,
         labels_embed_magnitude_scale=1.0,
         phase3=None,
+        spatial_dims=2,
     ):
         super().__init__()
 
@@ -656,11 +748,16 @@ class Restormer(nn.Module):
         self.timestep_scale = timestep_scale
         self.label_class_scale = label_class_scale
         self.ms_refinement = ms_refinement
+        self.spatial_dims = int(spatial_dims)
+        conv = conv_nd(self.spatial_dims)
         self.enable_vaa = bool(getattr(phase3, "enable_vaa", False)) if phase3 is not None else False
         vaa_cfg = getattr(phase3, "vaa", None) if phase3 is not None else None
         gamma_cfg = getattr(phase3, "gamma", None) if phase3 is not None else None
         recon_mode = normalize_recon_mode(getattr(phase3, "recon_mode", "slice") if phase3 is not None else "slice")
-        prior_channels = int(getattr(phase3, "num_slices", 1)) if recon_mode == "slab" else 1
+        if self.spatial_dims == 3:
+            prior_channels = 1
+        else:
+            prior_channels = int(getattr(phase3, "num_slices", 1)) if recon_mode == "slab" else 1
         self.vaa_locations = list(getattr(vaa_cfg, "locations", [])) if vaa_cfg is not None else []
         gamma_init = float(getattr(gamma_cfg, "init", 0.0)) if gamma_cfg is not None else 0.0
         gamma_mode = getattr(gamma_cfg, "mode", "shifted_sigmoid") if gamma_cfg is not None else "shifted_sigmoid"
@@ -675,7 +772,7 @@ class Restormer(nn.Module):
         self.emb_channels = channels[0] * time_embed_scale if time_cond else None
 
         # Shallow embedding at level 0
-        self.embed_conv = nn.Conv2d(in_channel, channels[0], kernel_size=3, padding=1, bias=False)
+        self.embed_conv = conv(in_channel, channels[0], kernel_size=3, padding=1, bias=False)
 
         # Encoders: level 0..L-1
         self.encoders = nn.ModuleList(
@@ -691,6 +788,7 @@ class Restormer(nn.Module):
                             norm_type=norm_type,
                             post_norm=post_norm,
                             emb_channels=self.emb_channels,
+                            spatial_dims=self.spatial_dims,
                         )
                         for _ in range(num_blocks[i])
                     ]
@@ -700,14 +798,14 @@ class Restormer(nn.Module):
         )
 
         # Down path: L-1 transitions
-        self.downs = nn.ModuleList([DownSample(channels[i]) for i in range(L - 1)])
+        self.downs = nn.ModuleList([DownSample(channels[i], spatial_dims=self.spatial_dims) for i in range(L - 1)])
 
         # Up path: L-1 transitions (index i corresponds to going from level i+1 -> i)
-        self.ups = nn.ModuleList([UpSample(channels[i + 1]) for i in range(L - 1)])
+        self.ups = nn.ModuleList([UpSample(channels[i + 1], spatial_dims=self.spatial_dims) for i in range(L - 1)])
 
         # Reduce 1x1 after concatenation at each decoder stage i (levels i = L-2 .. 0)
         self.reduces = nn.ModuleList(
-            [nn.Conv2d(2 * channels[i], channels[i], kernel_size=1, bias=False) for i in range(L - 1)]
+            [conv(2 * channels[i], channels[i], kernel_size=1, bias=False) for i in range(L - 1)]
         )
 
         # Decoders: one per stage for levels i = 0..L-2
@@ -725,6 +823,7 @@ class Restormer(nn.Module):
                             norm_type=norm_type,
                             post_norm=post_norm,
                             emb_channels=self.emb_channels,
+                            spatial_dims=self.spatial_dims,
                         )
                         for _ in range(num_blocks[i])
                     ]
@@ -744,12 +843,13 @@ class Restormer(nn.Module):
                     norm_type=norm_type,
                     post_norm=post_norm,
                     emb_channels=self.emb_channels,
+                    spatial_dims=self.spatial_dims,
                 )
                 for _ in range(num_refinement)
             ]
         )
         # Final conv
-        self.output = nn.Conv2d(channels[0], out_channel, kernel_size=3, padding=1, bias=False)
+        self.output = conv(channels[0], out_channel, kernel_size=3, padding=1, bias=False)
         self.vaa_adapters = nn.ModuleDict()
         if self.enable_vaa:
             if "bottleneck" in self.vaa_locations:
@@ -763,6 +863,7 @@ class Restormer(nn.Module):
                     num_heads=vaa_heads,
                     attention_stride=attention_stride,
                     use_mask_bias=use_mask_bias,
+                    spatial_dims=self.spatial_dims,
                 )
             if "intermediate" in self.vaa_locations:
                 self.vaa_adapters["intermediate"] = VascularAttentionAdapter(
@@ -775,6 +876,7 @@ class Restormer(nn.Module):
                     num_heads=vaa_heads,
                     attention_stride=attention_stride,
                     use_mask_bias=use_mask_bias,
+                    spatial_dims=self.spatial_dims,
                 )
             for adapter in self.vaa_adapters.values():
                 adapter.gamma_raw.requires_grad = gamma_trainable
@@ -812,7 +914,10 @@ class Restormer(nn.Module):
             else:
                 assert len(cas_skips) == 1, f"cas_skips must have length 1 if L = 1, got {len(cas_skips)}"
 
-        x, padding_sizes = divisible_pad_t(x, k=self.pad_factor)
+        if self.spatial_dims == 3:
+            x, padding_sizes = divisible_pad_zy(x, factor=self.pad_factor)
+        else:
+            x, padding_sizes = divisible_pad_t(x, k=self.pad_factor)
 
         if timestep is not None and self.time_cond:
             timesteps = torch.tensor(float(timestep) * self.timestep_scale, device=x.device, dtype=x.dtype).expand(
@@ -865,7 +970,10 @@ class Restormer(nn.Module):
         fr = self.refinement(ref_in, emb=emb)
         out = self.output(fr)
 
-        out = inverse_divisible_pad_t(out, padding_sizes)
+        if self.spatial_dims == 3:
+            out = inverse_divisible_pad_zy(out, padding_sizes)
+        else:
+            out = inverse_divisible_pad_t(out, padding_sizes)
 
         # ---- Cascade outputs (generalized) ----
         # Return: [dec_out(level=1), ..., dec_out(level=L-2), enc_out(level=L-1)]
@@ -1046,6 +1154,13 @@ class restormer_mri(nn.Module):
         self.num_frames = int(args.num_frames)
         self.recon_slab = is_slab_recon(args)
         self.num_slices = slab_num_slices(args)
+        phase3 = getattr(args, "phase3", None)
+        backbone_cfg = getattr(phase3, "backbone", None) if phase3 is not None else None
+        self.backbone_spatial_dims = int(getattr(backbone_cfg, "spatial_dims", 2))
+        if self.backbone_spatial_dims not in {2, 3}:
+            raise ValueError(f"phase3.backbone.spatial_dims must be 2 or 3, got {self.backbone_spatial_dims}")
+        if self.backbone_spatial_dims == 3 and not self.recon_slab:
+            raise ValueError("The spatial 3D Restormer requires phase3.recon_mode='slab'.")
         self.num_coils = 10
         self.num_reduced_coils = int(args.num_reduced_coils) if hasattr(args, "num_reduced_coils") else 1
 
@@ -1091,6 +1206,8 @@ class restormer_mri(nn.Module):
         self.mlp_ratio = args.mlp_ratio if hasattr(args, "mlp_ratio") else 4
         self.norm_type = args.norm_type if hasattr(args, "norm_type") else None
         self.hybrid_attn = args.hybrid_attn if hasattr(args, "hybrid_attn") else False
+        if self.backbone_spatial_dims == 3 and self.hybrid_attn:
+            raise ValueError("HybridRestormer is not implemented for the spatial 3D backbone.")
         self.post_norm = args.post_norm if hasattr(args, "post_norm") else False
         self.mask_specific_dc_weight_map = (
             args.mask_specific_dc_weight_map if hasattr(args, "mask_specific_dc_weight_map") else False
@@ -1115,6 +1232,27 @@ class restormer_mri(nn.Module):
 
         restormer = HybridRestormer if self.hybrid_attn else Restormer
         restormer_phase3_kwargs = {} if self.hybrid_attn else {"phase3": getattr(args, "phase3", None)}
+        restormer_spatial_kwargs = {} if self.hybrid_attn else {"spatial_dims": self.backbone_spatial_dims}
+
+        mixer_cfg = getattr(phase3, "flowvn_mixer", None) if phase3 is not None else None
+        self.enable_flowvn_mixer = bool(getattr(mixer_cfg, "enabled", False)) if mixer_cfg is not None else False
+        if self.enable_flowvn_mixer and not self.recon_slab:
+            raise ValueError("FlowVN multi-plane mixing requires phase3.recon_mode='slab'.")
+        mixer_channels = self.num_reduced_coils if self.use_csm else self.num_coils
+        self.flowvn_mixer = (
+            FlowVNMultiPlaneMixer(
+                in_channels=mixer_channels,
+                features=int(getattr(mixer_cfg, "features", 8)),
+                kernel_size=int(getattr(mixer_cfg, "kernel_size", 3)),
+                branches=list(getattr(mixer_cfg, "branches", ["xyz", "xyt", "yzt", "xzt"])),
+                num_knots=int(getattr(mixer_cfg, "num_knots", 71)),
+                activation_range=float(getattr(mixer_cfg, "activation_range", 3.5)),
+                scale_init=float(getattr(mixer_cfg, "scale_init", 0.0)),
+                acceleration_modulation=bool(getattr(mixer_cfg, "acceleration_modulation", True)),
+            )
+            if self.enable_flowvn_mixer
+            else None
+        )
 
         self.pad_factor = 2**2
         if self.use_csm:
@@ -1130,8 +1268,16 @@ class restormer_mri(nn.Module):
                 for param in self.coil_sensitivity_model.parameters():
                     param.requires_grad = False
             self.recon_model = restormer(
-                in_channel=self.num_slices * self.num_frames * self.num_reduced_coils * 2,
-                out_channel=self.num_slices * self.num_frames * self.num_reduced_coils * 2,
+                in_channel=(
+                    self.num_frames * self.num_reduced_coils * 2
+                    if self.backbone_spatial_dims == 3
+                    else self.num_slices * self.num_frames * self.num_reduced_coils * 2
+                ),
+                out_channel=(
+                    self.num_frames * self.num_reduced_coils * 2
+                    if self.backbone_spatial_dims == 3
+                    else self.num_slices * self.num_frames * self.num_reduced_coils * 2
+                ),
                 num_experts=self.num_experts,
                 top_k=self.top_k,
                 expansion_factor=self.mlp_ratio,
@@ -1148,11 +1294,20 @@ class restormer_mri(nn.Module):
                 num_classes=self.num_classes,
                 labels_embed_magnitude_scale=labels_embed_magnitude_scale,
                 **restormer_phase3_kwargs,
+                **restormer_spatial_kwargs,
             )
         else:
             self.recon_model = restormer(
-                in_channel=self.num_slices * self.num_frames * self.num_coils * 2,
-                out_channel=self.num_slices * self.num_frames * self.num_coils * 2,
+                in_channel=(
+                    self.num_frames * self.num_coils * 2
+                    if self.backbone_spatial_dims == 3
+                    else self.num_slices * self.num_frames * self.num_coils * 2
+                ),
+                out_channel=(
+                    self.num_frames * self.num_coils * 2
+                    if self.backbone_spatial_dims == 3
+                    else self.num_slices * self.num_frames * self.num_coils * 2
+                ),
                 num_experts=self.num_experts,
                 top_k=self.top_k,
                 expansion_factor=self.mlp_ratio,
@@ -1169,6 +1324,7 @@ class restormer_mri(nn.Module):
                 num_classes=self.num_classes,
                 labels_embed_magnitude_scale=labels_embed_magnitude_scale,
                 **restormer_phase3_kwargs,
+                **restormer_spatial_kwargs,
             )
         self.use_dc_weight_map = args.use_dc_weight_map
         if self.use_dc_weight_map:
@@ -1194,29 +1350,19 @@ class restormer_mri(nn.Module):
             loaded_state_dict = torch.load(self.args.pretrained_recon, map_location="cpu", weights_only=False)[
                 "net_state_dict"
             ]
-        current_model_dict = recon_model.state_dict()
-        new_state_dict = {}
-        loaded_keys = []
-        skipped_shape_keys = []
-        for k in current_model_dict.keys():
-            if k in loaded_state_dict:
-                if loaded_state_dict[k].size() == current_model_dict[k].size():
-                    new_state_dict[k] = loaded_state_dict[k]
-                    loaded_keys.append(k)
-                else:
-                    new_state_dict[k] = current_model_dict[k]
-                    skipped_shape_keys.append(k)
-            else:
-                new_state_dict[k] = current_model_dict[k]
-
-        recon_model.load_state_dict(new_state_dict)
+        loaded_keys, _unchanged, skipped_shape_keys, _unexpected, inflated_keys = load_shape_compatible_state_dict(
+            recon_model,
+            loaded_state_dict,
+        )
         print(f"Loaded pretrained Recon model from {self.args.pretrained_recon}")
         print(
             f"Loaded {len(loaded_keys)} keys from pretrained Recon model with {len(loaded_state_dict)} keys \
             from {self.args.pretrained_recon}."
         )
+        if inflated_keys:
+            print(f"Center-inflated {len(inflated_keys)} Conv2d weights for the spatial 3D Recon model.")
         if skipped_shape_keys:
-            preview = ", ".join(skipped_shape_keys[:8])
+            preview = ", ".join(key for key, _old_shape, _new_shape in skipped_shape_keys[:8])
             suffix = "..." if len(skipped_shape_keys) > 8 else ""
             print(f"Skipped {len(skipped_shape_keys)} pretrained Recon keys due to shape mismatch: {preview}{suffix}")
         return recon_model
@@ -1357,8 +1503,15 @@ class restormer_mri(nn.Module):
                         sensitivity_maps = checkpoint(self.coil_sensitivity_model, x, use_reentrant=False)
             x = sensitivity_map_reduce(x, sensitivity_maps, k=self.num_reduced_coils)  # x will be of shape (B,1,H,W,2)
 
+        flowvn_update = None
         if self.recon_slab:
-            x = rearrange(x, "(b s t) c h w two -> b (s t c two) h w", b=B, s=S, t=T, two=2)
+            x_volume = rearrange(x, "(b s t) c h w two -> b s t c h w two", b=B, s=S, t=T)
+            if self.flowvn_mixer is not None:
+                flowvn_update = self.flowvn_mixer(x_volume, acceleration=acc_factor)
+            if self.backbone_spatial_dims == 3:
+                x = rearrange(x_volume, "b s t c h w two -> b (t c two) s h w", two=2)
+            else:
+                x = rearrange(x_volume, "b s t c h w two -> b (s t c two) h w", two=2)
         else:
             x = rearrange(x, "(b t) c h w two -> b (t c two) h w", t=T, two=2)
         mask_idx = next((i for i, sub in enumerate(self.mask_types) if sub in mask_type.lower()), -1)
@@ -1376,7 +1529,13 @@ class restormer_mri(nn.Module):
         else:
             x, cas_skips = self.recon_model(x, cas_skips, timestep, label, mra_prior)
         if self.recon_slab:
-            x = rearrange(x, "b (s t c two) h w -> (b s t) c h w two", s=S, t=T, two=2)
+            if self.backbone_spatial_dims == 3:
+                x_volume = rearrange(x, "b (t c two) s h w -> b s t c h w two", t=T, two=2)
+            else:
+                x_volume = rearrange(x, "b (s t c two) h w -> b s t c h w two", s=S, t=T, two=2)
+            if flowvn_update is not None:
+                x_volume = x_volume - flowvn_update
+            x = rearrange(x_volume, "b s t c h w two -> (b s t) c h w two")
         else:
             x = rearrange(x, "b (t c two) h w -> (b t) c h w two", t=T, two=2)
 

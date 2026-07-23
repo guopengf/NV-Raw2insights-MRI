@@ -69,6 +69,9 @@ def collect_vaa_gamma(model):
     module = model.module if hasattr(model, "module") else model
     gamma_by_location = {}
     for name, submodule in module.named_modules():
+        if name.endswith("flowvn_mixer") and hasattr(submodule, "scale"):
+            gamma_by_location.setdefault("flowvn_scale", []).append(float(submodule.scale.detach().cpu()))
+            continue
         if not hasattr(submodule, "gamma_raw") or not callable(getattr(submodule, "gamma", None)):
             continue
         location = name
@@ -320,6 +323,7 @@ def trainer(args):
         is_ddp=args.ddp,
         resume_rng_state=args.resume_rng_state,
         prepare_model_for_ddp=lambda m: apply_phase3_freeze(args, m),
+        resume_training_state=not bool(getattr(args, "resume_weights_only", False)),
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
     model_params = sum(p.numel() for p in model.parameters())

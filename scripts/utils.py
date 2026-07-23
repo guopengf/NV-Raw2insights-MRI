@@ -99,6 +99,7 @@ __all__ = [
     "complex_normalize",
     "MultiEpochsDataLoader",
     "load_net",
+    "load_shape_compatible_state_dict",
     "save_checkpoint",
     "get_acs_image",
     "save_img4ranking",
@@ -376,6 +377,8 @@ def validate_phase3_config(config) -> None:
             "enable_vaa",
             "recon_mode",
             "num_slices",
+            "backbone",
+            "flowvn_mixer",
             "mra",
             "vaa",
             "mask",
@@ -399,6 +402,67 @@ def validate_phase3_config(config) -> None:
         num_slices = int(_get_attr(phase3, "num_slices", 3))
         if num_slices <= 0 or num_slices % 2 == 0:
             raise ValueError(f"phase3.num_slices must be a positive odd integer for slab mode, got {num_slices}")
+    else:
+        num_slices = 1
+
+    backbone = _get_attr(phase3, "backbone", None)
+    spatial_dims = 2
+    if backbone is not None:
+        _warn_unknown_config_keys(backbone, "phase3.backbone", {"spatial_dims", "downsample_axes"})
+        spatial_dims = int(_get_attr(backbone, "spatial_dims", 2))
+        if spatial_dims not in {2, 3}:
+            raise ValueError("phase3.backbone.spatial_dims must be 2 or 3")
+        downsample_axes = str(_get_attr(backbone, "downsample_axes", "zy")).lower()
+        if spatial_dims == 3 and recon_mode != "slab":
+            raise ValueError("phase3.backbone.spatial_dims=3 requires phase3.recon_mode='slab'")
+        if spatial_dims == 3 and downsample_axes != "zy":
+            raise ValueError("The current spatial 3D backbone supports downsampling only on 'zy'")
+        _set_attr(backbone, "spatial_dims", spatial_dims)
+        _set_attr(backbone, "downsample_axes", downsample_axes)
+
+    flowvn_mixer = _get_attr(phase3, "flowvn_mixer", None)
+    if flowvn_mixer is not None:
+        _warn_unknown_config_keys(
+            flowvn_mixer,
+            "phase3.flowvn_mixer",
+            {
+                "enabled",
+                "features",
+                "kernel_size",
+                "branches",
+                "num_knots",
+                "activation_range",
+                "scale_init",
+                "acceleration_modulation",
+            },
+        )
+        mixer_enabled = bool(_get_attr(flowvn_mixer, "enabled", False))
+        features = int(_get_attr(flowvn_mixer, "features", 8))
+        kernel_size = int(_get_attr(flowvn_mixer, "kernel_size", 3))
+        num_knots = int(_get_attr(flowvn_mixer, "num_knots", 71))
+        activation_range = float(_get_attr(flowvn_mixer, "activation_range", 3.5))
+        branches = [str(branch).lower() for branch in _get_attr(flowvn_mixer, "branches", ["xyz", "xyt", "yzt", "xzt"])]
+        valid_branches = {"xyz", "xyt", "yzt", "xzt"}
+        if mixer_enabled and spatial_dims != 3:
+            raise ValueError("phase3.flowvn_mixer.enabled=true requires phase3.backbone.spatial_dims=3")
+        if features < 1:
+            raise ValueError("phase3.flowvn_mixer.features must be positive")
+        if kernel_size < 1 or kernel_size % 2 == 0:
+            raise ValueError("phase3.flowvn_mixer.kernel_size must be a positive odd integer")
+        if mixer_enabled and kernel_size > num_slices:
+            raise ValueError(
+                f"FlowVN mixer kernel_size={kernel_size} exceeds slab num_slices={num_slices}; "
+                "increase phase3.num_slices or reduce the kernel."
+            )
+        if num_knots < 3 or num_knots % 2 == 0:
+            raise ValueError("phase3.flowvn_mixer.num_knots must be an odd integer >= 3")
+        if activation_range <= 0:
+            raise ValueError("phase3.flowvn_mixer.activation_range must be positive")
+        if not branches or len(set(branches)) != len(branches) or set(branches) - valid_branches:
+            raise ValueError(
+                "phase3.flowvn_mixer.branches must be unique values from {'xyz','xyt','yzt','xzt'}"
+            )
+        _set_attr(flowvn_mixer, "branches", branches)
 
     mra = _get_attr(phase3, "mra", None)
     if mra is not None:
@@ -815,11 +879,12 @@ class _RepeatSampler(object):
 
 
 def load_shape_compatible_state_dict(module: torch.nn.Module, checkpoint_state_dict: dict):
-    """Load checkpoint tensors only when both key and shape match current module."""
+    """Load matching tensors and center-inflate compatible Conv2d weights."""
     current_state = module.state_dict()
     current_keys = set(current_state.keys())
     new_state = dict(current_state)
     loaded_keys = []
+    inflated_keys = []
     skipped_shape_keys = []
     unexpected_keys = []
 
@@ -836,13 +901,27 @@ def load_shape_compatible_state_dict(module: torch.nn.Module, checkpoint_state_d
         if tuple(ckpt_value.shape) == tuple(current_state[key].shape):
             new_state[key] = ckpt_value
             loaded_keys.append(key)
+        elif (
+            ckpt_value.ndim == 4
+            and current_state[key].ndim == 5
+            and tuple(ckpt_value.shape[:2]) == tuple(current_state[key].shape[:2])
+            and tuple(ckpt_value.shape[-2:]) == tuple(current_state[key].shape[-2:])
+        ):
+            inflated = torch.zeros_like(current_state[key])
+            inflated[:, :, inflated.shape[2] // 2] = ckpt_value.to(
+                device=inflated.device,
+                dtype=inflated.dtype,
+            )
+            new_state[key] = inflated
+            loaded_keys.append(key)
+            inflated_keys.append(key)
         else:
             skipped_shape_keys.append((key, tuple(ckpt_value.shape), tuple(current_state[key].shape)))
 
     module.load_state_dict(new_state, strict=True)
     loaded_set = set(loaded_keys)
     unchanged_keys = [key for key in current_state.keys() if key not in loaded_set]
-    return loaded_keys, unchanged_keys, skipped_shape_keys, unexpected_keys
+    return loaded_keys, unchanged_keys, skipped_shape_keys, unexpected_keys, inflated_keys
 
 
 def load_net(
@@ -853,6 +932,7 @@ def load_net(
     find_unused_parameters=False,
     resume_rng_state=False,
     prepare_model_for_ddp=None,
+    resume_training_state=True,
 ):
     """
     Load the Net model.
@@ -893,12 +973,16 @@ def load_net(
         ignore_schduler_opt_state = False
         print(f"resume training net, ignore_schduler_opt_state: {ignore_schduler_opt_state}")
 
-        updated_keys, unchanged_keys, skipped_shape_keys, unexpected_keys = load_shape_compatible_state_dict(
+        updated_keys, unchanged_keys, skipped_shape_keys, unexpected_keys, inflated_keys = load_shape_compatible_state_dict(
             net, checkpoint_net["net_state_dict"]
         )
 
         print(f"net updated_keys: {len(updated_keys)}")
         print(f"net unchanged_keys: {len(unchanged_keys)}")
+        if inflated_keys:
+            preview = ", ".join(inflated_keys[:8])
+            suffix = "..." if len(inflated_keys) > 8 else ""
+            print(f"net center-inflated Conv2d weights: {len(inflated_keys)} ({preview}{suffix})")
         if skipped_shape_keys:
             preview = ", ".join(
                 f"{key}: ckpt{ckpt_shape}->model{model_shape}"
@@ -911,7 +995,9 @@ def load_net(
             suffix = "..." if len(unexpected_keys) > 8 else ""
             print(f"net unexpected checkpoint keys: {len(unexpected_keys)} ({preview}{suffix})")
 
-        if not ignore_schduler_opt_state:
+        if not resume_training_state:
+            print("Loaded checkpoint weights only; epoch, optimizer, scheduler, scaler, RNG, and W&B state are reset.")
+        elif not ignore_schduler_opt_state:
             try:
                 if checkpoint_net["epoch_finished"]:
                     start_epoch = checkpoint_net["epoch"]
