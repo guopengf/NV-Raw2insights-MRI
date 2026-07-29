@@ -188,7 +188,7 @@
         },
         "freeze": {
             "backbone": false,
-            "vaa": true
+            "vaa": false
         },
         "gamma": {
             "init": 0.0,

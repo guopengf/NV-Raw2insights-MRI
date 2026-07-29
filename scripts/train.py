@@ -296,7 +296,8 @@ def trainer(args):
     pretrained_path = resolve_checkpoint_path(args.model_variant)
     resume_ckpt = getattr(args, "resume_ckpt", None)
     resume_path = os.path.join(outpath, args.model_filename)
-    if os.path.exists(resume_path):
+    resume_from_current_experiment = os.path.exists(resume_path)
+    if resume_from_current_experiment:
         print(f"Auto-resume from experiment checkpoint: {resume_path}")
     elif resume_ckpt:
         resume_path = str(resume_ckpt)
@@ -323,7 +324,9 @@ def trainer(args):
         is_ddp=args.ddp,
         resume_rng_state=args.resume_rng_state,
         prepare_model_for_ddp=lambda m: apply_phase3_freeze(args, m),
-        resume_training_state=not bool(getattr(args, "resume_weights_only", False)),
+        resume_training_state=(
+            resume_from_current_experiment or not bool(getattr(args, "resume_weights_only", False))
+        ),
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
     model_params = sum(p.numel() for p in model.parameters())
