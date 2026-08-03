@@ -80,17 +80,72 @@ def cfg_get(obj, path, default=None):
     return cur
 
 
+def _gradient_l2(parameters):
+    grad_squared = None
+    for parameter in parameters:
+        if parameter.grad is None:
+            continue
+        value = parameter.grad.detach().float().square().sum()
+        grad_squared = value if grad_squared is None else grad_squared + value
+    if grad_squared is None:
+        return float("nan")
+    return float(grad_squared.sqrt().cpu())
+
+
 def collect_vaa_gamma(model):
     module = model.module if hasattr(model, "module") else model
     gamma_by_location = {}
+    flowvn_scales = []
+    flowvn_scale_parameters = []
+    flowvn_kernel_parameters = []
+    flowvn_knot_parameters = []
+    flowvn_acceleration_parameters = []
     for name, submodule in module.named_modules():
+        if name.endswith("flowvn_mixer") and hasattr(submodule, "scale"):
+            scale_value = float(submodule.scale.detach().cpu())
+            cascade_index = len(flowvn_scales)
+            name_parts = name.split(".")
+            if "cascades" in name_parts:
+                index = name_parts.index("cascades")
+                if index + 1 < len(name_parts) and name_parts[index + 1].isdigit():
+                    cascade_index = int(name_parts[index + 1])
+            gamma_by_location[f"flowvn_scale_c{cascade_index:02d}"] = scale_value
+            flowvn_scales.append(scale_value)
+            for parameter_name, parameter in submodule.named_parameters():
+                if parameter_name == "scale":
+                    flowvn_scale_parameters.append(parameter)
+                elif parameter_name.startswith("regularizers.") and parameter_name.endswith(".weight"):
+                    flowvn_kernel_parameters.append(parameter)
+                elif ".activation.knots" in parameter_name:
+                    flowvn_knot_parameters.append(parameter)
+                elif parameter_name == "acceleration_modulation.knots":
+                    flowvn_acceleration_parameters.append(parameter)
+            continue
         if not hasattr(submodule, "gamma_raw") or not callable(getattr(submodule, "gamma", None)):
             continue
         location = name
         if "vaa_adapters." in name:
             location = name.split("vaa_adapters.", 1)[1].split(".", 1)[0]
         gamma_by_location.setdefault(location, []).append(float(submodule.gamma().detach().cpu()))
-    return {name: float(np.mean(values)) for name, values in gamma_by_location.items()}
+    diagnostics = {
+        name: float(np.mean(values)) if isinstance(values, list) else float(values)
+        for name, values in gamma_by_location.items()
+    }
+    if flowvn_scales:
+        scale_array = np.asarray(flowvn_scales, dtype=np.float64)
+        diagnostics.update(
+            {
+                "flowvn_scale_mean": float(scale_array.mean()),
+                "flowvn_scale_abs_mean": float(np.abs(scale_array).mean()),
+                "flowvn_scale_min": float(scale_array.min()),
+                "flowvn_scale_max": float(scale_array.max()),
+                "flowvn_scale_grad_norm": _gradient_l2(flowvn_scale_parameters),
+                "flowvn_kernel_grad_norm": _gradient_l2(flowvn_kernel_parameters),
+                "flowvn_knot_grad_norm": _gradient_l2(flowvn_knot_parameters),
+                "flowvn_acceleration_grad_norm": _gradient_l2(flowvn_acceleration_parameters),
+            }
+        )
+    return diagnostics
 
 
 def short_train_log_name(name):
@@ -288,7 +343,11 @@ def trainer(args):
     )[rank]
 
     if args.debug:
-        train_files = train_files[:1]
+        debug_train_file_limit = max(
+            1,
+            int(cfg_get(args, "performance_timing.debug_max_train_batches", 1)),
+        )
+        train_files = train_files[:debug_train_file_limit]
         val_files = val_files[:1]
 
     # define mask transform type (e.g., whether it is equispaced or random)
@@ -309,7 +368,8 @@ def trainer(args):
     pretrained_path = resolve_checkpoint_path(args.model_variant)
     resume_ckpt = getattr(args, "resume_ckpt", None)
     resume_path = os.path.join(outpath, args.model_filename)
-    if os.path.exists(resume_path):
+    resume_from_current_experiment = os.path.exists(resume_path)
+    if resume_from_current_experiment:
         print(f"Auto-resume from experiment checkpoint: {resume_path}")
     elif resume_ckpt:
         resume_path = str(resume_ckpt)
@@ -336,6 +396,9 @@ def trainer(args):
         is_ddp=args.ddp,
         resume_rng_state=args.resume_rng_state,
         prepare_model_for_ddp=lambda m: apply_phase3_freeze(args, m),
+        resume_training_state=(
+            resume_from_current_experiment or not bool(getattr(args, "resume_weights_only", False))
+        ),
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
     model_params = sum(p.numel() for p in model.parameters())
@@ -982,13 +1045,32 @@ def trainer(args):
                     gamma_values = collect_vaa_gamma(model)
                     gamma_parts = ""
                     if gamma_values:
+                        compact_gamma_values = {
+                            name: value
+                            for name, value in gamma_values.items()
+                            if not name.startswith("flowvn_scale_c")
+                        }
                         gamma_parts = " " + ", ".join(
-                            f"{short_train_log_name(name)}={value:.6f}" for name, value in gamma_values.items()
+                            (
+                                f"{short_train_log_name(name)}={value:.3e}"
+                                if name.endswith("_grad_norm")
+                                else f"{short_train_log_name(name)}={value:.6f}"
+                            )
+                            for name, value in compact_gamma_values.items()
+                        )
+                    memory_parts = ""
+                    if torch.cuda.is_available():
+                        peak_allocated_gib = torch.cuda.max_memory_allocated(device) / (1024**3)
+                        peak_reserved_gib = torch.cuda.max_memory_reserved(device) / (1024**3)
+                        memory_parts = (
+                            f" cuda_peak_allocated_gib={peak_allocated_gib:.3f}"
+                            f" cuda_peak_reserved_gib={peak_reserved_gib:.3f}"
                         )
                     print(
                         f"{b + 1}/{len(train_loader)} {i + adjusted_micro_batch_size}/{num_samples} "
                         f"lr={optimizer.param_groups[0]['lr']:.2e} "
-                        f"train_loss={epoch_loss / (step + 1e-8):.4f} {loss_parts}{gamma_parts}",
+                        f"train_loss={epoch_loss / (step + 1e-8):.4f} "
+                        f"{loss_parts}{gamma_parts}{memory_parts}",
                     )
                     if (global_step + step) % 10 == 0:
                         writer.add_scalar(
@@ -1006,6 +1088,9 @@ def trainer(args):
                             writer.add_scalar(f"train_step_{k}", v, global_step + step)
                         for k, v in gamma_values.items():
                             writer.add_scalar(f"train_step_gamma_{k}", v, global_step + step)
+                        if torch.cuda.is_available():
+                            writer.add_scalar("train_step_cuda_peak_allocated_gib", peak_allocated_gib, global_step + step)
+                            writer.add_scalar("train_step_cuda_peak_reserved_gib", peak_reserved_gib, global_step + step)
 
                     if step != 0 and step % 10000 == 0:
                         checkpoint_timing = save_checkpoint(
@@ -1119,12 +1204,10 @@ def trainer(args):
                 writer.add_scalar("train_vphase", epoch_vphase, epoch + 1)
                 epoch_log["train/vphase"] = epoch_vphase
             epoch_gamma_values = collect_vaa_gamma(model)
-            for location in ("bottleneck", "intermediate"):
-                if location not in epoch_gamma_values:
-                    continue
+            for location, value in epoch_gamma_values.items():
                 metric_name = short_train_log_name(location)
-                writer.add_scalar(f"train_{metric_name}", epoch_gamma_values[location], epoch + 1)
-                epoch_log[f"train/{metric_name}"] = epoch_gamma_values[location]
+                writer.add_scalar(f"train_{metric_name}", value, epoch + 1)
+                epoch_log[f"train/{metric_name}"] = value
             log_epoch_performance(epoch_timing_samples, epoch, writer, epoch_log)
             run.log(epoch_log, step=epoch + 1)
             checkpoint_timing = save_checkpoint(
