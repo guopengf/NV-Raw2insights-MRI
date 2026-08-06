@@ -512,14 +512,21 @@ def trainer(args):
     save_args_to_file_json(args, os.path.join(outpath, "config.json"))
 
     optimizer = get_optimizer(args, model)
+    optimizer_state_restored = False
     if optimizer_state_dict is not None:
         try:
             optimizer.load_state_dict(optimizer_state_dict)
+            optimizer_state_restored = True
             print("optimizer state dict loaded from resume checkpoint.")
         except Exception as e:
             print(f"Rank {rank}: Failed to load optimizer state dict: {e}. Proceeding without optimizer state dict.")
     else:
         print("optimizer state dict is not found.")
+    startup_zero_lr_steps = 0 if optimizer_state_restored else 11
+    if optimizer_state_restored:
+        print("Startup LR policy: optimizer state restored; using scheduled LR from the first step.")
+    else:
+        print("Startup LR policy: optimizer state unavailable; using zero LR for the first 11 steps.")
     if scaler_state_dict is not None:
         scaler.load_state_dict(scaler_state_dict)
         print("scaler state dict loaded from resume checkpoint.")
@@ -618,8 +625,8 @@ def trainer(args):
         print(f"epoch {epoch + 1}/{args.num_epochs}")
         model.train()
         epoch_loss = 0
-        epoch_vphase_sum = 0.0
-        epoch_vphase_count = 0
+        epoch_loss_component_sums = {}
+        epoch_loss_component_counts = {}
         step = 0
         nan_loss_count = 0
         epoch_timing_samples = []
@@ -640,7 +647,7 @@ def trainer(args):
             )
             batch_timings = {"loader_wait_ms": loader_wait_ms} if time_batch_setup else {}
             batch_setup_started = start_phase_timing(time_batch_setup, performance_timing_cuda_sync)
-            if start_epoch == epoch and step <= 10:
+            if start_epoch == epoch and step < startup_zero_lr_steps:
                 adjust_learning_rate(optimizer, b / len(train_loader) + epoch, args, is_resume_first_ten=True)
             else:
                 adjust_learning_rate(optimizer, b / len(train_loader) + epoch, args, is_resume_first_ten=False)
@@ -849,6 +856,7 @@ def trainer(args):
                     targets_rss = torch.sqrt(torch.sum(tar**2, dim=1, keepdim=True))
 
                 loss_dict = {}
+                raw_loss_log = {}
                 weighted_loss_log = {}
                 if use_main_zy_loss:
                     with autocast("cuda", torch.bfloat16, enabled=False):
@@ -888,8 +896,19 @@ def trainer(args):
 
                     if isinstance(loss_dict, dict):
                         loss = loss_dict["combined_loss"]
+                        for loss_name, loss_value in loss_dict.items():
+                            if loss_name != "combined_loss":
+                                raw_loss_log[f"main_zy_{loss_name}"] = torch.as_tensor(
+                                    loss_value, dtype=loss.dtype, device=loss.device
+                                )
                     else:
                         loss = loss_dict
+                        if args.loss_type == "ssim":
+                            raw_loss_log["main_zy_ssim_loss"] = (
+                                loss / loss_function.ssim_scale
+                            ).detach()
+                        else:
+                            raw_loss_log["main_zy_loss"] = loss.detach()
                     weighted_loss_log["main_zy_loss_weighted"] = loss.detach()
                 else:
                     loss = output_complex.sum() * 0.0
@@ -989,7 +1008,8 @@ def trainer(args):
                 )
                 step_loss_components = {}
                 phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
-                for loss_name, loss_value in weighted_loss_log.items():
+                loss_component_log = {**raw_loss_log, **weighted_loss_log, **aux_loss_log}
+                for loss_name, loss_value in loss_component_log.items():
                     component_tensor = loss_value.clone().detach()
                     if args.ddp and not defer_metric_allreduce:
                         dist.all_reduce(component_tensor, op=dist.ReduceOp.SUM)
@@ -1003,12 +1023,18 @@ def trainer(args):
                     performance_timing_cuda_sync,
                 )
                 step_loss_components["loss_sum"] = step_loss
+                for loss_name in step_loss_components:
+                    if loss_name != "loss_sum":
+                        epoch_loss_component_sums.setdefault(loss_name, 0.0)
+                        epoch_loss_component_counts.setdefault(loss_name, 0)
                 if step_loss == step_loss:
                     epoch_loss += step_loss
-                    vphase = step_loss_components.get("vascular_phase_loss_weighted")
-                    if vphase is not None and math.isfinite(vphase):
-                        epoch_vphase_sum += vphase
-                        epoch_vphase_count += 1
+                    for loss_name, loss_value in step_loss_components.items():
+                        if loss_name == "loss_sum":
+                            continue
+                        if math.isfinite(loss_value):
+                            epoch_loss_component_sums[loss_name] += loss_value
+                            epoch_loss_component_counts[loss_name] += 1
                 else:
                     nan_loss_count += 1
                     step -= 1
@@ -1187,20 +1213,26 @@ def trainer(args):
             dist.all_reduce(epoch_loss_tensor, op=dist.ReduceOp.SUM)
             epoch_loss = epoch_loss_tensor.item() / world_size
 
-        epoch_vphase = None
-        if use_vascular_loss:
-            vphase_stats = torch.tensor(
-                [epoch_vphase_sum, epoch_vphase_count], dtype=torch.float64, device=device
+        epoch_loss_components = {}
+        for loss_name in sorted(epoch_loss_component_sums):
+            component_stats = torch.tensor(
+                [epoch_loss_component_sums[loss_name], epoch_loss_component_counts[loss_name]],
+                dtype=torch.float64,
+                device=device,
             )
             if args.ddp:
-                dist.all_reduce(vphase_stats, op=dist.ReduceOp.SUM)
-            if vphase_stats[1].item() > 0:
-                epoch_vphase = (vphase_stats[0] / vphase_stats[1]).item()
+                dist.all_reduce(component_stats, op=dist.ReduceOp.SUM)
+            if component_stats[1].item() > 0:
+                epoch_loss_components[loss_name] = (component_stats[0] / component_stats[1]).item()
 
         if rank == 0 and not args.val:
             writer.add_scalar("train_loss", epoch_loss / step, epoch + 1)
             epoch_log = {"train/loss": epoch_loss / step}
-            if epoch_vphase is not None:
+            for loss_name, loss_value in epoch_loss_components.items():
+                writer.add_scalar(f"train_{loss_name}", loss_value, epoch + 1)
+                epoch_log[f"train/{loss_name}"] = loss_value
+            if "vascular_phase_loss_weighted" in epoch_loss_components:
+                epoch_vphase = epoch_loss_components["vascular_phase_loss_weighted"]
                 writer.add_scalar("train_vphase", epoch_vphase, epoch + 1)
                 epoch_log["train/vphase"] = epoch_vphase
             epoch_gamma_values = collect_vaa_gamma(model)

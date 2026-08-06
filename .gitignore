@@ -13,3 +13,4 @@ dataset/
 outputs/
 *.slurm
 .docx
+logs/
