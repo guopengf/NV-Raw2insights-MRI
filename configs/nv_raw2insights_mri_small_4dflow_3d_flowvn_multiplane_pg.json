@@ -1,0 +1,264 @@
+{
+    "model_variant": "nv_raw2insights_mri_small",
+    "data_path_train": [
+        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/Aorta/"
+    ],
+    "data_path_val": [
+        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/Aorta/"
+    ],
+    "pretrained_csm": null,
+    "pretrained_recon": null,
+    "resume_ckpt": "cache/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_compatible.pt",
+    "resume_weights_only": true,
+    "pp_z_score_norm": false,
+    "fixed_mask_types": [
+        "ktGaussian"
+    ],
+    "uniform_input_kspace": false,
+    "val_interval": 40,
+    "num_samples_per_case": 8,
+    "data_aug": false,
+    "use_multi_epochs_train_loader": true,
+    "resume_rng_state": false,
+    "do_mapping_shuffle": false,
+    "do_center_crop": false,
+    "seed": null,
+    "lookahead": false,
+    "muon": true,
+    "muon_scale": 5,
+    "enable_onelogger": false,
+    "flow": true,
+    "balance_data": false,
+    "enable_cas_skips": true,
+    "finetune_ms": false,
+    "adaptive_batch_size": false,
+    "constant_input_flow": false,
+    "amp": true,
+    "acs_lines": 20,
+    "pp_norm": false,
+    "batch_size": 8,
+    "num_workers": 4,
+    "train_prefetch_factor": 2,
+    "train_singleton_view_collate": true,
+    "performance_timing": {
+        "enabled": false,
+        "sample_interval": 10,
+        "cuda_synchronize": false,
+        "log_rank_details": true,
+        "worker_timing_enabled": false,
+        "post_worker_timing_enabled": false,
+        "lightweight_enabled": true,
+        "worker_loader_max_events_per_rank": 300,
+        "slow_loader_threshold_ms": 500.0,
+        "slow_loader_max_events_per_rank": 100,
+        "run_tag": "phase4_flowvn_multiplane"
+    },
+    "efficiency": {
+        "skip_fixed_compute_cost_allreduce": false,
+        "combine_batch_metadata_allreduce": false,
+        "defer_metric_allreduce": false
+    },
+    "cache_rate": 0.0,
+    "sample_rate": 1.0,
+    "accelerations": [
+        10.0,
+        20.0,
+        30.0,
+        40.0,
+        50.0
+    ],
+    "center_fractions": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+    ],
+    "train_mask_types": [
+        "fixed"
+    ],
+    "acq_types": [
+        "BlackBlood",
+        "Cine",
+        "Flow4d",
+        "LGE",
+        "Mapping",
+        "Perfusion",
+        "T1rho",
+        "T1w",
+        "T2w"
+    ],
+    "val_mask_types": [
+        "fixed"
+    ],
+    "num_epochs": 320,
+    "exp_dir": "outputs/4dflow/4dflow_finetune_phase4/",
+    "exp": "small_ft_4dflow_encbatch_phase4_3d_flowvn_multiplane",
+    "lr": 1e-05,
+    "weight_decay": 0.001,
+    "loss_type": "ssim",
+    "model_type": "restormer",
+    "dataset": "CMRxRecon",
+    "warmup_epochs": 1,
+    "lr_schedule": "cosine",
+    "min_lr": 7.5e-06,
+    "model_filename": "nv_raw2insights_mri_small_ft_4dflow_phase4_3d_flowvn_multiplane.pt",
+    "use_csm": true,
+    "use_tau_csm": false,
+    "use_acs_region": false,
+    "norm_type": "ln",
+    "drop_path": 0.1,
+    "num_cascades": 6,
+    "num_frames": 5,
+    "mlp_ratio": 3,
+    "num_blocks": [
+        3,
+        6
+    ],
+    "num_heads": [
+        1,
+        2
+    ],
+    "num_refinement": 2,
+    "channels": [
+        256,
+        512
+    ],
+    "use_dc_weight_map": true,
+    "mask_specific_dc_weight_map": true,
+    "reinit_wandb": false,
+    "num_steps": 1,
+    "time_cond": true,
+    "label_cond": true,
+    "ddp": true,
+    "val": false,
+    "is_multi_coil": true,
+    "is_4dflow_aorta": true,
+    "use_external_csm": true,
+    "four_dflow_accelerations": [
+        10,
+        20,
+        30,
+        40,
+        50
+    ],
+    "four_dflow_encodings": [
+        0,
+        1,
+        2,
+        3
+    ],
+    "phase3": {
+        "recon_mode": "slab",
+        "num_slices": 3,
+        "enable_vaa": false,
+        "backbone": {
+            "spatial_dims": 3,
+            "downsample_axes": "zy"
+        },
+        "flowvn_mixer": {
+            "enabled": true,
+            "features": 8,
+            "kernel_size": 3,
+            "branches": [
+                "xyz",
+                "xyt",
+                "yzt",
+                "xzt"
+            ],
+            "num_knots": 71,
+            "activation_range": 3.5,
+            "scale_init": 0.0,
+            "acceleration_modulation": true
+        },
+        "mra": {
+            "source": "gt",
+            "method": "pcmra",
+            "use_mip": false,
+            "projection": "slice_zy",
+            "projection_axis": 2,
+            "use_cache": true,
+            "cache_dir": "outputs/4dflow/mra_cache_phase4_flowvn",
+            "device": "cpu",
+            "vessel_map": {
+                "description": "Normalize PC-MRA x-MIP to a single-channel black/white zy vessel prior.",
+                "binary": true,
+                "lower_percentile": 1.0,
+                "upper_percentile": 99.5,
+                "smooth_sigma": 0.75,
+                "threshold": 0.35
+            },
+            "sense": {
+                "description": "Used when source=zf/sense; zf means undersampled k-space reconstructed with CG-SENSE before PC-MRA.",
+                "niter": 5,
+                "lam": 0.0001
+            }
+        },
+        "vaa": {
+            "prior_source": "mask",
+            "locations": [
+                "bottleneck",
+                "intermediate"
+            ],
+            "reduction": 4,
+            "num_heads": 4,
+            "attention_stride": 2,
+            "use_mask_bias": true
+        },
+        "mask": {
+            "field": "segmask",
+            "keys": [
+                "segmask",
+                "vessel_mask",
+                "mask",
+                "seg",
+                "label"
+            ],
+            "axis_order": "zyx",
+            "binary": true,
+            "threshold": 0.5
+        },
+        "freeze": {
+            "backbone": false,
+            "vaa": false
+        },
+        "gamma": {
+            "init": 0.0,
+            "trainable": true,
+            "mode": "shifted_sigmoid"
+        },
+        "loss": {
+            "use_phase": true,
+            "use_vascular": false,
+            "use_ssim_zy": false,
+            "use_ssim_xy": false,
+            "ssim_spatial_dims": "auto",
+            "ssim_win_size": "auto",
+            "phase": {
+                "method": "flowvn_complex_l1",
+                "weight": 1.0,
+                "eps": 1e-08
+            },
+            "vascular": {
+                "method": "mra_masked_phase_l1",
+                "weight": 10.0,
+                "normalize_by_mask": true
+            }
+        },
+        "inference": {
+            "output_merge": "center"
+        }
+    },
+    "train_mask_types_for_def_model": [
+        "uniform",
+        "kt_gaussian",
+        "kt_radial"
+    ],
+    "accelerations_for_def_model": [
+        10,
+        20,
+        30,
+        40,
+        50
+    ]
+}

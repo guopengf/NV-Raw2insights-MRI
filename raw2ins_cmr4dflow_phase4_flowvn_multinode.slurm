@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --nodes=2
 #SBATCH -A healthcareeng_monai
-#SBATCH --partition=batch,batch_short
+#SBATCH --partition=batch
 #SBATCH --exclusive
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=8
-#SBATCH --time=2:00:00
+#SBATCH --time=4:00:00
 #SBATCH --job-name=raw2ins-p4-flowvn
 #SBATCH --dependency=singleton
 #SBATCH --output=/home/pengfeig/slurm-logs-agent/%x-%j.out

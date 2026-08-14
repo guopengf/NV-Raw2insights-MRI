@@ -53,6 +53,51 @@ TASKS = {
     },
 }
 
+SHARDS = {
+    0: {
+        "family": "R1R2",
+        "task": "TaskR1R2",
+        "anatomies": ["Aorta"],
+        "full_cases": 32,
+        "work_name": "TaskR1R2__Aorta",
+    },
+    1: {
+        "family": "S1",
+        "task": "TaskS1",
+        "anatomies": ["Aorta"],
+        "full_cases": 40,
+        "work_name": "TaskS1__Aorta",
+    },
+    2: {
+        "family": "S2",
+        "task": "TaskS2",
+        "anatomies": ["Cerebrovascular"],
+        "full_cases": 10,
+        "work_name": "TaskS2__Cerebrovascular",
+    },
+    3: {
+        "family": "S2",
+        "task": "TaskS2",
+        "anatomies": ["Carotid"],
+        "full_cases": 10,
+        "work_name": "TaskS2__Carotid",
+    },
+    4: {
+        "family": "S2",
+        "task": "TaskS2",
+        "anatomies": ["PortalVein"],
+        "full_cases": 10,
+        "work_name": "TaskS2__PortalVein",
+    },
+    5: {
+        "family": "S2",
+        "task": "TaskS2",
+        "anatomies": ["RenalArtery"],
+        "full_cases": 10,
+        "work_name": "TaskS2__RenalArtery",
+    },
+}
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -98,7 +143,14 @@ def checkpoint_metadata(path: Path) -> dict:
     return result
 
 
-def verify_provenance(config: Path, checkpoint: Path) -> dict:
+def verify_provenance(
+    config: Path,
+    checkpoint: Path,
+    expected_checkpoint_sha256: str = EXPECTED_CHECKPOINT_SHA256,
+    expected_epoch: int = 85,
+    expected_global_step: int = 14720,
+    expected_wandb_run_id: str = "99f9z029",
+) -> dict:
     paths = {
         "checkpoint": checkpoint,
         "config": config,
@@ -108,7 +160,7 @@ def verify_provenance(config: Path, checkpoint: Path) -> dict:
     }
     hashes = {name: sha256_file(path) for name, path in paths.items()}
     expected = {
-        "checkpoint": EXPECTED_CHECKPOINT_SHA256,
+        "checkpoint": expected_checkpoint_sha256,
         "config": EXPECTED_CONFIG_SHA256,
         "inference": EXPECTED_INFERENCE_SHA256,
         "exporter": EXPECTED_EXPORTER_SHA256,
@@ -123,10 +175,10 @@ def verify_provenance(config: Path, checkpoint: Path) -> dict:
 
     metadata = checkpoint_metadata(checkpoint)
     required_metadata = {
-        "epoch": 85,
-        "global_step": 14720,
+        "epoch": expected_epoch,
+        "global_step": expected_global_step,
         "epoch_finished": True,
-        "wandb_run_id": "99f9z029",
+        "wandb_run_id": expected_wandb_run_id,
     }
     if metadata != required_metadata:
         raise RuntimeError(
@@ -140,6 +192,31 @@ def verify_provenance(config: Path, checkpoint: Path) -> dict:
         "git_head": git_output("rev-parse", "HEAD"),
         "git_status": git_output("status", "--short"),
     }
+
+
+def verify_checkpoint_zip(path: Path) -> dict:
+    with zipfile.ZipFile(path) as archive:
+        member_count = len(archive.infolist())
+        bad_member = archive.testzip()
+    if bad_member is not None:
+        raise RuntimeError(f"Checkpoint ZIP integrity failed at member: {bad_member}")
+    return {
+        "path": str(path),
+        "size_bytes": path.stat().st_size,
+        "member_count": member_count,
+        "bad_member": bad_member,
+    }
+
+
+def provenance_from_args(args: argparse.Namespace) -> dict:
+    return verify_provenance(
+        args.config.resolve(),
+        args.checkpoint.resolve(),
+        getattr(args, "expected_checkpoint_sha256", EXPECTED_CHECKPOINT_SHA256),
+        getattr(args, "expected_epoch", 85),
+        getattr(args, "expected_global_step", 14720),
+        getattr(args, "expected_wandb_run_id", "99f9z029"),
+    )
 
 
 def discover_cases(split_root: Path, anatomies: list[str], mode: str) -> list[dict]:
@@ -346,7 +423,13 @@ def export_submission(
         / f"img_ktGaussian{item['acceleration']}.npz"
         for item in records
     }
-    actual = set((submission_root / task).rglob("img_ktGaussian*.npz"))
+    actual = set()
+    for anatomy in anatomies:
+        actual.update(
+            (submission_root / task / "ValidationSet" / anatomy).rglob(
+                "img_ktGaussian*.npz"
+            )
+        )
     if actual != expected:
         missing = sorted(str(path) for path in expected - actual)
         extra = sorted(str(path) for path in actual - expected)
@@ -354,18 +437,22 @@ def export_submission(
     return sorted(actual)
 
 
-def run_task(args: argparse.Namespace) -> None:
+def run_spec(
+    args: argparse.Namespace,
+    spec: dict,
+    work_name: str,
+    summary_name: str,
+) -> None:
     started = time.time()
-    spec = TASKS[args.task_index]
     data_base = args.data_base.resolve()
     split_root = data_base / spec["family"] / spec["task"] / "ValidationSet"
     output_root = assert_outputs_not_in_data([args.output_root.resolve()], [data_base])[0]
-    task_root = output_root / "work" / spec["task"]
+    task_root = output_root / "work" / work_name
     if task_root.exists():
         raise FileExistsError(f"Task output already exists: {task_root}")
     task_root.mkdir(parents=True)
 
-    provenance = verify_provenance(args.config.resolve(), args.checkpoint.resolve())
+    provenance = provenance_from_args(args)
     records = discover_cases(split_root, spec["anatomies"], args.mode)
     expected_cases = len(spec["anatomies"]) if args.mode == "smoke" else spec["full_cases"]
     if len(records) != expected_cases:
@@ -407,6 +494,7 @@ def run_task(args: argparse.Namespace) -> None:
         "task": spec["task"],
         "split": "ValidationSet",
         "anatomies": spec["anatomies"],
+        "work_name": work_name,
         "data_root": str(split_root),
         "output_root": str(output_root),
         "case_count": len(records),
@@ -424,8 +512,84 @@ def run_task(args: argparse.Namespace) -> None:
         "nproc": args.nproc,
         "elapsed_seconds": time.time() - started,
     }
-    (task_root / "task_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    (task_root / summary_name).write_text(json.dumps(summary, indent=2) + "\n")
     print("[TASK_COMPLETE]", json.dumps(summary, indent=2), flush=True)
+
+
+def run_task(args: argparse.Namespace) -> None:
+    spec = TASKS[args.task_index]
+    run_spec(args, spec, spec["task"], "task_summary.json")
+
+
+def run_shard(args: argparse.Namespace) -> None:
+    spec = SHARDS[args.shard_index]
+    run_spec(args, spec, spec["work_name"], "shard_summary.json")
+
+
+def preflight_shards(args: argparse.Namespace) -> None:
+    started = time.time()
+    data_base = args.data_base.resolve()
+    output_root = assert_outputs_not_in_data([args.output_root.resolve()], [data_base])[0]
+    report_path = output_root / "preflight.json"
+    if report_path.exists():
+        raise FileExistsError(report_path)
+
+    provenance = provenance_from_args(args)
+    checkpoint_zip = verify_checkpoint_zip(args.checkpoint.resolve())
+    shard_inventories = {}
+    all_keys = []
+    task_counts = {}
+    acceleration_counts = {}
+    for shard_index, spec in SHARDS.items():
+        split_root = data_base / spec["family"] / spec["task"] / "ValidationSet"
+        records = discover_cases(split_root, spec["anatomies"], "full")
+        if len(records) != spec["full_cases"]:
+            raise RuntimeError(
+                f"{spec['work_name']} case count mismatch: {len(records)} vs {spec['full_cases']}"
+            )
+        shard_inventories[str(shard_index)] = {
+            "work_name": spec["work_name"],
+            "task": spec["task"],
+            "anatomies": spec["anatomies"],
+            "case_count": len(records),
+            "inference_manifest_count": len(records) * len(ENCODINGS),
+        }
+        task_counts[spec["task"]] = task_counts.get(spec["task"], 0) + len(records)
+        for record in records:
+            all_keys.append(
+                (
+                    spec["task"],
+                    record["anatomy"],
+                    record["center"],
+                    record["scanner"],
+                    record["patient"],
+                    record["acceleration"],
+                )
+            )
+            acceleration = str(record["acceleration"])
+            acceleration_counts[acceleration] = acceleration_counts.get(acceleration, 0) + 1
+
+    if len(all_keys) != len(set(all_keys)):
+        raise RuntimeError("Duplicate records found across challenge shards")
+    if len(all_keys) != 112 or task_counts != {"TaskR1R2": 32, "TaskS1": 40, "TaskS2": 40}:
+        raise RuntimeError(f"Unexpected challenge inventory: total={len(all_keys)}, tasks={task_counts}")
+
+    report = {
+        "status": "complete",
+        "data_base": str(data_base),
+        "output_root": str(output_root),
+        "case_count": len(all_keys),
+        "inference_manifest_count": len(all_keys) * len(ENCODINGS),
+        "task_counts": task_counts,
+        "acceleration_counts": acceleration_counts,
+        "shards": shard_inventories,
+        "provenance": provenance,
+        "checkpoint_zip": checkpoint_zip,
+        "elapsed_seconds": time.time() - started,
+    }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2) + "\n")
+    print("[PREFLIGHT_COMPLETE]", json.dumps(report, indent=2), flush=True)
 
 
 def validate_sparse_npz(path: Path) -> dict:
@@ -537,9 +701,108 @@ def package_submission(args: argparse.Namespace) -> None:
     print("[PACKAGE_COMPLETE]", json.dumps(report, indent=2), flush=True)
 
 
+def package_shards(args: argparse.Namespace) -> None:
+    if re.fullmatch(r"[A-Za-z0-9._-]+", args.artifact_tag) is None:
+        raise ValueError(f"Unsafe artifact tag: {args.artifact_tag!r}")
+
+    run_root = args.run_root.resolve()
+    submission_root = run_root / "submission"
+    preflight_path = run_root / "preflight.json"
+    preflight = json.loads(preflight_path.read_text())
+    if preflight.get("status") != "complete" or preflight.get("case_count") != 112:
+        raise RuntimeError(f"Invalid preflight report: {preflight_path}")
+
+    expected_paths = set()
+    summaries = {}
+    task_counts = {}
+    reference_provenance = None
+    for shard_index, spec in SHARDS.items():
+        summary_path = run_root / "work" / spec["work_name"] / "shard_summary.json"
+        summary = json.loads(summary_path.read_text())
+        if summary.get("status") != "complete" or summary.get("mode") != "full":
+            raise RuntimeError(f"Shard is not a completed full run: {summary_path}")
+        if summary.get("case_count") != spec["full_cases"]:
+            raise RuntimeError(f"Case count mismatch in {summary_path}")
+        if summary.get("task") != spec["task"] or summary.get("anatomies") != spec["anatomies"]:
+            raise RuntimeError(f"Shard identity mismatch in {summary_path}")
+        provenance = summary.get("provenance")
+        if reference_provenance is None:
+            reference_provenance = provenance
+        elif provenance != reference_provenance:
+            raise RuntimeError(f"Cross-shard provenance mismatch in {summary_path}")
+        summaries[str(shard_index)] = summary
+        task_counts[spec["task"]] = task_counts.get(spec["task"], 0) + summary["submission_count"]
+        expected_paths.update(submission_root / path for path in summary["expected_submission_relpaths"])
+
+    if reference_provenance != preflight.get("provenance"):
+        raise RuntimeError("Shard provenance does not match preflight provenance")
+    if task_counts != {"TaskR1R2": 32, "TaskS1": 40, "TaskS2": 40}:
+        raise RuntimeError(f"Unexpected per-task submission counts: {task_counts}")
+
+    actual_paths = set(submission_root.rglob("img_ktGaussian*.npz"))
+    if actual_paths != expected_paths:
+        missing = sorted(str(path) for path in expected_paths - actual_paths)
+        extra = sorted(str(path) for path in actual_paths - expected_paths)
+        raise RuntimeError(f"Final submission mismatch: missing={missing[:20]}, extra={extra[:20]}")
+    if len(actual_paths) != 112:
+        raise RuntimeError(f"Expected 112 submission files, found {len(actual_paths)}")
+
+    validated = [validate_sparse_npz(path) for path in sorted(actual_paths)]
+    artifacts_root = run_root / "artifacts"
+    zip_reports = []
+    for spec in TASKS.values():
+        task_members = sorted((submission_root / spec["task"]).rglob("*.npz"))
+        zip_reports.append(
+            write_zip(
+                artifacts_root
+                / f"{spec['task']}_ValidationSet_{args.artifact_tag}.zip",
+                submission_root,
+                task_members,
+            )
+        )
+    zip_reports.append(
+        write_zip(
+            artifacts_root / "Submission.zip",
+            submission_root,
+            sorted(actual_paths),
+        )
+    )
+
+    report = {
+        "status": "complete",
+        "run_root": str(run_root),
+        "submission_root": str(submission_root),
+        "artifact_tag": args.artifact_tag,
+        "submission_count": len(actual_paths),
+        "task_counts": task_counts,
+        "shards": summaries,
+        "provenance": reference_provenance,
+        "npz_files": validated,
+        "zip_artifacts": zip_reports,
+        "elapsed_at_unix": time.time(),
+    }
+    report_path = artifacts_root / "artifact_manifest.json"
+    report_path.write_text(json.dumps(report, indent=2) + "\n")
+    print("[PACKAGE_COMPLETE]", json.dumps(report, indent=2), flush=True)
+
+
+def add_expected_provenance_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--expected-checkpoint-sha256", required=True)
+    parser.add_argument("--expected-epoch", type=int, required=True)
+    parser.add_argument("--expected-global-step", type=int, required=True)
+    parser.add_argument("--expected-wandb-run-id", required=True)
+
+
+def add_run_paths(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--data-base", type=Path, required=True)
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--output-root", type=Path, required=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run and package epoch-85 CMRx4DFlow2026 validation submissions."
+        description="Run and package CMRx4DFlow2026 validation submissions."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -553,9 +816,27 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--nproc", type=int, required=True)
     run_parser.set_defaults(handler=run_task)
 
+    preflight_parser = subparsers.add_parser("preflight-shards")
+    add_run_paths(preflight_parser)
+    add_expected_provenance_args(preflight_parser)
+    preflight_parser.set_defaults(handler=preflight_shards)
+
+    shard_parser = subparsers.add_parser("run-shard")
+    shard_parser.add_argument("--shard-index", type=int, choices=sorted(SHARDS), required=True)
+    shard_parser.add_argument("--mode", choices=("smoke", "full"), required=True)
+    add_run_paths(shard_parser)
+    add_expected_provenance_args(shard_parser)
+    shard_parser.add_argument("--nproc", type=int, required=True)
+    shard_parser.set_defaults(handler=run_shard)
+
     package_parser = subparsers.add_parser("package")
     package_parser.add_argument("--run-root", type=Path, required=True)
     package_parser.set_defaults(handler=package_submission)
+
+    shard_package_parser = subparsers.add_parser("package-shards")
+    shard_package_parser.add_argument("--run-root", type=Path, required=True)
+    shard_package_parser.add_argument("--artifact-tag", required=True)
+    shard_package_parser.set_defaults(handler=package_shards)
     return parser.parse_args()
 
 
