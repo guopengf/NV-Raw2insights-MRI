@@ -63,6 +63,16 @@ from transforms import *
 from utils import *
 
 import wandb
+from joint_encoding import (
+    JointEncodingLoss,
+    flatten_joint_model_batch,
+    gather_joint_window,
+    joint_encoding_spec,
+    joint_group_batch_size,
+    joint_windowed_input_x_slab,
+    restore_joint_model_batch,
+    select_joint_mask_slab,
+)
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
@@ -159,7 +169,9 @@ def short_train_log_name(name):
     }.get(name, name)
 
 
-def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodings=None):
+def build_4dflow_aorta_manifests(
+    data_roots, out_dir, accelerations=None, encodings=None, joint_encodings=False
+):
     accelerations = accelerations or [10, 20, 30, 40, 50]
     encodings = encodings or [0, 1, 2, 3]
     out_dir = assert_outputs_not_in_data([out_dir], data_roots)[0]
@@ -192,24 +204,30 @@ def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodi
                         if not us_kspace.exists() or not us_mask.exists():
                             continue
 
-                        for enc_idx in encodings:
+                        encoding_groups = [tuple(encodings)] if joint_encodings else [(enc_idx,) for enc_idx in encodings]
+                        for encoding_group in encoding_groups:
                             item = {
                                 "kspace": str(us_kspace),
                                 "target_kspace": str(full_kspace),
                                 "mask": [str(us_mask)],
                                 "mask_type": f"ktGaussian{int(acc)}",
                                 "acquisition": "Flow4d",
-                                "encoding_idx": int(enc_idx),
                                 "is_4dflow": True,
                             }
+                            if joint_encodings:
+                                item["joint_encodings"] = True
+                                item["encoding_indices"] = [int(value) for value in encoding_group]
+                            else:
+                                item["encoding_idx"] = int(encoding_group[0])
                             if coilmap.exists():
                                 item["coilmap"] = str(coilmap)
                             if segmask.exists():
                                 item["segmask"] = str(segmask)
 
+                            encoding_suffix = "joint4" if joint_encodings else f"enc{int(encoding_group[0])}"
                             out_name = (
                                 f"{center_dir.name}__{scanner_dir.name}__{patient_dir.name}"
-                                f"__ktGaussian{int(acc)}__enc{int(enc_idx)}.json"
+                                f"__ktGaussian{int(acc)}__{encoding_suffix}.json"
                             )
                             out_path = out_dir / out_name
                             with open(out_path, "w") as f:
@@ -263,6 +281,7 @@ def trainer(args):
     assert_outputs_not_in_data([outpath], [*args.data_path_train, *args.data_path_val])
     Path(outpath).mkdir(parents=True, exist_ok=True)  # create output directory to store model checkpoints
     use_multi_epochs_train_loader = bool(cfg_get(args, "use_multi_epochs_train_loader", False))
+    joint_spec = joint_encoding_spec(args)
 
     # create training-validation data loaders
     if getattr(args, "is_4dflow_aorta", False):
@@ -278,12 +297,14 @@ def trainer(args):
                 train_manifest_dir,
                 accelerations=getattr(args, "four_dflow_accelerations", [10, 20, 30, 40, 50]),
                 encodings=getattr(args, "four_dflow_encodings", [0, 1, 2, 3]),
+                joint_encodings=joint_spec.enabled,
             )
             build_4dflow_aorta_manifests(
                 args.data_path_val,
                 val_manifest_dir,
                 accelerations=getattr(args, "four_dflow_accelerations", [10, 20, 30, 40, 50]),
                 encodings=getattr(args, "four_dflow_encodings", [0, 1, 2, 3]),
+                joint_encodings=joint_spec.enabled,
             )
         if args.ddp:
             dist.barrier(device_ids=[local_rank])
@@ -484,12 +505,22 @@ def trainer(args):
         normalize_mask=bool(cfg_get(args, "phase3.loss.vascular.normalize_by_mask", True)),
         method=str(cfg_get(args, "phase3.loss.vascular.method", "mra_masked_phase_l1")),
     ).to(device)
-    use_main_zy_loss = bool(cfg_get(args, "phase3.loss.use_ssim_zy", True))
-    use_phase_loss = bool(cfg_get(args, "phase3.loss.use_phase", False))
-    use_vascular_loss = bool(cfg_get(args, "phase3.loss.use_vascular", False))
+    joint_loss_cfg = cfg_get(args, "phase3.loss.joint", None)
+    joint_loss_function = JointEncodingLoss(
+        complex_weight=float(cfg_get(joint_loss_cfg, "complex_weight", 1.0)),
+        magnitude_weight=float(cfg_get(joint_loss_cfg, "magnitude_weight", 0.1)),
+        circular_weight=float(cfg_get(joint_loss_cfg, "circular_weight", 0.5)),
+        speed_weight=float(cfg_get(joint_loss_cfg, "speed_weight", 0.25)),
+        direction_weight=float(cfg_get(joint_loss_cfg, "direction_weight", 0.05)),
+        encoding_count=joint_spec.count,
+        eps=float(cfg_get(joint_loss_cfg, "eps", 1e-8)),
+    ).to(device)
+    use_main_zy_loss = bool(cfg_get(args, "phase3.loss.use_ssim_zy", True)) and not joint_spec.enabled
+    use_phase_loss = bool(cfg_get(args, "phase3.loss.use_phase", False)) and not joint_spec.enabled
+    use_vascular_loss = bool(cfg_get(args, "phase3.loss.use_vascular", False)) and not joint_spec.enabled
     recon_slab = is_slab_recon(args)
     recon_num_slices = slab_num_slices(args)
-    if not (use_main_zy_loss or use_phase_loss or use_vascular_loss):
+    if not (joint_spec.enabled or use_main_zy_loss or use_phase_loss or use_vascular_loss):
         raise RuntimeError(
             "At least one training loss must be enabled: phase3.loss.use_ssim_zy, "
             "phase3.loss.use_phase, or phase3.loss.use_vascular."
@@ -700,13 +731,15 @@ def trainer(args):
             )
             sensitivity_maps = batch_data.get("sensitivity_maps")
             sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
+            case_joint_mask = batch_data.get("joint_segmask")
+            case_joint_mask = case_joint_mask[0] if case_joint_mask is not None else None
             case_mra_prior = batch_data.get("mra_prior")
             case_mra_prior = case_mra_prior[0] if case_mra_prior is not None else None
 
             # iterate through all slices
             sample_list = list(range(input.shape[0]))
             num_samples = min(input.shape[0], args.num_samples_per_case)
-            micro_batch_size = args.batch_size
+            micro_batch_size = joint_group_batch_size(args)
             compute_cost = input.shape[-2] * input.shape[-3]
             needs_compute_cost_allreduce = (
                 args.adaptive_batch_size or not skip_fixed_compute_cost_allreduce
@@ -788,26 +821,49 @@ def trainer(args):
                 optimizer.zero_grad()
 
                 # forward pass
-                if recon_slab:
+                if joint_spec.enabled:
+                    if not recon_slab:
+                        raise RuntimeError("Joint encoding training requires slab reconstruction.")
+                    inp_joint, window_idx = joint_windowed_input_x_slab(
+                        input, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
+                    )
+                    tar_joint = gather_joint_window(target, window_idx)
+                    mas_joint = gather_joint_window(mask, window_idx)
+                    mean_joint = gather_joint_window(mean, window_idx)
+                    std_joint = gather_joint_window(std, window_idx)
+                    sens_joint = (
+                        gather_joint_window(sensitivity_maps, window_idx) if sensitivity_maps is not None else None
+                    )
+                    inp = flatten_joint_model_batch(inp_joint)
+                    tar = flatten_joint_model_batch(tar_joint)
+                    mas = flatten_joint_model_batch(mas_joint)
+                    mean_window = flatten_joint_model_batch(mean_joint)
+                    std_window = flatten_joint_model_batch(std_joint)
+                    sens = flatten_joint_model_batch(sens_joint)
+                    mra_prior = None
+                elif recon_slab:
                     inp, window_idx = windowed_input_x_slab(
                         input, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
                     )
                 else:
                     inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
-                tar = torch.Tensor(target[window_idx])
-                mas = torch.Tensor(mask[window_idx])
-                sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                mra_prior = (
-                    select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
-                    if recon_slab
-                    else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
-                )
-                inp, tar, mas, mean, std = (
+                if not joint_spec.enabled:
+                    tar = torch.Tensor(target[window_idx])
+                    mas = torch.Tensor(mask[window_idx])
+                    sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
+                    mean_window = mean[window_idx]
+                    std_window = std[window_idx]
+                    mra_prior = (
+                        select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
+                        if recon_slab
+                        else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
+                    )
+                inp, tar, mas, mean_window, std_window = (
                     inp.to(device),
                     tar.to(device),
                     mas.to(device),
-                    mean.to(device),
-                    std.to(device),
+                    mean_window.to(device),
+                    std_window.to(device),
                 )
                 sens = sens.to(device) if sens is not None else None
                 mra_prior = mra_prior.to(device) if mra_prior is not None else None
@@ -830,11 +886,11 @@ def trainer(args):
                 phase_started = start_phase_timing(timing_this_step, performance_timing_cuda_sync)
                 if recon_slab:
                     output_norm = output[:, :, args.num_frames // 2]
-                    target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, :, args.num_frames // 2]
+                    target_norm = ((tar - mean_window) / std_window)[:, :, args.num_frames // 2]
                 else:
                     output_norm = output[:, args.num_frames // 2]
-                    target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, args.num_frames // 2]
-                output = output * std[window_idx] + mean[window_idx]  # [b, c/1, h, w, 2]
+                    target_norm = ((tar - mean_window) / std_window)[:, args.num_frames // 2]
+                output = output * std_window + mean_window  # [b, c/1, h, w, 2]
                 if recon_slab:
                     output = output[:, :, args.num_frames // 2]
                     tar = tar[:, :, args.num_frames // 2]
@@ -952,6 +1008,27 @@ def trainer(args):
                             loss = loss + weighted_vascular_phase_loss
                             aux_loss_log["vascular_phase_loss"] = vascular_phase_loss.detach()
                             weighted_loss_log["vascular_phase_loss_weighted"] = weighted_vascular_phase_loss.detach()
+                if joint_spec.enabled:
+                    with autocast("cuda", torch.bfloat16, enabled=False):
+                        joint_output = restore_joint_model_batch(output_complex.float(), joint_spec.count)
+                        joint_target = restore_joint_model_batch(target_complex.float(), joint_spec.count)
+                        if sens is not None:
+                            sens_center = sens[:, :, args.num_frames // 2]
+                            sens_center = crop_k_space(sens_center, (final_shape[-2], final_shape[-1]))
+                            joint_output = restore_joint_model_batch(
+                                sensitivity_map_reduce(output_complex.float(), sens_center.float()), joint_spec.count
+                            )
+                            joint_target = restore_joint_model_batch(
+                                sensitivity_map_reduce(target_complex.float(), sens_center.float()), joint_spec.count
+                            )
+                        joint_mask = select_joint_mask_slab(
+                            case_joint_mask, micro_b, final_shape, recon_num_slices
+                        )
+                        loss, joint_components = joint_loss_function(joint_output, joint_target, joint_mask)
+                        raw_loss_log.update(
+                            {f"joint_{name}": value.detach() for name, value in joint_components.items()}
+                        )
+                        weighted_loss_log["joint_loss_weighted"] = loss.detach()
                 stop_phase_timing(
                     step_timings,
                     "loss_ms",
@@ -1341,32 +1418,59 @@ def trainer(args):
                     targets = []
                     for micro_b, _ in mini_dataloader(
                         list(range(num_samples)),
-                        2 * args.batch_size,
+                        2 * joint_group_batch_size(args),
                         shuffle=False,
                         drop_last=False,
                         pad_last=False,
                     ):
                         # forward pass
-                        if recon_slab:
+                        if joint_spec.enabled:
+                            inp_joint, window_idx = joint_windowed_input_x_slab(
+                                input,
+                                micro_b,
+                                final_shape,
+                                num_frames=args.num_frames,
+                                num_slices=recon_num_slices,
+                            )
+                            tar_joint = gather_joint_window(target, window_idx)
+                            mas_joint = gather_joint_window(mask, window_idx)
+                            mean_joint = gather_joint_window(mean, window_idx)
+                            std_joint = gather_joint_window(std, window_idx)
+                            sens_joint = (
+                                gather_joint_window(sensitivity_maps, window_idx)
+                                if sensitivity_maps is not None
+                                else None
+                            )
+                            inp = flatten_joint_model_batch(inp_joint)
+                            tar = flatten_joint_model_batch(tar_joint)
+                            mas = flatten_joint_model_batch(mas_joint)
+                            mean_window = flatten_joint_model_batch(mean_joint)
+                            std_window = flatten_joint_model_batch(std_joint)
+                            sens = flatten_joint_model_batch(sens_joint)
+                            mra_prior = None
+                        elif recon_slab:
                             inp, window_idx = windowed_input_x_slab(
                                 input, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
                             )
                         else:
                             inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
-                        tar = torch.Tensor(target[window_idx])
-                        mas = torch.Tensor(mask[window_idx])
-                        sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                        mra_prior = (
-                            select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
-                            if recon_slab
-                            else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
-                        )
-                        inp, tar, mas, mean, std = (
+                        if not joint_spec.enabled:
+                            tar = torch.Tensor(target[window_idx])
+                            mas = torch.Tensor(mask[window_idx])
+                            sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
+                            mean_window = mean[window_idx]
+                            std_window = std[window_idx]
+                            mra_prior = (
+                                select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
+                                if recon_slab
+                                else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
+                            )
+                        inp, tar, mas, mean_window, std_window = (
                             inp.to(device),
                             tar.to(device),
                             mas.to(device),
-                            mean.to(device),
-                            std.to(device),
+                            mean_window.to(device),
+                            std_window.to(device),
                         )
                         sens = sens.to(device) if sens is not None else None
                         mra_prior = mra_prior.to(device) if mra_prior is not None else None
@@ -1374,26 +1478,70 @@ def trainer(args):
                         with autocast("cuda", torch.bfloat16, enabled=args.amp):
                             output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
-                        if recon_slab:
+                        if joint_spec.enabled:
+                            output = restore_joint_model_batch(output, joint_spec.count)
+                            tar = restore_joint_model_batch(tar, joint_spec.count)
+                            mean_grouped = restore_joint_model_batch(mean_window, joint_spec.count)
+                            std_grouped = restore_joint_model_batch(std_window, joint_spec.count)
+                            center_s = recon_num_slices // 2
+                            center_t = args.num_frames // 2
+                            output = output[:, :, center_s, center_t]
+                            tar = tar[:, :, center_s, center_t]
+                            output = output * std_grouped[:, :, center_s, center_t] + mean_grouped[:, :, center_s, center_t]
+                            output = complex_abs(crop_k_space(output, (final_shape[-2], final_shape[-1])))
+                            tar = complex_abs(crop_k_space(tar, (final_shape[-2], final_shape[-1])))
+                            inp = flatten_joint_model_batch(inp_joint[:, :, center_s, center_t]).to(device)
+                            inp = inp * flatten_joint_model_batch(std_grouped[:, :, center_s, center_t]) + flatten_joint_model_batch(
+                                mean_grouped[:, :, center_s, center_t]
+                            )
+                        elif recon_slab:
                             center_s = recon_num_slices // 2
                             center_t = args.num_frames // 2
                             output = output[:, center_s, center_t]
                             tar = tar[:, center_s, center_t]
                             center_idx = window_idx[:, center_s, center_t]
                             inp = inp[:, center_s, center_t]
-                            inp = inp * std[center_idx] + mean[center_idx]
-                            output = output * std[center_idx] + mean[center_idx]
+                            inp = inp * std_window[:, center_s, center_t] + mean_window[:, center_s, center_t]
+                            output = output * std_window[:, center_s, center_t] + mean_window[:, center_s, center_t]
                         else:
                             output = output[:, args.num_frames // 2]
                             tar = tar[:, args.num_frames // 2]
                             inp = inp[:, args.num_frames // 2]
-                            inp = inp * std[micro_b] + mean[micro_b]
-                            output = output * std[micro_b] + mean[micro_b]  # [1, c/1, h, w, 2]
-                        output = complex_abs(crop_k_space(output, (final_shape[-2], final_shape[-1])))  # [b, c/1, h, w]
-                        tar = complex_abs(crop_k_space(tar, (final_shape[-2], final_shape[-1])))
+                            inp = inp * std_window[:, args.num_frames // 2] + mean_window[:, args.num_frames // 2]
+                            output = output * std_window[:, args.num_frames // 2] + mean_window[:, args.num_frames // 2]
+                        if not joint_spec.enabled:
+                            output = complex_abs(crop_k_space(output, (final_shape[-2], final_shape[-1])))
+                            tar = complex_abs(crop_k_space(tar, (final_shape[-2], final_shape[-1])))
 
                         outputs.append(output.data.cpu().numpy())
                         targets.append(tar.data.cpu().numpy())
+
+                    if joint_spec.enabled:
+                        outputs = np.concatenate(outputs, axis=0)
+                        targets = np.concatenate(targets, axis=0)
+                        outputs = outputs.reshape(final_shape[-5], final_shape[-4], joint_spec.count, *outputs.shape[2:])
+                        targets = targets.reshape(final_shape[-5], final_shape[-4], joint_spec.count, *targets.shape[2:])
+                        for encoding_position, encoding_idx in enumerate(joint_spec.order):
+                            outputs_rss = np.sqrt(np.sum(outputs[:, :, encoding_position] ** 2, axis=-3))
+                            targets_rss = np.sqrt(np.sum(targets[:, :, encoding_position] ** 2, axis=-3))
+                            outputs_pp = postprocess_mri_recon(
+                                outputs_rss, args, file_name, is_training=False, pp_z_score_norm=args.pp_z_score_norm
+                            )
+                            targets_pp = postprocess_mri_recon(
+                                targets_rss, args, file_name, is_training=False, pp_z_score_norm=args.pp_z_score_norm
+                            )
+                            save_img4ranking(
+                                outputs_pp,
+                                os.path.join(outpath, f"val_img4ranking_epoch{str(epoch+1)}"),
+                                file_name.replace(".json", f"__enc{encoding_idx}.mat"),
+                            )
+                            psnr_array, ssim_array, nmse_array = calmetric(
+                                outputs_pp, targets_pp, z_score=args.pp_z_score_norm
+                            )
+                            val_ssim.append(np.mean(ssim_array))
+                            val_nmse.append(np.mean(nmse_array))
+                            val_psnr.append(np.mean(psnr_array))
+                        continue
 
                     outputs, targets = rearrange_mri_data(
                         [np.vstack(outputs), np.vstack(targets)],

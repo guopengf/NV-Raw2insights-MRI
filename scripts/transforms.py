@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 import numpy as np
 import torch
+from einops import rearrange
 from monai.apps.reconstruction.complex_utils import complex_abs, convert_to_tensor, convert_to_tensor_complex
 from monai.apps.reconstruction.mri_utils import root_sum_of_squares
 from monai.config import KeysCollection, SequenceStr
@@ -750,6 +751,13 @@ def raw_4dflow_to_hybrid(kspace: np.ndarray) -> np.ndarray:
     return hybrid
 
 
+def raw_4dflow_to_joint_hybrid(kspace: np.ndarray) -> np.ndarray:
+    """Convert raw [E,T,C,Kz,Ky,Kx] into [T,X,E,C,Z,Y,2]."""
+    hybrid = ifft1c_kx(kspace)
+    hybrid = np.transpose(hybrid, (1, 5, 0, 2, 3, 4))
+    return complex_to_lastdim2(hybrid)
+
+
 def raw_4dflow_mask_to_hybrid(mask: np.ndarray, n_enc: int, nx: int) -> np.ndarray:
     """
     raw mask:
@@ -783,6 +791,13 @@ def raw_4dflow_mask_to_hybrid(mask: np.ndarray, n_enc: int, nx: int) -> np.ndarr
     mask = mask[:, :, None, :, :].astype(np.float32)
 
     return mask
+
+
+def raw_4dflow_mask_to_joint_hybrid(mask: np.ndarray, n_enc: int, nx: int) -> np.ndarray:
+    """Broadcast raw [1,T,1,Z,Y,1] mask into [T,X,E,1,Z,Y]."""
+    mask = np.asarray(mask, dtype=np.float32)[0, :, 0, :, :, 0]
+    mask = mask[:, None, None, None, :, :]
+    return np.broadcast_to(mask, (mask.shape[0], nx, n_enc, 1, mask.shape[-2], mask.shape[-1])).copy()
 
 
 def _normalize_sensitivity_maps(csm: np.ndarray, eps: float = 1e-8) -> np.ndarray:
@@ -864,6 +879,33 @@ def raw_4dflow_coilmap_to_hybrid(
     if normalize:
         csm = _normalize_sensitivity_maps(csm)
     return complex_to_lastdim2(csm)
+
+
+def raw_4dflow_coilmap_to_joint_hybrid(
+    coilmap: np.ndarray,
+    *,
+    nt: int,
+    nx: int,
+    nc: int,
+    n_enc: int,
+    axis_order: str = "auto",
+    normalize: bool = True,
+) -> np.ndarray:
+    """Return encoding-aligned sensitivity maps as [T,X,E,C,Z,Y,2]."""
+    maps = [
+        raw_4dflow_coilmap_to_hybrid(
+            coilmap,
+            nt=nt,
+            nx=nx,
+            nc=nc,
+            n_enc=n_enc,
+            enc_idx=enc_idx,
+            axis_order=axis_order,
+            normalize=normalize,
+        )
+        for enc_idx in range(n_enc)
+    ]
+    return np.stack(maps, axis=2)
 
 class KspaceMaskd(RandomizableTransform, MapTransform):
     """
@@ -956,34 +998,47 @@ class KspaceMaskd(RandomizableTransform, MapTransform):
                 raw_kspace = meta.get("kspace_4dflow_input", raw_target)
                 raw_mask = d[FastMRIKeys.MASK]
 
-                # Convert undersampled raw k-space to hybrid space:
-                # (enc, t, coil, kz, ky, kx) -> (enc*t, x, coil, kz, ky, 2)
-                masked_hybrid = raw_4dflow_to_hybrid(raw_kspace)
-                target_hybrid = raw_4dflow_to_hybrid(raw_target)
-
-                # Build corresponding hybrid mask metadata:
-                # (1, t, 1, kz, ky, 1) -> (enc*t, x, 1, kz, ky)
-                hybrid_mask = raw_4dflow_mask_to_hybrid(
-                    raw_mask,
-                    n_enc=raw_kspace.shape[0],
-                    nx=raw_kspace.shape[-1],
-                )
+                joint_encodings = bool(meta.get("joint_encodings", False))
+                if joint_encodings:
+                    masked_hybrid = raw_4dflow_to_joint_hybrid(raw_kspace)
+                    target_hybrid = raw_4dflow_to_joint_hybrid(raw_target)
+                    hybrid_mask = raw_4dflow_mask_to_joint_hybrid(
+                        raw_mask,
+                        n_enc=raw_kspace.shape[0],
+                        nx=raw_kspace.shape[-1],
+                    )
+                else:
+                    masked_hybrid = raw_4dflow_to_hybrid(raw_kspace)
+                    target_hybrid = raw_4dflow_to_hybrid(raw_target)
+                    hybrid_mask = raw_4dflow_mask_to_hybrid(
+                        raw_mask,
+                        n_enc=raw_kspace.shape[0],
+                        nx=raw_kspace.shape[-1],
+                    )
 
                 d[key] = target_hybrid
                 d[FastMRIKeys.MASK] = hybrid_mask
                 d[key + "_masked"] = masked_hybrid
 
                 if CMRxReconKeys.SENSITIVITY_MAPS in meta:
-                    d[CMRxReconKeys.SENSITIVITY_MAPS] = raw_4dflow_coilmap_to_hybrid(
-                        meta[CMRxReconKeys.SENSITIVITY_MAPS],
+                    csm_kwargs = dict(
                         nt=raw_target.shape[1],
                         nx=raw_target.shape[-1],
                         nc=raw_target.shape[2],
                         n_enc=int(meta.get("num_encodings", raw_target.shape[0])),
-                        enc_idx=int(meta.get("encoding_idx", 0)),
                         axis_order=meta.get("coilmap_axis_order", "auto"),
                         normalize=bool(meta.get("normalize_coilmap", True)),
                     )
+                    if joint_encodings:
+                        d[CMRxReconKeys.SENSITIVITY_MAPS] = raw_4dflow_coilmap_to_joint_hybrid(
+                            meta[CMRxReconKeys.SENSITIVITY_MAPS], **csm_kwargs
+                        )
+                    else:
+                        d[CMRxReconKeys.SENSITIVITY_MAPS] = raw_4dflow_coilmap_to_hybrid(
+                            meta[CMRxReconKeys.SENSITIVITY_MAPS],
+                            enc_idx=int(meta.get("encoding_idx", 0)),
+                            **csm_kwargs,
+                        )
 
                 if self.return_ifft:
                     d[key + "_masked_ifft"] = ifftn_centered(
@@ -1448,12 +1503,38 @@ class RearrangeAndNormalizeMRI(MapTransform):
 
     def __call__(self, data: Mapping[Hashable, NdarrayOrTensor]) -> dict[Hashable, Tensor]:
         d = dict(data)
+        meta = d["kspace_meta_dict"]
+        joint_encodings = bool(meta.get("joint_encodings", False))
 
         temporal_shuffle = (
             torch.randperm(int(d["kspace_meta_dict"]["shape"][0]))
             if "map" in d["kspace_meta_dict"]["filename"] and self.args.do_mapping_shuffle
             else torch.arange(int(d["kspace_meta_dict"]["shape"][0]))
         )
+
+        if joint_encodings:
+            input = rearrange(torch.as_tensor(d[self.keys_list[0]]), "t x e c z y two -> (t x) e c z y two")
+            target = rearrange(torch.as_tensor(d[self.keys_list[1]]), "t x e c z y two -> (t x) e c z y two")
+            mask = rearrange(torch.as_tensor(d[self.keys_list[2]]), "t x e c z y -> (t x) e c z y").unsqueeze(-1)
+            input, mean, std = complex_zscore(input, dim=[2, 3, 4])
+
+            d[self.keys_list[0]] = input.contiguous()
+            d[self.keys_list[1]] = target.contiguous()
+            d[self.keys_list[2]] = mask.contiguous()
+            d["mean"] = mean.contiguous()
+            d["std"] = std.contiguous()
+            d["temporal_shuffle"] = temporal_shuffle
+
+            if CMRxReconKeys.SENSITIVITY_MAPS in d:
+                d[CMRxReconKeys.SENSITIVITY_MAPS] = rearrange(
+                    torch.as_tensor(d[CMRxReconKeys.SENSITIVITY_MAPS]),
+                    "t x e c z y two -> (t x) e c z y two",
+                ).contiguous()
+            if "joint_segmask" in meta:
+                d["joint_segmask"] = torch.as_tensor(meta["joint_segmask"], dtype=torch.float32).contiguous()
+            if "mra_prior" in meta:
+                d["mra_prior"] = torch.as_tensor(meta["mra_prior"], dtype=torch.float32).contiguous()
+            return d
 
         # minimal fix:
         # rearrange_mri_data expects all inputs to have a trailing channel dim.

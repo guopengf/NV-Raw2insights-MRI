@@ -382,6 +382,7 @@ def validate_phase3_config(config) -> None:
             "num_slices",
             "backbone",
             "flowvn_mixer",
+            "joint_encoding",
             "mra",
             "vaa",
             "mask",
@@ -407,6 +408,26 @@ def validate_phase3_config(config) -> None:
             raise ValueError(f"phase3.num_slices must be a positive odd integer for slab mode, got {num_slices}")
     else:
         num_slices = 1
+
+    joint_encoding = _get_attr(phase3, "joint_encoding", None)
+    if joint_encoding is not None:
+        _warn_unknown_config_keys(
+            joint_encoding,
+            "phase3.joint_encoding",
+            {"enabled", "mode", "count", "order"},
+        )
+        joint_enabled = bool(_get_attr(joint_encoding, "enabled", False))
+        joint_mode = str(_get_attr(joint_encoding, "mode", "batch")).lower()
+        joint_count = int(_get_attr(joint_encoding, "count", 4))
+        joint_order = [int(value) for value in _get_attr(joint_encoding, "order", list(range(joint_count)))]
+        if joint_mode not in {"batch", "channel"}:
+            raise ValueError("phase3.joint_encoding.mode must be 'batch' or 'channel'")
+        if joint_count < 2 or len(joint_order) != joint_count or len(set(joint_order)) != joint_count:
+            raise ValueError("phase3.joint_encoding count/order must describe unique encodings")
+        if joint_enabled and recon_mode != "slab":
+            raise ValueError("Joint encoding reconstruction requires phase3.recon_mode='slab'")
+        _set_attr(joint_encoding, "mode", joint_mode)
+        _set_attr(joint_encoding, "order", joint_order)
 
     backbone = _get_attr(phase3, "backbone", None)
     spatial_dims = 2
@@ -579,6 +600,7 @@ def validate_phase3_config(config) -> None:
                 "ssim_win_size",
                 "phase",
                 "vascular",
+                "joint",
                 "weights",
             },
         )
@@ -586,8 +608,14 @@ def validate_phase3_config(config) -> None:
         _set_attr(loss, "ssim_spatial_dims", spatial_dims)
         phase_loss = _get_attr(loss, "phase", None)
         vascular_loss = _get_attr(loss, "vascular", None)
+        joint_loss = _get_attr(loss, "joint", None)
         _warn_unknown_config_keys(phase_loss, "phase3.loss.phase", {"method", "weight", "eps"})
         _warn_unknown_config_keys(vascular_loss, "phase3.loss.vascular", {"method", "weight", "normalize_by_mask"})
+        _warn_unknown_config_keys(
+            joint_loss,
+            "phase3.loss.joint",
+            {"complex_weight", "magnitude_weight", "circular_weight", "speed_weight", "direction_weight", "eps"},
+        )
         _warn_unknown_config_keys(
             _get_attr(loss, "weights", None),
             "phase3.loss.weights",
@@ -987,7 +1015,7 @@ class _RepeatSampler(object):
 
 
 def load_shape_compatible_state_dict(module: torch.nn.Module, checkpoint_state_dict: dict):
-    """Load matching tensors and center-inflate compatible Conv2d weights."""
+    """Load matching tensors and inflate supported spatial or joint-channel boundaries."""
     current_state = module.state_dict()
     current_keys = set(current_state.keys())
     new_state = dict(current_state)
@@ -1009,6 +1037,32 @@ def load_shape_compatible_state_dict(module: torch.nn.Module, checkpoint_state_d
         if tuple(ckpt_value.shape) == tuple(current_state[key].shape):
             new_state[key] = ckpt_value
             loaded_keys.append(key)
+        elif (
+            key.endswith("embed_conv.weight")
+            and ckpt_value.ndim == current_state[key].ndim
+            and current_state[key].shape[0] == ckpt_value.shape[0]
+            and current_state[key].shape[1] % ckpt_value.shape[1] == 0
+            and tuple(current_state[key].shape[2:]) == tuple(ckpt_value.shape[2:])
+        ):
+            factor = current_state[key].shape[1] // ckpt_value.shape[1]
+            repeats = [1, factor] + [1] * (ckpt_value.ndim - 2)
+            inflated = ckpt_value.repeat(*repeats) / factor
+            new_state[key] = inflated.to(device=current_state[key].device, dtype=current_state[key].dtype)
+            loaded_keys.append(key)
+            inflated_keys.append(key)
+        elif (
+            key.endswith("output.weight")
+            and ckpt_value.ndim == current_state[key].ndim
+            and current_state[key].shape[0] % ckpt_value.shape[0] == 0
+            and current_state[key].shape[1] == ckpt_value.shape[1]
+            and tuple(current_state[key].shape[2:]) == tuple(ckpt_value.shape[2:])
+        ):
+            factor = current_state[key].shape[0] // ckpt_value.shape[0]
+            repeats = [factor, 1] + [1] * (ckpt_value.ndim - 2)
+            inflated = ckpt_value.repeat(*repeats)
+            new_state[key] = inflated.to(device=current_state[key].device, dtype=current_state[key].dtype)
+            loaded_keys.append(key)
+            inflated_keys.append(key)
         elif (
             ckpt_value.ndim == 4
             and current_state[key].ndim == 5
@@ -1090,7 +1144,7 @@ def load_net(
         if inflated_keys:
             preview = ", ".join(inflated_keys[:8])
             suffix = "..." if len(inflated_keys) > 8 else ""
-            print(f"net center-inflated Conv2d weights: {len(inflated_keys)} ({preview}{suffix})")
+            print(f"net shape-inflated compatible weights: {len(inflated_keys)} ({preview}{suffix})")
         if skipped_shape_keys:
             preview = ", ".join(
                 f"{key}: ckpt{ckpt_shape}->model{model_shape}"

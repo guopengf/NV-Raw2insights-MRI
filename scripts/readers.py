@@ -383,8 +383,10 @@ class CMRxReconReader(ImageReader):
             mask = random.choice(masks) if len(masks) > 0 else ""
             mask_type = json_data.get("mask_type", self._infer_mask_type(mask) if mask else "fixed")
 
+            joint_encodings = bool(json_data.get("joint_encodings", False))
+            encoding_indices = tuple(int(value) for value in json_data.get("encoding_indices", (0, 1, 2, 3)))
             enc_idx = int(json_data.get("encoding_idx", 0))
-            encoding_selection = (slice(enc_idx, enc_idx + 1), Ellipsis)
+            encoding_selection = None if joint_encodings else (slice(enc_idx, enc_idx + 1), Ellipsis)
             kspace_input, input_shape = self._timed_call(
                 worker_timings,
                 "input_read_ms",
@@ -412,6 +414,8 @@ class CMRxReconReader(ImageReader):
                 CMRxReconKeys.ACQUISITION: json_data.get("acquisition", "Flow4d"),
                 "is_4dflow": True,
                 "encoding_idx": enc_idx,
+                "joint_encodings": joint_encodings,
+                "encoding_indices": encoding_indices,
                 "num_encodings": int(target_shape[0]) if len(target_shape) > 0 else int(input_shape[0]),
                 "coilmap_axis_order": json_data.get("coilmap_axis_order", "auto"),
                 "normalize_coilmap": bool(json_data.get("normalize_coilmap", True)),
@@ -438,6 +442,8 @@ class CMRxReconReader(ImageReader):
                         preferred_keys=("coilmap", "csm", "sensitivity_maps", "sens_maps"),
                     ),
                 )
+            if joint_encodings and json_data.get("segmask"):
+                dat["joint_segmask"] = load_vessel_mask_prior(json_data["segmask"], self.args)
             if vascular_prior_needed(self.args):
                 prior_source = str(cfg_get(self.args, "phase3.vaa.prior_source", "mra")).lower()
                 if prior_source == "mask":
@@ -539,25 +545,32 @@ class CMRxReconReader(ImageReader):
                     f"got input={raw_input.shape}, target={raw_target.shape}"
                 )
             
-            if "encoding_idx" not in dat:
-                raise ValueError("encoding_idx is required for 4D flow when enc is split into batch.")
-            
-            enc_idx = int(dat["encoding_idx"])
-            if not (0 <= enc_idx < n_enc_all):
-                raise ValueError(f"encoding_idx={enc_idx} out of range for raw shape {raw_target.shape}")
-
-            # keep singleton enc dim so transforms.py still sees a 6D tensor
-            if n_enc_loaded == n_enc_all and n_enc_all > 1:
-                raw_input = raw_input[enc_idx : enc_idx + 1]    # shape: (1, t, coil, kz, ky, kx)
-                raw_target = raw_target[enc_idx : enc_idx + 1]  # shape: (1, t, coil, kz, ky, kx)
-            elif n_enc_loaded == 1:
-                raw_input = raw_input[:1]
-                raw_target = raw_target[:1]
+            joint_encodings = bool(dat.get("joint_encodings", False))
+            if joint_encodings:
+                encoding_indices = tuple(int(value) for value in dat.get("encoding_indices", range(n_enc_all)))
+                if len(encoding_indices) != n_enc_all or sorted(encoding_indices) != list(range(n_enc_all)):
+                    raise ValueError(
+                        f"Joint encoding order must be a permutation of 0..{n_enc_all - 1}, got {encoding_indices}"
+                    )
+                raw_input = raw_input[list(encoding_indices)]
+                raw_target = raw_target[list(encoding_indices)]
             else:
-                raise ValueError(
-                    "Unexpected loaded encoding dimension for 4D flow: "
-                    f"loaded={n_enc_loaded}, total={n_enc_all}, encoding_idx={enc_idx}"
-                )
+                if "encoding_idx" not in dat:
+                    raise ValueError("encoding_idx is required for 4D flow when enc is split into batch.")
+                enc_idx = int(dat["encoding_idx"])
+                if not (0 <= enc_idx < n_enc_all):
+                    raise ValueError(f"encoding_idx={enc_idx} out of range for raw shape {raw_target.shape}")
+                if n_enc_loaded == n_enc_all and n_enc_all > 1:
+                    raw_input = raw_input[enc_idx : enc_idx + 1]
+                    raw_target = raw_target[enc_idx : enc_idx + 1]
+                elif n_enc_loaded == 1:
+                    raw_input = raw_input[:1]
+                    raw_target = raw_target[:1]
+                else:
+                    raise ValueError(
+                        "Unexpected loaded encoding dimension for 4D flow: "
+                        f"loaded={n_enc_loaded}, total={n_enc_all}, encoding_idx={enc_idx}"
+                    )
             data = raw_target
             
             header[CMRxReconKeys.PID] = os.path.splitext(dat[CMRxReconKeys.FILENAME])[0]
@@ -571,7 +584,13 @@ class CMRxReconReader(ImageReader):
             header[CMRxReconKeys.NUM_COILS] = nc
             header[CMRxReconKeys.SHAPE] = np.array([nt, nkx, nc, nkz, nky], dtype=np.int32)
             header["num_encodings"] = n_enc_all
-            header["encoding_idx"] = enc_idx
+            header["joint_encodings"] = joint_encodings
+            if joint_encodings:
+                header["encoding_indices"] = np.asarray(dat["encoding_indices"], dtype=np.int32)
+                if "joint_segmask" in dat:
+                    header["joint_segmask"] = np.asarray(dat["joint_segmask"], dtype=np.float32)
+            else:
+                header["encoding_idx"] = enc_idx
             header["coilmap_axis_order"] = dat.get("coilmap_axis_order", "auto")
             header["normalize_coilmap"] = bool(dat.get("normalize_coilmap", True))
 

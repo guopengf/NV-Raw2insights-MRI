@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from joint_encoding import joint_encoding_spec
 from models.flowvn_mixer import FlowVNMultiPlaneMixer
 from models.vaa import VascularAttentionAdapter
 from models.varnet import CoilSensitivityModel_DCAE
@@ -1154,6 +1155,8 @@ class restormer_mri(nn.Module):
         self.num_frames = int(args.num_frames)
         self.recon_slab = is_slab_recon(args)
         self.num_slices = slab_num_slices(args)
+        self.joint_encoding = joint_encoding_spec(args)
+        self.joint_channel_mode = self.joint_encoding.enabled and self.joint_encoding.mode == "channel"
         phase3 = getattr(args, "phase3", None)
         backbone_cfg = getattr(phase3, "backbone", None) if phase3 is not None else None
         self.backbone_spatial_dims = int(getattr(backbone_cfg, "spatial_dims", 2))
@@ -1161,6 +1164,8 @@ class restormer_mri(nn.Module):
             raise ValueError(f"phase3.backbone.spatial_dims must be 2 or 3, got {self.backbone_spatial_dims}")
         if self.backbone_spatial_dims == 3 and not self.recon_slab:
             raise ValueError("The spatial 3D Restormer requires phase3.recon_mode='slab'.")
+        if self.joint_channel_mode and (not self.recon_slab or self.backbone_spatial_dims != 3):
+            raise ValueError("Joint channel mode requires slab reconstruction with a spatial 3D Restormer.")
         self.num_coils = 10
         self.num_reduced_coils = int(args.num_reduced_coils) if hasattr(args, "num_reduced_coils") else 1
 
@@ -1216,6 +1221,8 @@ class restormer_mri(nn.Module):
         self.ms_refinement = args.ms_refinement if hasattr(args, "ms_refinement") else False
         self.time_cond = args.time_cond if hasattr(args, "time_cond") else False
         self.label_cond = args.label_cond if hasattr(args, "label_cond") else False
+        if self.joint_channel_mode and bool(getattr(phase3, "enable_vaa", False)):
+            raise ValueError("Joint channel mode does not yet support VAA; disable phase3.enable_vaa.")
         self.num_classes = (
             args.num_classes
             if hasattr(args, "num_classes")
@@ -1255,6 +1262,7 @@ class restormer_mri(nn.Module):
         )
 
         self.pad_factor = 2**2
+        joint_channel_multiplier = self.joint_encoding.count if self.joint_channel_mode else 1
         if self.use_csm:
             if (self.first_cascade and self.use_single_csm) or not self.use_single_csm:
                 self.coil_sensitivity_model = CoilSensitivityModel_DCAE(
@@ -1269,12 +1277,12 @@ class restormer_mri(nn.Module):
                     param.requires_grad = False
             self.recon_model = restormer(
                 in_channel=(
-                    self.num_frames * self.num_reduced_coils * 2
+                    joint_channel_multiplier * self.num_frames * self.num_reduced_coils * 2
                     if self.backbone_spatial_dims == 3
                     else self.num_slices * self.num_frames * self.num_reduced_coils * 2
                 ),
                 out_channel=(
-                    self.num_frames * self.num_reduced_coils * 2
+                    joint_channel_multiplier * self.num_frames * self.num_reduced_coils * 2
                     if self.backbone_spatial_dims == 3
                     else self.num_slices * self.num_frames * self.num_reduced_coils * 2
                 ),
@@ -1299,12 +1307,12 @@ class restormer_mri(nn.Module):
         else:
             self.recon_model = restormer(
                 in_channel=(
-                    self.num_frames * self.num_coils * 2
+                    joint_channel_multiplier * self.num_frames * self.num_coils * 2
                     if self.backbone_spatial_dims == 3
                     else self.num_slices * self.num_frames * self.num_coils * 2
                 ),
                 out_channel=(
-                    self.num_frames * self.num_coils * 2
+                    joint_channel_multiplier * self.num_frames * self.num_coils * 2
                     if self.backbone_spatial_dims == 3
                     else self.num_slices * self.num_frames * self.num_coils * 2
                 ),
@@ -1360,7 +1368,7 @@ class restormer_mri(nn.Module):
             from {self.args.pretrained_recon}."
         )
         if inflated_keys:
-            print(f"Center-inflated {len(inflated_keys)} Conv2d weights for the spatial 3D Recon model.")
+            print(f"Shape-inflated {len(inflated_keys)} compatible Recon weights.")
         if skipped_shape_keys:
             preview = ", ".join(key for key, _old_shape, _new_shape in skipped_shape_keys[:8])
             suffix = "..." if len(skipped_shape_keys) > 8 else ""
@@ -1509,7 +1517,19 @@ class restormer_mri(nn.Module):
             if self.flowvn_mixer is not None:
                 flowvn_update = self.flowvn_mixer(x_volume, acceleration=acc_factor)
             if self.backbone_spatial_dims == 3:
-                x = rearrange(x_volume, "b s t c h w two -> b (t c two) s h w", two=2)
+                if self.joint_channel_mode:
+                    if B % self.joint_encoding.count != 0:
+                        raise ValueError(
+                            f"Flattened batch {B} is not divisible by encoding count {self.joint_encoding.count}"
+                        )
+                    x = rearrange(
+                        x_volume,
+                        "(g e) s t c h w two -> g (e t c two) s h w",
+                        e=self.joint_encoding.count,
+                        two=2,
+                    )
+                else:
+                    x = rearrange(x_volume, "b s t c h w two -> b (t c two) s h w", two=2)
             else:
                 x = rearrange(x_volume, "b s t c h w two -> b (s t c two) h w", two=2)
         else:
@@ -1530,7 +1550,17 @@ class restormer_mri(nn.Module):
             x, cas_skips = self.recon_model(x, cas_skips, timestep, label, mra_prior)
         if self.recon_slab:
             if self.backbone_spatial_dims == 3:
-                x_volume = rearrange(x, "b (t c two) s h w -> b s t c h w two", t=T, two=2)
+                if self.joint_channel_mode:
+                    x_volume = rearrange(
+                        x,
+                        "g (e t c two) s h w -> (g e) s t c h w two",
+                        e=self.joint_encoding.count,
+                        t=T,
+                        c=x_volume.shape[3],
+                        two=2,
+                    )
+                else:
+                    x_volume = rearrange(x, "b (t c two) s h w -> b s t c h w two", t=T, two=2)
             else:
                 x_volume = rearrange(x, "b (s t c two) h w -> b s t c h w two", s=S, t=T, two=2)
             if flowvn_update is not None:
