@@ -100,7 +100,7 @@
         "fixed"
     ],
     "num_epochs": 320,
-    "exp_dir": "/workspace/code/NV-Raw2insights-MRI-fork-joint-io-cache/outputs/4dflow/io_cache_validation/",
+    "exp_dir": "/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/io_cache_validation/",
     "exp": "joint_batch_io_cache_debug",
     "lr": 1e-05,
     "weight_decay": 0.001,
