@@ -8,7 +8,7 @@
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
-    "resume_ckpt": "cache/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_compatible.pt",
+    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase4/small_ft_4dflow_encbatch_phase4_3d_flowvn_multiplane/nv_raw2insights_mri_small_ft_4dflow_phase4_3d_flowvn_multiplane_epoch200.pt",
     "resume_weights_only": true,
     "pp_z_score_norm": false,
     "fixed_mask_types": [
@@ -16,7 +16,7 @@
     ],
     "uniform_input_kspace": false,
     "val_interval": 80,
-    "num_samples_per_case": 8,
+    "num_samples_per_case": 4,
     "data_aug": false,
     "use_multi_epochs_train_loader": true,
     "resume_rng_state": false,
@@ -37,7 +37,7 @@
     "acs_lines": 20,
     "pp_norm": false,
     "batch_size": 8,
-    "num_workers": 8,
+    "num_workers": 4,
     "train_prefetch_factor": 1,
     "train_singleton_view_collate": true,
     "performance_timing": {

@@ -15,7 +15,7 @@
         "ktGaussian"
     ],
     "uniform_input_kspace": false,
-    "val_interval": 40,
+    "val_interval": 80,
     "num_samples_per_case": 8,
     "data_aug": false,
     "use_multi_epochs_train_loader": true,
@@ -37,8 +37,8 @@
     "acs_lines": 20,
     "pp_norm": false,
     "batch_size": 8,
-    "num_workers": 4,
-    "train_prefetch_factor": 2,
+    "num_workers": 8,
+    "train_prefetch_factor": 1,
     "train_singleton_view_collate": true,
     "performance_timing": {
         "enabled": false,

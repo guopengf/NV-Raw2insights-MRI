@@ -489,7 +489,7 @@ def trainer(args):
         batch_size=1, # This has to be 1 for compatability with faster collate_fn
         shuffle=False,
         num_workers=args.num_workers,
-        persistent_workers=args.num_workers > 0,
+        persistent_workers=False,
         in_order=False,
     )
 
