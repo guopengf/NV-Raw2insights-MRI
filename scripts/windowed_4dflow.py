@@ -59,6 +59,23 @@ def _source_record(path: str | Path | None) -> dict[str, Any] | None:
     }
 
 
+def build_patient_source_manifest(
+    *,
+    target_path: str | Path,
+    acceleration_inputs: dict[int, str | Path],
+    acceleration_masks: dict[int, str | Path],
+    coilmap_path: str | Path | None = None,
+    segmask_path: str | Path | None = None,
+) -> dict[str, Any]:
+    return {
+        "target": _source_record(target_path),
+        "inputs": {str(key): _source_record(value) for key, value in acceleration_inputs.items()},
+        "masks": {str(key): _source_record(value) for key, value in acceleration_masks.items()},
+        "coilmap": _source_record(coilmap_path),
+        "segmask": _source_record(segmask_path),
+    }
+
+
 def _json_attr(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -265,13 +282,13 @@ def convert_patient_to_windowed_hdf5_profiles(
     for output_path in normalized_paths.values():
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    source_manifest = {
-        "target": _source_record(target_path),
-        "inputs": {str(key): _source_record(value) for key, value in acceleration_inputs.items()},
-        "masks": {str(key): _source_record(value) for key, value in acceleration_masks.items()},
-        "coilmap": _source_record(coilmap_path),
-        "segmask": _source_record(segmask_path),
-    }
+    source_manifest = build_patient_source_manifest(
+        target_path=target_path,
+        acceleration_inputs=acceleration_inputs,
+        acceleration_masks=acceleration_masks,
+        coilmap_path=coilmap_path,
+        segmask_path=segmask_path,
+    )
     records = {}
     profiles_to_write = []
     for storage_profile, output_path in normalized_paths.items():
