@@ -22,7 +22,6 @@ srun \
         set -euo pipefail
         cd /workspace/code/NV-Raw2insights-MRI-fork
         export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONUNBUFFERED=1
-        /root/miniconda3/envs/nv-raw2insights-mri/bin/python -m pytest -q \
-            tests/test_joint_4dflow_encodings.py \
-            tests/test_flowvn_3d_backbone.py
+        /root/miniconda3/envs/nv-raw2insights-mri/bin/python \
+            scripts/tools/run_direct_regression_tests.py
     "
