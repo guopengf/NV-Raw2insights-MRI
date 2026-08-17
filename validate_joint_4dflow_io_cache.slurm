@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-REPO=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork-joint-io-cache
+REPO=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork
 IMAGE=/home/pengfeig/workspace/cache/conda_raw2insights.sqsh
 USER_ROOT=/lustre/fsw/portfolios/healthcareeng/users/pengfeig
 DATA_ROOT=/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_monai/datasets/CMRx4DFlow2026-ChallengeData
@@ -22,7 +22,7 @@ srun \
     --container-remap-root \
     bash -lc "
         set -euo pipefail
-        cd /workspace/code/NV-Raw2insights-MRI-fork-joint-io-cache
+        cd /workspace/code/NV-Raw2insights-MRI-fork
         export WANDB_MODE=offline OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONUNBUFFERED=1
         /root/miniconda3/envs/nv-raw2insights-mri/bin/torchrun \
             --standalone --nproc_per_node=8 \
