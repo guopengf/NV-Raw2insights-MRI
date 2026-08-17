@@ -73,6 +73,11 @@ from joint_encoding import (
     restore_joint_model_batch,
     select_joint_mask_slab,
 )
+from windowed_4dflow import (
+    Windowed4DFlowDataset,
+    build_windowed_4dflow_manifests,
+    windowed_hdf5_enabled,
+)
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
@@ -337,6 +342,12 @@ def trainer(args):
     Path(outpath).mkdir(parents=True, exist_ok=True)  # create output directory to store model checkpoints
     use_multi_epochs_train_loader = bool(cfg_get(args, "use_multi_epochs_train_loader", False))
     joint_spec = joint_encoding_spec(args)
+    train_windowed_hdf5 = windowed_hdf5_enabled(args, "train")
+    val_windowed_hdf5 = windowed_hdf5_enabled(args, "val")
+    if train_windowed_hdf5 and not getattr(args, "is_4dflow_aorta", False):
+        raise ValueError("windowed_hdf5 training is only supported for is_4dflow_aorta=true")
+    if val_windowed_hdf5:
+        raise ValueError("windowed_hdf5 validation is not implemented yet; set four_dflow_storage.val_backend=raw_mat")
 
     # create training-validation data loaders
     if getattr(args, "is_4dflow_aorta", False):
@@ -347,13 +358,26 @@ def trainer(args):
                 manifest_dir.mkdir(parents=True, exist_ok=True)
                 for old_manifest in manifest_dir.glob("*.json"):
                     old_manifest.unlink()
-            build_4dflow_aorta_manifests(
-                args.data_path_train,
-                train_manifest_dir,
-                accelerations=getattr(args, "four_dflow_accelerations", [10, 20, 30, 40, 50]),
-                encodings=getattr(args, "four_dflow_encodings", [0, 1, 2, 3]),
-                joint_encodings=joint_spec.enabled,
-            )
+            if train_windowed_hdf5:
+                index_path = cfg_get(args, "four_dflow_storage.index_path", None)
+                if not index_path:
+                    raise ValueError("four_dflow_storage.index_path is required for windowed_hdf5")
+                build_windowed_4dflow_manifests(
+                    index_path=index_path,
+                    data_roots=args.data_path_train,
+                    out_dir=train_manifest_dir,
+                    accelerations=getattr(args, "four_dflow_accelerations", [10, 20, 30, 40, 50]),
+                    encodings=getattr(args, "four_dflow_encodings", [0, 1, 2, 3]),
+                    joint_encodings=joint_spec.enabled,
+                )
+            else:
+                build_4dflow_aorta_manifests(
+                    args.data_path_train,
+                    train_manifest_dir,
+                    accelerations=getattr(args, "four_dflow_accelerations", [10, 20, 30, 40, 50]),
+                    encodings=getattr(args, "four_dflow_encodings", [0, 1, 2, 3]),
+                    joint_encodings=joint_spec.enabled,
+                )
             build_4dflow_aorta_manifests(
                 args.data_path_val,
                 val_manifest_dir,
@@ -387,7 +411,8 @@ def trainer(args):
         : int(args.sample_rate * len(train_files))
     ]  # select a subset of the data according to sample_rate
     group_accelerations_by_target = bool(
-        joint_spec.enabled and cfg_get(args, "group_accelerations_by_target", False)
+        (joint_spec.enabled or train_windowed_hdf5)
+        and cfg_get(args, "group_accelerations_by_target", False)
     )
     train_group_lengths = None
     print(f"#training files: {len(train_files)}")
@@ -515,22 +540,27 @@ def trainer(args):
     print(f"#model_params: {model_params * 1.0e-6:.2f}M")
     print(f"#trainable_model_params: {trainable_model_params * 1.0e-6:.2f}M")
 
-    train_transforms = get_train_transforms(args)
+    train_transforms = None if train_windowed_hdf5 else get_train_transforms(args)
     val_transforms = get_val_transforms(args)
 
     train_num_workers = max(0, int(cfg_get(args, "train_num_workers", args.num_workers)))
     val_num_workers = max(0, int(cfg_get(args, "val_num_workers", args.num_workers)))
 
-    train_ds = (
-        Dataset(data=train_files, transform=train_transforms)
-        if args.cache_rate == 0
-        else CacheDataset(
-            data=train_files,
-            transform=train_transforms,
-            cache_rate=args.cache_rate,
-            num_workers=train_num_workers,
+    if train_windowed_hdf5:
+        if args.cache_rate != 0:
+            raise ValueError("windowed_hdf5 requires cache_rate=0; HDF5 performs bounded chunk caching")
+        train_ds = Windowed4DFlowDataset(train_files, args)
+    else:
+        train_ds = (
+            Dataset(data=train_files, transform=train_transforms)
+            if args.cache_rate == 0
+            else CacheDataset(
+                data=train_files,
+                transform=train_transforms,
+                cache_rate=args.cache_rate,
+                num_workers=train_num_workers,
+            )
         )
-    )
     if use_multi_epochs_train_loader:
         train_sampler = (
             TargetGroupedSampler(
@@ -578,7 +608,8 @@ def trainer(args):
         f"prefetch_factor={train_prefetch_factor if train_num_workers > 0 else 'disabled'}, "
         f"pin_memory={train_pin_memory}, post_worker_timing={post_worker_timing_enabled}, "
         f"singleton_view_collate={singleton_view_collate}, "
-        f"target_grouped={train_group_lengths is not None}"
+        f"target_grouped={train_group_lengths is not None}, "
+        f"windowed_hdf5={train_windowed_hdf5}"
     )
     train_loader = train_loader_cls(train_ds, **train_loader_kwargs)
 
@@ -817,6 +848,13 @@ def trainer(args):
                 batch_data["kspace_meta_dict"]["filename"][0],
                 batch_data["kspace_meta_dict"]["shape"][0],  # [t, z, c, y, x]
             )
+            prewindowed_value = batch_data.get("prewindowed_4dflow", False)
+            if isinstance(prewindowed_value, torch.Tensor):
+                prewindowed_4dflow = bool(prewindowed_value.reshape(-1)[0].item())
+            elif isinstance(prewindowed_value, (tuple, list)):
+                prewindowed_4dflow = bool(prewindowed_value[0])
+            else:
+                prewindowed_4dflow = bool(prewindowed_value)
 
             final_shape = [int(s) for s in final_shape]
             slow_loader_event_count += record_loader_performance(
@@ -933,7 +971,31 @@ def trainer(args):
                 optimizer.zero_grad()
 
                 # forward pass
-                if joint_spec.enabled:
+                if prewindowed_4dflow and joint_spec.enabled:
+                    inp_joint = input[micro_b]
+                    tar_joint = target[micro_b]
+                    mas_joint = mask[micro_b]
+                    mean_joint = mean[micro_b]
+                    std_joint = std[micro_b]
+                    sens_joint = sensitivity_maps[micro_b] if sensitivity_maps is not None else None
+                    inp = flatten_joint_model_batch(inp_joint)
+                    tar = flatten_joint_model_batch(tar_joint)
+                    mas = flatten_joint_model_batch(mas_joint)
+                    mean_window = flatten_joint_model_batch(mean_joint)
+                    std_window = flatten_joint_model_batch(std_joint)
+                    sens = flatten_joint_model_batch(sens_joint)
+                    mra_prior = None
+                elif prewindowed_4dflow:
+                    if not recon_slab:
+                        raise RuntimeError("windowed_hdf5 v1 requires slab reconstruction")
+                    inp = input[micro_b]
+                    tar = target[micro_b]
+                    mas = mask[micro_b]
+                    mean_window = mean[micro_b]
+                    std_window = std[micro_b]
+                    sens = sensitivity_maps[micro_b] if sensitivity_maps is not None else None
+                    mra_prior = None
+                elif joint_spec.enabled:
                     if not recon_slab:
                         raise RuntimeError("Joint encoding training requires slab reconstruction.")
                     inp_joint, window_idx = joint_windowed_input_x_slab(
@@ -959,7 +1021,7 @@ def trainer(args):
                     )
                 else:
                     inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
-                if not joint_spec.enabled:
+                if not joint_spec.enabled and not prewindowed_4dflow:
                     tar = torch.Tensor(target[window_idx])
                     mas = torch.Tensor(mask[window_idx])
                     sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
@@ -1133,8 +1195,10 @@ def trainer(args):
                             joint_target = restore_joint_model_batch(
                                 sensitivity_map_reduce(target_complex.float(), sens_center.float()), joint_spec.count
                             )
-                        joint_mask = select_joint_mask_slab(
-                            case_joint_mask, micro_b, final_shape, recon_num_slices
+                        joint_mask = (
+                            case_joint_mask[micro_b]
+                            if prewindowed_4dflow and case_joint_mask is not None
+                            else select_joint_mask_slab(case_joint_mask, micro_b, final_shape, recon_num_slices)
                         )
                         loss, joint_components = joint_loss_function(joint_output, joint_target, joint_mask)
                         raw_loss_log.update(
