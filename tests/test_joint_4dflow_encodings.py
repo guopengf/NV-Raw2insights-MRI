@@ -25,9 +25,14 @@ from joint_encoding import (
 )
 from inference import prepare_joint_encoding_output_for_save
 from models.restormer.restormer import restormer_mri
-from train import build_4dflow_aorta_manifests
+from readers import CMRxReconReader
+from train import (
+    build_4dflow_aorta_manifests,
+    group_4dflow_manifests_by_target,
+    partition_4dflow_target_groups,
+)
 from transforms import raw_4dflow_to_hybrid, raw_4dflow_to_joint_hybrid
-from utils import load_config, load_shape_compatible_state_dict
+from utils import TargetGroupedSampler, load_config, load_shape_compatible_state_dict
 
 
 def test_joint_batch_size_and_flatten_round_trip():
@@ -117,6 +122,113 @@ def test_grouped_manifest_has_one_json_per_case_acceleration(tmp_path):
     assert "encoding_idx" not in payload
 
 
+def test_target_group_partition_keeps_accelerations_adjacent_and_balanced(tmp_path):
+    manifests = []
+    for patient_index in range(3):
+        target = tmp_path / f"patient_{patient_index}" / "kdata_full.mat"
+        target.parent.mkdir()
+        for acceleration in (10, 20, 30, 40, 50):
+            manifest = tmp_path / f"patient_{patient_index}_acc{acceleration}.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "kspace": str(target.parent / f"kdata_ktGaussian{acceleration}.mat"),
+                        "target_kspace": str(target),
+                    }
+                )
+            )
+            manifests.append(manifest)
+
+    groups = group_4dflow_manifests_by_target(manifests)
+    assert [len(group) for group in groups] == [5, 5, 5]
+    rank0 = partition_4dflow_target_groups(groups, num_partitions=2, rank=0, seed=7)
+    rank1 = partition_4dflow_target_groups(groups, num_partitions=2, rank=1, seed=7)
+    assert sum(map(len, rank0)) == sum(map(len, rank1)) == 8
+    assert all(
+        len({json.loads(path.read_text())["target_kspace"] for path in group}) == 1
+        for group in rank0 + rank1
+    )
+    assert sum(len(group) == 5 for group in rank0 + rank1) >= 2
+
+
+def test_target_grouped_sampler_shuffles_groups_without_splitting_them():
+    sampler = TargetGroupedSampler([5, 5, 5], seed=3, shuffle=True)
+    sampler.set_epoch(0)
+    epoch0 = list(iter(sampler))
+    sampler.set_epoch(1)
+    epoch1 = list(iter(sampler))
+    sampler.set_epoch(0)
+    assert list(iter(sampler)) == epoch0
+    assert epoch1 != epoch0
+    for indices in (epoch0, epoch1):
+        assert sorted(indices) == list(range(15))
+        chunks = [indices[offset : offset + 5] for offset in range(0, 15, 5)]
+        assert all(chunk == list(range(chunk[0], chunk[0] + 5)) for chunk in chunks)
+
+
+def test_reader_target_lru_reuses_one_full_array_per_worker():
+    args = SimpleNamespace(reader_target_cache_entries=1, reader_coilmap_cache_entries=1)
+    reader = CMRxReconReader(fixed_mask_types=["fixed"], args=args)
+    calls = []
+
+    def fake_read(path, preferred_keys=(), selection=None, return_shape=False):
+        calls.append(str(path))
+        value = np.full((4, 2), len(calls), dtype=np.float32)
+        return (value, value.shape) if return_shape else value
+
+    reader.read_first_mat_array = fake_read
+    first, first_shape, first_hit = reader.read_cached_mat_array("target", "target_a.mat")
+    second, second_shape, second_hit = reader.read_cached_mat_array("target", "target_a.mat")
+    assert not first_hit and second_hit
+    assert first_shape == second_shape == (4, 2)
+    assert first is second
+    assert calls == ["target_a.mat"]
+
+    reader.read_cached_mat_array("target", "target_b.mat")
+    _, _, reloaded_hit = reader.read_cached_mat_array("target", "target_a.mat")
+    assert not reloaded_hit
+    assert calls == ["target_a.mat", "target_b.mat", "target_a.mat"]
+
+
+def test_non_joint_reader_slices_one_encoding_without_target_cache(tmp_path):
+    manifest = tmp_path / "encoding_2.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "kspace": "undersampled.mat",
+                "target_kspace": "target.mat",
+                "mask": [],
+                "is_4dflow": True,
+                "joint_encodings": False,
+                "encoding_idx": 2,
+            }
+        )
+    )
+    args = SimpleNamespace(
+        reader_target_cache_entries=1,
+        reader_coilmap_cache_entries=1,
+        performance_timing=SimpleNamespace(worker_timing_enabled=True),
+    )
+    reader = CMRxReconReader(fixed_mask_types=["fixed"], args=args)
+    calls = []
+
+    def fake_read(path, preferred_keys=(), selection=None, return_shape=False):
+        calls.append((str(path), selection))
+        value = np.zeros((1, 2), dtype=np.complex64)
+        return (value, (4, 2)) if return_shape else value
+
+    def fail_if_cached(*args, **kwargs):
+        raise AssertionError("The non-joint reader must not load/cache the full four-encoding target")
+
+    reader.read_first_mat_array = fake_read
+    reader.read_cached_mat_array = fail_if_cached
+    sample = reader.read(manifest)
+    assert [path for path, _ in calls] == ["undersampled.mat", "target.mat"]
+    assert all(selection[0] == slice(2, 3) and selection[1] is Ellipsis for _, selection in calls)
+    assert sample["num_encodings"] == 4
+    assert sample["worker_timing"]["target_cache_hit"] == 0.0
+
+
 def _small_joint_config(mode: str):
     config = load_config(
         REPO_ROOT
@@ -203,6 +315,10 @@ def test_joint_configs_keep_fixed_training_cardinality():
         payload = json.loads(config_path.read_text())
         assert payload["batch_size"] == 8
         assert payload["num_samples_per_case"] == 8
+        assert payload["train_num_workers"] == 1
+        assert payload["val_num_workers"] == 0
+        assert payload["group_accelerations_by_target"] is True
+        assert payload["reader_target_cache_entries"] == 1
         assert payload["phase3"]["joint_encoding"]["mode"] == mode
         assert payload["exp"] != "small_ft_4dflow_encbatch_phase4_3d_flowvn_multiplane"
 
@@ -222,6 +338,8 @@ def run_directly():
         test_joint_slab_window_uses_identical_indices_for_every_encoding,
         test_joint_hybrid_matches_stacked_single_encoding_conversion,
         test_joint_loss_is_zero_for_identity_and_has_finite_gradients,
+        test_target_grouped_sampler_shuffles_groups_without_splitting_them,
+        test_reader_target_lru_reuses_one_full_array_per_worker,
         test_batch_and_channel_models_preserve_shape_and_channel_bootstrap_equivalence,
         test_joint_configs_keep_fixed_training_cardinality,
         test_joint_inference_export_preserves_complex_encoding_volume,
@@ -231,8 +349,14 @@ def run_directly():
         print(f"PASS {test.__name__}")
     with tempfile.TemporaryDirectory() as temporary:
         test_grouped_manifest_has_one_json_per_case_acceleration(Path(temporary))
+    with tempfile.TemporaryDirectory() as temporary:
+        test_target_group_partition_keeps_accelerations_adjacent_and_balanced(Path(temporary))
+    with tempfile.TemporaryDirectory() as temporary:
+        test_non_joint_reader_slices_one_encoding_without_target_cache(Path(temporary))
     print("PASS test_grouped_manifest_has_one_json_per_case_acceleration")
-    print(f"COMPLETED {len(tests) + 1} joint-encoding tests")
+    print("PASS test_target_group_partition_keeps_accelerations_adjacent_and_balanced")
+    print("PASS test_non_joint_reader_slices_one_encoding_without_target_cache")
+    print(f"COMPLETED {len(tests) + 3} joint-encoding tests")
 
 
 if __name__ == "__main__":

@@ -100,6 +100,7 @@ __all__ = [
     "reshape_channel_complex_to_last_dim",
     "complex_normalize",
     "MultiEpochsDataLoader",
+    "TargetGroupedSampler",
     "TimedDefaultCollate",
     "load_net",
     "load_shape_compatible_state_dict",
@@ -997,6 +998,37 @@ class MultiEpochsDataLoader(torch.utils.data.DataLoader):
     def __iter__(self):
         for _ in range(len(self)):
             yield next(self.iterator)
+
+
+class TargetGroupedSampler(torch.utils.data.Sampler):
+    """Shuffle target groups while keeping each target's accelerations adjacent."""
+
+    def __init__(self, group_lengths, seed=0, shuffle=True):
+        self.group_lengths = [int(length) for length in group_lengths]
+        if not self.group_lengths or any(length <= 0 for length in self.group_lengths):
+            raise ValueError("group_lengths must contain positive integers")
+        self.seed = int(seed)
+        self.shuffle = bool(shuffle)
+        self.epoch = 0
+        start = 0
+        self.groups = []
+        for length in self.group_lengths:
+            self.groups.append(list(range(start, start + length)))
+            start += length
+        self.num_samples = start
+
+    def __len__(self):
+        return self.num_samples
+
+    def set_epoch(self, epoch):
+        self.epoch = int(epoch)
+
+    def __iter__(self):
+        group_order = list(range(len(self.groups)))
+        if self.shuffle:
+            random.Random(self.seed + self.epoch).shuffle(group_order)
+        for group_index in group_order:
+            yield from self.groups[group_index]
 
 
 class _RepeatSampler(object):
