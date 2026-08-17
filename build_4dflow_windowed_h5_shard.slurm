@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=healthcareeng_monai
-#SBATCH --partition=cpu_short
+#SBATCH --partition=cpu_interactive
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
