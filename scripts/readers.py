@@ -16,6 +16,7 @@ import os
 import random
 import re
 import time
+from collections import OrderedDict
 from collections.abc import Sequence
 
 import numpy as np
@@ -261,6 +262,10 @@ class CMRxReconReader(ImageReader):
         super().__init__()
         self.fixed_mask_types = fixed_mask_types if isinstance(fixed_mask_types, list) else [fixed_mask_types]
         self.args = args
+        self._mat_array_caches = {
+            "target": OrderedDict(),
+            "coilmap": OrderedDict(),
+        }
 
     def verify_suffix(self, filename: Sequence[PathLike] | PathLike) -> bool:
         suffixes: Sequence[str] = [".json"]
@@ -308,6 +313,45 @@ class CMRxReconReader(ImageReader):
         if return_shape:
             return value, shape
         return value
+
+    def _cache_capacity(self, cache_name: str) -> int:
+        return max(
+            0,
+            int(cfg_get(self.args, f"reader_{cache_name}_cache_entries", 0)) if self.args is not None else 0,
+        )
+
+    def read_cached_mat_array(
+        self,
+        cache_name: str,
+        mat_file: Sequence[PathLike],
+        preferred_keys: Sequence[str] = (),
+    ):
+        """Read a full MAT array through a bounded per-reader LRU cache."""
+        capacity = self._cache_capacity(cache_name)
+        if capacity <= 0:
+            value, shape = self.read_first_mat_array(
+                mat_file,
+                preferred_keys=preferred_keys,
+                return_shape=True,
+            )
+            return value, shape, False
+
+        cache = self._mat_array_caches[cache_name]
+        key = os.fspath(mat_file)
+        if key in cache:
+            value, shape = cache.pop(key)
+            cache[key] = (value, shape)
+            return value, shape, True
+
+        value, shape = self.read_first_mat_array(
+            mat_file,
+            preferred_keys=preferred_keys,
+            return_shape=True,
+        )
+        cache[key] = (value, shape)
+        while len(cache) > capacity:
+            cache.popitem(last=False)
+        return value, shape, False
 
     def filter_masks_by_types(self, masks, fixed_mask_types):
         result = []
@@ -397,16 +441,30 @@ class CMRxReconReader(ImageReader):
                     return_shape=True,
                 ),
             )
-            kspace_target, target_shape = self._timed_call(
-                worker_timings,
-                "target_read_ms",
-                lambda: self.read_first_mat_array(
-                    target_kspace,
-                    preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
-                    selection=encoding_selection,
-                    return_shape=True,
-                ),
-            )
+            if joint_encodings:
+                kspace_target, target_shape, target_cache_hit = self._timed_call(
+                    worker_timings,
+                    "target_read_ms",
+                    lambda: self.read_cached_mat_array(
+                        "target",
+                        target_kspace,
+                        preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
+                    ),
+                )
+            else:
+                kspace_target, target_shape = self._timed_call(
+                    worker_timings,
+                    "target_read_ms",
+                    lambda: self.read_first_mat_array(
+                        target_kspace,
+                        preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
+                        selection=encoding_selection,
+                        return_shape=True,
+                    ),
+                )
+                target_cache_hit = False
+            if worker_timings is not None:
+                worker_timings["target_cache_hit"] = float(target_cache_hit)
 
             dat = {
                 CMRxReconKeys.FILENAME: os.path.basename(data),
@@ -434,14 +492,18 @@ class CMRxReconReader(ImageReader):
                     ),
                 )
             if "coilmap" in json_data and json_data["coilmap"]:
-                dat[CMRxReconKeys.SENSITIVITY_MAPS] = self._timed_call(
+                coilmap_value, _, coilmap_cache_hit = self._timed_call(
                     worker_timings,
                     "coilmap_read_ms",
-                    lambda: self.read_first_mat_array(
+                    lambda: self.read_cached_mat_array(
+                        "coilmap",
                         json_data["coilmap"],
                         preferred_keys=("coilmap", "csm", "sensitivity_maps", "sens_maps"),
                     ),
                 )
+                dat[CMRxReconKeys.SENSITIVITY_MAPS] = coilmap_value
+                if worker_timings is not None:
+                    worker_timings["coilmap_cache_hit"] = float(coilmap_cache_hit)
             if joint_encodings and json_data.get("segmask"):
                 dat["joint_segmask"] = load_vessel_mask_prior(json_data["segmask"], self.args)
             if vascular_prior_needed(self.args):

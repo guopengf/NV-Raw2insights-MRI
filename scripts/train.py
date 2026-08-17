@@ -90,6 +90,61 @@ def cfg_get(obj, path, default=None):
     return cur
 
 
+def group_4dflow_manifests_by_target(manifest_paths):
+    """Group acceleration manifests that share one fully sampled target."""
+    grouped = {}
+    for manifest_path in sorted(Path(path) for path in manifest_paths):
+        with manifest_path.open("r") as stream:
+            payload = json.load(stream)
+        target_path = payload.get("target_kspace", payload.get("gt_kspace", payload.get("full_kspace")))
+        if not target_path:
+            raise ValueError(f"4D flow manifest has no target k-space path: {manifest_path}")
+        grouped.setdefault(str(target_path), []).append(manifest_path)
+    groups = []
+    for target_path in sorted(grouped):
+        groups.append(
+            sorted(
+                grouped[target_path],
+                key=lambda path: json.loads(path.read_text()).get("kspace", str(path)),
+            )
+        )
+    return groups
+
+
+def partition_4dflow_target_groups(groups, num_partitions, rank, seed=0, shuffle=True):
+    """Partition adjacent target groups with equal per-rank manifest counts."""
+    groups = [list(group) for group in groups]
+    if not groups:
+        raise ValueError("At least one target group is required")
+    group_sizes = {len(group) for group in groups}
+    if 0 in group_sizes or len(group_sizes) != 1:
+        raise ValueError(f"Target groups must have one uniform positive size, got {sorted(group_sizes)}")
+    num_partitions = int(num_partitions)
+    rank = int(rank)
+    if num_partitions <= 0 or not 0 <= rank < num_partitions:
+        raise ValueError(f"Invalid partition request: num_partitions={num_partitions}, rank={rank}")
+    if shuffle:
+        random.Random(int(seed)).shuffle(groups)
+    records = [
+        (group_index, manifest_path)
+        for group_index, group in enumerate(groups)
+        for manifest_path in group
+    ]
+    manifests_per_rank = math.ceil(len(records) / num_partitions)
+    padded_length = manifests_per_rank * num_partitions
+    records.extend(records[: padded_length - len(records)])
+    rank_records = records[rank * manifests_per_rank : (rank + 1) * manifests_per_rank]
+
+    rank_groups = []
+    previous_group_index = None
+    for group_index, manifest_path in rank_records:
+        if group_index != previous_group_index:
+            rank_groups.append([])
+            previous_group_index = group_index
+        rank_groups[-1].append(manifest_path)
+    return rank_groups
+
+
 def _gradient_l2(parameters):
     grad_squared = None
     for parameter in parameters:
@@ -331,7 +386,10 @@ def trainer(args):
     train_files = train_files[
         : int(args.sample_rate * len(train_files))
     ]  # select a subset of the data according to sample_rate
-    train_files = [dict([("kspace", train_files[i])]) for i in range(len(train_files))]
+    group_accelerations_by_target = bool(
+        joint_spec.enabled and cfg_get(args, "group_accelerations_by_target", False)
+    )
+    train_group_lengths = None
     print(f"#training files: {len(train_files)}")
     if len(train_files) == 0:
         raise RuntimeError(
@@ -339,29 +397,57 @@ def trainer(args):
             "and required files kdata_full/kdata_ktGaussian*/usmask_ktGaussian*/coilmap.mat."
         )
     if use_multi_epochs_train_loader:
-        train_files = partition_dataset(
-            data=train_files,
-            num_partitions=world_size,
-            shuffle=True,
-            even_divisible=True,
-        )[rank]
+        if group_accelerations_by_target:
+            train_target_groups = group_4dflow_manifests_by_target(train_files)
+            rank_target_groups = partition_4dflow_target_groups(
+                train_target_groups,
+                num_partitions=world_size,
+                rank=rank,
+                seed=training_file_seed,
+                shuffle=True,
+            )
+            train_group_lengths = [len(group) for group in rank_target_groups]
+            train_files = [path for group in rank_target_groups for path in group]
+            print(
+                f"#rank {rank} target groups: {len(rank_target_groups)}, "
+                f"manifests: {len(train_files)}, group_size_range: "
+                f"{min(train_group_lengths)}-{max(train_group_lengths)}"
+            )
+        else:
+            train_files = partition_dataset(
+                data=train_files,
+                num_partitions=world_size,
+                shuffle=True,
+                even_divisible=True,
+            )[rank]
+    train_files = [{"kspace": path} for path in train_files]
 
     val_files = val_files[
         : int(args.sample_rate * len(val_files))
     ]  # select a subset of the data according to sample_rate
-    val_files = [dict([("kspace", val_files[i])]) for i in range(len(val_files))]
     print(f"#validation files: {len(val_files)}")
     if len(val_files) < world_size:
         raise RuntimeError(
             f"Not enough validation files ({len(val_files)}) for world_size={world_size}. "
             "Check data_path_val or reduce --nproc_per_node."
         )
-    val_files = partition_dataset(
-        data=val_files,
-        num_partitions=world_size,
-        shuffle=False,
-        even_divisible=True,
-    )[rank]
+    if group_accelerations_by_target:
+        val_target_groups = group_4dflow_manifests_by_target(val_files)
+        rank_val_target_groups = partition_4dflow_target_groups(
+            val_target_groups,
+            num_partitions=world_size,
+            rank=rank,
+            shuffle=False,
+        )
+        val_files = [path for group in rank_val_target_groups for path in group]
+    else:
+        val_files = partition_dataset(
+            data=val_files,
+            num_partitions=world_size,
+            shuffle=False,
+            even_divisible=True,
+        )[rank]
+    val_files = [{"kspace": path} for path in val_files]
 
     if args.debug:
         debug_train_file_limit = max(
@@ -369,6 +455,8 @@ def trainer(args):
             int(cfg_get(args, "performance_timing.debug_max_train_batches", 1)),
         )
         train_files = train_files[:debug_train_file_limit]
+        if train_group_lengths is not None:
+            train_group_lengths = [len(train_files)]
         val_files = val_files[:1]
 
     # define mask transform type (e.g., whether it is equispaced or random)
@@ -430,6 +518,9 @@ def trainer(args):
     train_transforms = get_train_transforms(args)
     val_transforms = get_val_transforms(args)
 
+    train_num_workers = max(0, int(cfg_get(args, "train_num_workers", args.num_workers)))
+    val_num_workers = max(0, int(cfg_get(args, "val_num_workers", args.num_workers)))
+
     train_ds = (
         Dataset(data=train_files, transform=train_transforms)
         if args.cache_rate == 0
@@ -437,11 +528,19 @@ def trainer(args):
             data=train_files,
             transform=train_transforms,
             cache_rate=args.cache_rate,
-            num_workers=args.num_workers,
+            num_workers=train_num_workers,
         )
     )
     if use_multi_epochs_train_loader:
-        train_sampler = None
+        train_sampler = (
+            TargetGroupedSampler(
+                train_group_lengths,
+                seed=training_file_seed + rank,
+                shuffle=True,
+            )
+            if train_group_lengths is not None
+            else None
+        )
     else:
         train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True) if args.ddp else None
     train_loader_cls = MultiEpochsDataLoader if use_multi_epochs_train_loader else DataLoader
@@ -461,9 +560,9 @@ def trainer(args):
         "batch_size": 1,
         "shuffle": train_sampler is None,
         "sampler": train_sampler,
-        "num_workers": args.num_workers,
+        "num_workers": train_num_workers,
         "pin_memory": train_pin_memory,
-        "persistent_workers": args.num_workers > 0,
+        "persistent_workers": train_num_workers > 0,
         "in_order": False,
     }
     if post_worker_timing_enabled or singleton_view_collate:
@@ -472,26 +571,39 @@ def trainer(args):
             track_shared_memory=post_worker_timing_enabled,
             singleton_view=singleton_view_collate,
         )
-    if args.num_workers > 0:
+    if train_num_workers > 0:
         train_loader_kwargs["prefetch_factor"] = train_prefetch_factor
     print(
-        f"train_loader: {train_loader_cls.__name__}, workers={args.num_workers}, "
-        f"prefetch_factor={train_prefetch_factor if args.num_workers > 0 else 'disabled'}, "
+        f"train_loader: {train_loader_cls.__name__}, workers={train_num_workers}, "
+        f"prefetch_factor={train_prefetch_factor if train_num_workers > 0 else 'disabled'}, "
         f"pin_memory={train_pin_memory}, post_worker_timing={post_worker_timing_enabled}, "
-        f"singleton_view_collate={singleton_view_collate}"
+        f"singleton_view_collate={singleton_view_collate}, "
+        f"target_grouped={train_group_lengths is not None}"
     )
     train_loader = train_loader_cls(train_ds, **train_loader_kwargs)
 
     # since there's no randomness in train_transforms, we use it for val_transforms as well
     val_ds = Dataset(data=val_files, transform=val_transforms)
-    val_loader = MultiEpochsDataLoader(
-        val_ds,
-        batch_size=1, # This has to be 1 for compatability with faster collate_fn
-        shuffle=False,
-        num_workers=args.num_workers,
-        persistent_workers=args.num_workers > 0,
-        in_order=False,
+    lazy_val_loader = bool(cfg_get(args, "lazy_val_loader", False))
+    val_prefetch_factor = max(1, int(cfg_get(args, "val_prefetch_factor", 2)))
+    val_pin_memory = bool(cfg_get(args, "val_pin_memory", False))
+    val_loader_cls = DataLoader if lazy_val_loader else MultiEpochsDataLoader
+    val_loader_kwargs = {
+        "batch_size": 1,
+        "shuffle": False,
+        "num_workers": val_num_workers,
+        "pin_memory": val_pin_memory,
+        "persistent_workers": val_num_workers > 0 and not lazy_val_loader,
+        "in_order": False,
+    }
+    if val_num_workers > 0:
+        val_loader_kwargs["prefetch_factor"] = val_prefetch_factor
+    print(
+        f"val_loader: {val_loader_cls.__name__}, workers={val_num_workers}, "
+        f"prefetch_factor={val_prefetch_factor if val_num_workers > 0 else 'disabled'}, "
+        f"pin_memory={val_pin_memory}, lazy={lazy_val_loader}"
     )
+    val_loader = val_loader_cls(val_ds, **val_loader_kwargs)
 
     # create the loss function
     loss_function = get_loss_function(args, device)

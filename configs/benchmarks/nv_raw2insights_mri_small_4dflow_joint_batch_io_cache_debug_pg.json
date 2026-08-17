@@ -8,7 +8,7 @@
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
-    "resume_ckpt": "cache/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_compatible.pt",
+    "resume_ckpt": "/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/4dflow_finetune_phase4/small_ft_4dflow_encbatch_phase4_3d_flowvn_multiplane/nv_raw2insights_mri_small_ft_4dflow_phase4_3d_flowvn_multiplane_epoch200.pt",
     "resume_weights_only": true,
     "pp_z_score_norm": false,
     "fixed_mask_types": [
@@ -48,17 +48,18 @@
     "reader_coilmap_cache_entries": 1,
     "train_singleton_view_collate": true,
     "performance_timing": {
-        "enabled": false,
-        "sample_interval": 10,
+        "enabled": true,
+        "sample_interval": 1,
         "cuda_synchronize": false,
         "log_rank_details": true,
-        "worker_timing_enabled": false,
-        "post_worker_timing_enabled": false,
+        "worker_timing_enabled": true,
+        "post_worker_timing_enabled": true,
         "lightweight_enabled": true,
         "worker_loader_max_events_per_rank": 300,
         "slow_loader_threshold_ms": 500.0,
         "slow_loader_max_events_per_rank": 100,
-        "run_tag": "phase4_flowvn_multiplane"
+        "debug_max_train_batches": 3,
+        "run_tag": "joint_batch_io_cache_debug"
     },
     "efficiency": {
         "skip_fixed_compute_cost_allreduce": false,
@@ -99,8 +100,8 @@
         "fixed"
     ],
     "num_epochs": 320,
-    "exp_dir": "outputs/4dflow/4dflow_joint_encoding/",
-    "exp": "small_ft_4dflow_joint_channel_3d_flowvn_multiplane",
+    "exp_dir": "/workspace/code/NV-Raw2insights-MRI-fork-joint-io-cache/outputs/4dflow/io_cache_validation/",
+    "exp": "joint_batch_io_cache_debug",
     "lr": 1e-05,
     "weight_decay": 0.001,
     "loss_type": "ssim",
@@ -109,7 +110,7 @@
     "warmup_epochs": 1,
     "lr_schedule": "cosine",
     "min_lr": 7.5e-06,
-    "model_filename": "nv_raw2insights_mri_small_ft_4dflow_joint_channel_3d_flowvn_multiplane.pt",
+    "model_filename": "nv_raw2insights_mri_small_ft_4dflow_joint_batch_3d_flowvn_multiplane.pt",
     "use_csm": true,
     "use_tau_csm": false,
     "use_acs_region": false,
@@ -161,7 +162,7 @@
         "enable_vaa": false,
         "joint_encoding": {
             "enabled": true,
-            "mode": "channel",
+            "mode": "batch",
             "count": 4,
             "order": [0, 1, 2, 3]
         },
