@@ -14,7 +14,8 @@ REPO=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5
 IMAGE=/home/pengfeig/workspace/cache/conda_raw2insights.sqsh
 USER_ROOT=/lustre/fsw/portfolios/healthcareeng/users/pengfeig
 DATA_ROOT=/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_monai/datasets/CMRx4DFlow2026-ChallengeData
-OUTPUT_ROOT=/workspace/datasets/CMRx4DFlow2026-windowed-v1
+E1_OUTPUT_ROOT=/data/CMRx4DFlow2026-ChallengeData/windowed-e1-v2
+E4_OUTPUT_ROOT=/data/CMRx4DFlow2026-ChallengeData/windowed-e4-v2
 
 srun --kill-on-bad-exit=1 \
     --container-image "$IMAGE" \
@@ -28,11 +29,13 @@ srun --kill-on-bad-exit=1 \
         PY=/root/miniconda3/envs/nv-raw2insights-mri/bin/python
         \"\$PY\" scripts/tools/build_4dflow_windowed_h5.py \
             --config configs/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json \
-            --output-root '$OUTPUT_ROOT' \
+            --e1-output-root '$E1_OUTPUT_ROOT' \
+            --e4-output-root '$E4_OUTPUT_ROOT' \
             --deep-verify
         \"\$PY\" scripts/tools/build_4dflow_windowed_h5.py \
             --config configs/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json \
-            --output-root '$OUTPUT_ROOT' \
+            --e1-output-root '$E1_OUTPUT_ROOT' \
+            --e4-output-root '$E4_OUTPUT_ROOT' \
             --verify-only --deep-verify
-        touch '$OUTPUT_ROOT/COMPLETED'
+        touch '$E1_OUTPUT_ROOT/COMPLETED' '$E4_OUTPUT_ROOT/COMPLETED'
     "

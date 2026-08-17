@@ -6,6 +6,7 @@ import json
 import os
 import time
 from collections import OrderedDict
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -20,7 +21,11 @@ from utils import complex_zscore, is_slab_recon, slab_num_slices
 
 
 WINDOWED_4DFLOW_SCHEMA = "raw2insights.4dflow.windowed_hdf5"
-WINDOWED_4DFLOW_SCHEMA_VERSION = 1
+WINDOWED_4DFLOW_SCHEMA_VERSION = 2
+LEGACY_WINDOWED_4DFLOW_SCHEMA_VERSION = 1
+ENCODING_CHUNK_1 = "encoding_chunk_1"
+ENCODING_CHUNK_ALL = "encoding_chunk_all"
+WINDOWED_4DFLOW_STORAGE_PROFILES = (ENCODING_CHUNK_1, ENCODING_CHUNK_ALL)
 
 
 def cfg_get(obj: Any, path: str, default: Any = None) -> Any:
@@ -68,10 +73,23 @@ def _atomic_json_dump(payload: Any, path: str | Path) -> None:
     os.replace(temporary, path)
 
 
-def _dataset_chunks(shape: Sequence[int]) -> tuple[int, ...]:
+def _encoding_chunk_size(storage_profile: str, n_encodings: int) -> int:
+    if storage_profile == ENCODING_CHUNK_1:
+        return 1
+    if storage_profile == ENCODING_CHUNK_ALL:
+        return int(n_encodings)
+    raise ValueError(f"Unsupported windowed 4D-flow storage profile: {storage_profile!r}")
+
+
+def _dataset_chunks(shape: Sequence[int], storage_profile: str) -> tuple[int, ...]:
     if len(shape) != 7:
         raise ValueError(f"Expected [T,X,E,C,Z,Y,2], got {tuple(shape)}")
-    return (1, 1, 1, *tuple(int(value) for value in shape[3:]))
+    return (
+        1,
+        1,
+        _encoding_chunk_size(storage_profile, int(shape[2])),
+        *tuple(int(value) for value in shape[3:]),
+    )
 
 
 def _mask_to_compact(mask: np.ndarray) -> np.ndarray:
@@ -124,18 +142,47 @@ def _coilmap_to_compact(
     return np.stack(maps, axis=1), "encoding"
 
 
-def validate_patient_store(path: str | Path, *, deep: bool = False) -> dict[str, Any]:
+def validate_patient_store(
+    path: str | Path,
+    *,
+    deep: bool = False,
+    expected_storage_profile: str | None = None,
+) -> dict[str, Any]:
     path = Path(path)
     with h5py.File(path, "r", swmr=True) as store:
         if store.attrs.get("schema") != WINDOWED_4DFLOW_SCHEMA:
             raise ValueError(f"Unexpected schema in {path}: {store.attrs.get('schema')!r}")
-        if int(store.attrs.get("schema_version", -1)) != WINDOWED_4DFLOW_SCHEMA_VERSION:
+        schema_version = int(store.attrs.get("schema_version", -1))
+        if schema_version not in {
+            LEGACY_WINDOWED_4DFLOW_SCHEMA_VERSION,
+            WINDOWED_4DFLOW_SCHEMA_VERSION,
+        }:
             raise ValueError(f"Unsupported schema version in {path}")
         if not bool(store.attrs.get("complete", False)):
             raise ValueError(f"Incomplete windowed store: {path}")
+        storage_profile = str(store.attrs.get("storage_profile", ENCODING_CHUNK_1))
+        if storage_profile not in WINDOWED_4DFLOW_STORAGE_PROFILES:
+            raise ValueError(f"Unsupported storage profile in {path}: {storage_profile!r}")
+        if expected_storage_profile is not None and storage_profile != expected_storage_profile:
+            raise ValueError(
+                f"Storage profile mismatch in {path}: expected {expected_storage_profile!r}, "
+                f"found {storage_profile!r}"
+            )
         target = store["hybrid/target"]
         if target.ndim != 7 or target.shape[-1] != 2 or target.dtype != np.float32:
             raise ValueError(f"Invalid target dataset in {path}: shape={target.shape}, dtype={target.dtype}")
+        expected_chunks = _dataset_chunks(target.shape, storage_profile)
+        if target.chunks != expected_chunks:
+            raise ValueError(
+                f"Target chunks mismatch in {path}: expected {expected_chunks}, found {target.chunks}"
+            )
+        encoding_chunk_size = _encoding_chunk_size(storage_profile, int(target.shape[2]))
+        stored_encoding_chunk_size = int(store.attrs.get("encoding_chunk_size", encoding_chunk_size))
+        if stored_encoding_chunk_size != encoding_chunk_size:
+            raise ValueError(
+                f"Encoding chunk metadata mismatch in {path}: expected {encoding_chunk_size}, "
+                f"found {stored_encoding_chunk_size}"
+            )
         acceleration_keys = sorted(store["hybrid/input"], key=int)
         if not acceleration_keys:
             raise ValueError(f"No acceleration inputs in {path}")
@@ -145,6 +192,11 @@ def validate_patient_store(path: str | Path, *, deep: bool = False) -> dict[str,
                 raise ValueError(
                     f"Input {acceleration} mismatch in {path}: "
                     f"shape={input_dataset.shape}, dtype={input_dataset.dtype}"
+                )
+            if input_dataset.chunks != expected_chunks:
+                raise ValueError(
+                    f"Input {acceleration} chunks mismatch in {path}: "
+                    f"expected {expected_chunks}, found {input_dataset.chunks}"
                 )
             compact_mask = store[f"mask/{acceleration}"]
             if compact_mask.shape != (target.shape[0], target.shape[4], target.shape[5]):
@@ -165,9 +217,210 @@ def validate_patient_store(path: str | Path, *, deep: bool = False) -> dict[str,
             "target_kspace": str(store.attrs["target_kspace"]),
             "shape": [int(value) for value in target.shape],
             "accelerations": [int(value) for value in acceleration_keys],
+            "storage_profile": storage_profile,
+            "encoding_chunk_size": encoding_chunk_size,
+            "hybrid_chunks": [int(value) for value in expected_chunks],
             "size_bytes": int(path.stat().st_size),
             "source_manifest": json.loads(str(store.attrs["source_manifest_json"])),
         }
+
+
+def _create_hybrid_dataset(
+    store: h5py.File,
+    name: str,
+    data: np.ndarray,
+    storage_profile: str,
+) -> None:
+    store.create_dataset(
+        name,
+        data=data,
+        dtype=np.float32,
+        chunks=_dataset_chunks(data.shape, storage_profile),
+    )
+
+
+def convert_patient_to_windowed_hdf5_profiles(
+    *,
+    patient_key: str,
+    target_path: str | Path,
+    acceleration_inputs: dict[int, str | Path],
+    acceleration_masks: dict[int, str | Path],
+    output_paths: dict[str, str | Path],
+    coilmap_path: str | Path | None = None,
+    segmask_path: str | Path | None = None,
+    coilmap_axis_order: str = "auto",
+    normalize_coilmap: bool = True,
+    mask_args: Any = None,
+    overwrite: bool = False,
+) -> dict[str, dict[str, Any]]:
+    if not output_paths:
+        raise ValueError("At least one output storage profile is required")
+    invalid_profiles = sorted(set(output_paths) - set(WINDOWED_4DFLOW_STORAGE_PROFILES))
+    if invalid_profiles:
+        raise ValueError(f"Unsupported storage profiles: {invalid_profiles}")
+
+    normalized_paths = {profile: Path(path) for profile, path in output_paths.items()}
+    if len(set(normalized_paths.values())) != len(normalized_paths):
+        raise ValueError("Each storage profile must use a distinct output path")
+    for output_path in normalized_paths.values():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    source_manifest = {
+        "target": _source_record(target_path),
+        "inputs": {str(key): _source_record(value) for key, value in acceleration_inputs.items()},
+        "masks": {str(key): _source_record(value) for key, value in acceleration_masks.items()},
+        "coilmap": _source_record(coilmap_path),
+        "segmask": _source_record(segmask_path),
+    }
+    records = {}
+    profiles_to_write = []
+    for storage_profile, output_path in normalized_paths.items():
+        if output_path.exists() and not overwrite:
+            record = validate_patient_store(
+                output_path,
+                expected_storage_profile=storage_profile,
+            )
+            if record["source_manifest"] != source_manifest:
+                raise ValueError(
+                    f"Source files changed after conversion for {output_path}; "
+                    "use --overwrite to rebuild it explicitly"
+                )
+            records[storage_profile] = record
+        else:
+            profiles_to_write.append(storage_profile)
+    if not profiles_to_write:
+        return records
+
+    temporaries = {
+        profile: normalized_paths[profile].with_name(
+            f".{normalized_paths[profile].name}.{os.getpid()}.tmp"
+        )
+        for profile in profiles_to_write
+    }
+    for temporary in temporaries.values():
+        if temporary.exists():
+            temporary.unlink()
+
+    target_raw = read_mat_array(target_path, ("kdata_full", "kdata", "kspace_full", "kspace"))
+    if target_raw.ndim != 6:
+        raise ValueError(f"Expected target [E,T,C,Kz,Ky,Kx], got {target_raw.shape} in {target_path}")
+    target_hybrid = raw_4dflow_to_joint_hybrid(target_raw)
+    del target_raw
+    nt, nx, n_enc, nc, nz, ny, two = target_hybrid.shape
+    if two != 2:
+        raise ValueError(f"Unexpected target hybrid shape: {target_hybrid.shape}")
+
+    started = time.perf_counter()
+    try:
+        with ExitStack() as stack:
+            stores = {
+                profile: stack.enter_context(h5py.File(temporaries[profile], "w", libver="latest"))
+                for profile in profiles_to_write
+            }
+            for storage_profile, store in stores.items():
+                store.attrs["schema"] = WINDOWED_4DFLOW_SCHEMA
+                store.attrs["schema_version"] = WINDOWED_4DFLOW_SCHEMA_VERSION
+                store.attrs["storage_profile"] = storage_profile
+                store.attrs["encoding_chunk_size"] = _encoding_chunk_size(storage_profile, n_enc)
+                store.attrs["complete"] = False
+                store.attrs["patient_key"] = patient_key
+                store.attrs["target_kspace"] = str(target_path)
+                store.attrs["created_unix"] = time.time()
+                store.attrs["source_manifest_json"] = _json_attr(source_manifest)
+                store.attrs["coilmap_axis_order"] = coilmap_axis_order
+                store.attrs["normalize_coilmap"] = bool(normalize_coilmap)
+                _create_hybrid_dataset(store, "hybrid/target", target_hybrid, storage_profile)
+            del target_hybrid
+
+            for acceleration in sorted(acceleration_inputs):
+                input_raw = read_mat_array(
+                    acceleration_inputs[acceleration],
+                    ("kdata", "kdata_ktGaussian", "kus", "kspace", "kspace_full"),
+                )
+                input_hybrid = raw_4dflow_to_joint_hybrid(input_raw)
+                del input_raw
+                if input_hybrid.shape != (nt, nx, n_enc, nc, nz, ny, 2):
+                    raise ValueError(
+                        f"Acceleration {acceleration} shape mismatch for {patient_key}: {input_hybrid.shape}"
+                    )
+                for storage_profile, store in stores.items():
+                    _create_hybrid_dataset(
+                        store,
+                        f"hybrid/input/{acceleration}",
+                        input_hybrid,
+                        storage_profile,
+                    )
+                del input_hybrid
+
+                mask_raw = read_real_mat_array(
+                    acceleration_masks[acceleration],
+                    ("mask", "usmask", "usmask_ktGaussian", "sampling_mask"),
+                )
+                compact_mask = _mask_to_compact(mask_raw)
+                del mask_raw
+                if compact_mask.shape != (nt, nz, ny):
+                    raise ValueError(
+                        f"Acceleration {acceleration} mask mismatch for {patient_key}: {compact_mask.shape}"
+                    )
+                for store in stores.values():
+                    store.create_dataset(
+                        f"mask/{acceleration}",
+                        data=compact_mask,
+                        dtype=np.float32,
+                        chunks=(1, nz, ny),
+                    )
+
+            if coilmap_path is not None:
+                coilmap = read_mat_array(
+                    coilmap_path,
+                    ("coilmap", "csm", "sensitivity_maps", "sens_maps"),
+                )
+                compact_coilmap, layout = _coilmap_to_compact(
+                    coilmap,
+                    nx=nx,
+                    nc=nc,
+                    n_enc=n_enc,
+                    axis_order=coilmap_axis_order,
+                    normalize=normalize_coilmap,
+                )
+                del coilmap
+                for store in stores.values():
+                    coil_dataset = store.create_dataset(
+                        "coilmap",
+                        data=compact_coilmap,
+                        dtype=np.float32,
+                        chunks=(1, *compact_coilmap.shape[1:]),
+                    )
+                    coil_dataset.attrs["layout"] = layout
+
+            if segmask_path is not None:
+                segmask = load_vessel_mask_prior(segmask_path, mask_args)
+                if segmask.shape != (nx, nz, ny):
+                    raise ValueError(f"Segmentation mask mismatch for {patient_key}: {segmask.shape}")
+                for store in stores.values():
+                    store.create_dataset("segmask", data=segmask, dtype=np.float32, chunks=(1, nz, ny))
+
+            conversion_seconds = time.perf_counter() - started
+            for store in stores.values():
+                store.attrs["conversion_seconds"] = conversion_seconds
+                store.attrs["complete"] = True
+                store.flush()
+
+        for storage_profile in profiles_to_write:
+            os.replace(temporaries[storage_profile], normalized_paths[storage_profile])
+    except BaseException:
+        for temporary in temporaries.values():
+            if temporary.exists():
+                temporary.unlink()
+        raise
+
+    for storage_profile in profiles_to_write:
+        records[storage_profile] = validate_patient_store(
+            normalized_paths[storage_profile],
+            deep=True,
+            expected_storage_profile=storage_profile,
+        )
+    return records
 
 
 def convert_patient_to_windowed_hdf5(
@@ -183,127 +436,22 @@ def convert_patient_to_windowed_hdf5(
     normalize_coilmap: bool = True,
     mask_args: Any = None,
     overwrite: bool = False,
+    storage_profile: str = ENCODING_CHUNK_1,
 ) -> dict[str, Any]:
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
-    if temporary.exists():
-        temporary.unlink()
-
-    source_manifest = {
-        "target": _source_record(target_path),
-        "inputs": {str(key): _source_record(value) for key, value in acceleration_inputs.items()},
-        "masks": {str(key): _source_record(value) for key, value in acceleration_masks.items()},
-        "coilmap": _source_record(coilmap_path),
-        "segmask": _source_record(segmask_path),
-    }
-    if output_path.exists() and not overwrite:
-        record = validate_patient_store(output_path)
-        if record["source_manifest"] != source_manifest:
-            raise ValueError(
-                f"Source files changed after conversion for {output_path}; "
-                "use --overwrite to rebuild it explicitly"
-            )
-        return record
-
-    target_raw = read_mat_array(target_path, ("kdata_full", "kdata", "kspace_full", "kspace"))
-    if target_raw.ndim != 6:
-        raise ValueError(f"Expected target [E,T,C,Kz,Ky,Kx], got {target_raw.shape} in {target_path}")
-    target_hybrid = raw_4dflow_to_joint_hybrid(target_raw)
-    nt, nx, n_enc, nc, nz, ny, two = target_hybrid.shape
-    if two != 2:
-        raise ValueError(f"Unexpected target hybrid shape: {target_hybrid.shape}")
-
-    started = time.perf_counter()
-    try:
-        with h5py.File(temporary, "w", libver="latest") as store:
-            store.attrs["schema"] = WINDOWED_4DFLOW_SCHEMA
-            store.attrs["schema_version"] = WINDOWED_4DFLOW_SCHEMA_VERSION
-            store.attrs["complete"] = False
-            store.attrs["patient_key"] = patient_key
-            store.attrs["target_kspace"] = str(target_path)
-            store.attrs["created_unix"] = time.time()
-            store.attrs["source_manifest_json"] = _json_attr(source_manifest)
-            store.attrs["coilmap_axis_order"] = coilmap_axis_order
-            store.attrs["normalize_coilmap"] = bool(normalize_coilmap)
-            store.create_dataset(
-                "hybrid/target",
-                data=target_hybrid,
-                dtype=np.float32,
-                chunks=_dataset_chunks(target_hybrid.shape),
-            )
-            del target_hybrid
-
-            for acceleration in sorted(acceleration_inputs):
-                input_raw = read_mat_array(
-                    acceleration_inputs[acceleration],
-                    ("kdata", "kdata_ktGaussian", "kus", "kspace", "kspace_full"),
-                )
-                input_hybrid = raw_4dflow_to_joint_hybrid(input_raw)
-                if input_hybrid.shape != (nt, nx, n_enc, nc, nz, ny, 2):
-                    raise ValueError(
-                        f"Acceleration {acceleration} shape mismatch for {patient_key}: {input_hybrid.shape}"
-                    )
-                store.create_dataset(
-                    f"hybrid/input/{acceleration}",
-                    data=input_hybrid,
-                    dtype=np.float32,
-                    chunks=_dataset_chunks(input_hybrid.shape),
-                )
-                del input_raw, input_hybrid
-
-                mask_raw = read_real_mat_array(
-                    acceleration_masks[acceleration],
-                    ("mask", "usmask", "usmask_ktGaussian", "sampling_mask"),
-                )
-                compact_mask = _mask_to_compact(mask_raw)
-                if compact_mask.shape != (nt, nz, ny):
-                    raise ValueError(
-                        f"Acceleration {acceleration} mask mismatch for {patient_key}: {compact_mask.shape}"
-                    )
-                store.create_dataset(
-                    f"mask/{acceleration}",
-                    data=compact_mask,
-                    dtype=np.float32,
-                    chunks=(1, nz, ny),
-                )
-
-            if coilmap_path is not None:
-                coilmap = read_mat_array(
-                    coilmap_path,
-                    ("coilmap", "csm", "sensitivity_maps", "sens_maps"),
-                )
-                compact_coilmap, layout = _coilmap_to_compact(
-                    coilmap,
-                    nx=nx,
-                    nc=nc,
-                    n_enc=n_enc,
-                    axis_order=coilmap_axis_order,
-                    normalize=normalize_coilmap,
-                )
-                coil_dataset = store.create_dataset(
-                    "coilmap",
-                    data=compact_coilmap,
-                    dtype=np.float32,
-                    chunks=(1, *compact_coilmap.shape[1:]),
-                )
-                coil_dataset.attrs["layout"] = layout
-
-            if segmask_path is not None:
-                segmask = load_vessel_mask_prior(segmask_path, mask_args)
-                if segmask.shape != (nx, nz, ny):
-                    raise ValueError(f"Segmentation mask mismatch for {patient_key}: {segmask.shape}")
-                store.create_dataset("segmask", data=segmask, dtype=np.float32, chunks=(1, nz, ny))
-
-            store.attrs["conversion_seconds"] = time.perf_counter() - started
-            store.attrs["complete"] = True
-            store.flush()
-        os.replace(temporary, output_path)
-    except BaseException:
-        if temporary.exists():
-            temporary.unlink()
-        raise
-    return validate_patient_store(output_path, deep=True)
+    records = convert_patient_to_windowed_hdf5_profiles(
+        patient_key=patient_key,
+        target_path=target_path,
+        acceleration_inputs=acceleration_inputs,
+        acceleration_masks=acceleration_masks,
+        output_paths={storage_profile: output_path},
+        coilmap_path=coilmap_path,
+        segmask_path=segmask_path,
+        coilmap_axis_order=coilmap_axis_order,
+        normalize_coilmap=normalize_coilmap,
+        mask_args=mask_args,
+        overwrite=overwrite,
+    )
+    return records[storage_profile]
 
 
 def discover_4dflow_patients(
@@ -350,13 +498,80 @@ def rebuild_windowed_index(output_root: str | Path, *, deep: bool = False) -> di
         validate_patient_store(path, deep=deep)
         for path in sorted((output_root / "patients").glob("**/*.h5"))
     ]
+    if not patient_records:
+        raise ValueError(f"No converted patient stores found under {output_root}")
+    storage_profiles = {record["storage_profile"] for record in patient_records}
+    encoding_chunk_sizes = {record["encoding_chunk_size"] for record in patient_records}
+    if len(storage_profiles) != 1 or len(encoding_chunk_sizes) != 1:
+        raise ValueError(f"Mixed storage profiles found under {output_root}")
     payload = {
         "schema": WINDOWED_4DFLOW_SCHEMA,
         "schema_version": WINDOWED_4DFLOW_SCHEMA_VERSION,
+        "storage_profile": next(iter(storage_profiles)),
+        "encoding_chunk_size": next(iter(encoding_chunk_sizes)),
         "patients": patient_records,
     }
     _atomic_json_dump(payload, output_root / "index.json")
     return payload
+
+
+def validate_windowed_profile_pair(
+    e1_output_root: str | Path,
+    e4_output_root: str | Path,
+    *,
+    deep: bool = False,
+) -> dict[str, Any]:
+    e1_index = rebuild_windowed_index(e1_output_root, deep=deep)
+    e4_index = rebuild_windowed_index(e4_output_root, deep=deep)
+    if e1_index["storage_profile"] != ENCODING_CHUNK_1:
+        raise ValueError(f"Expected E1 profile under {e1_output_root}")
+    if e4_index["storage_profile"] != ENCODING_CHUNK_ALL:
+        raise ValueError(f"Expected E4 profile under {e4_output_root}")
+
+    e1_patients = {record["patient_key"]: record for record in e1_index["patients"]}
+    e4_patients = {record["patient_key"]: record for record in e4_index["patients"]}
+    if set(e1_patients) != set(e4_patients):
+        raise ValueError("E1 and E4 patient sets do not match")
+    for patient_key in sorted(e1_patients):
+        e1_record = e1_patients[patient_key]
+        e4_record = e4_patients[patient_key]
+        for field in ("shape", "accelerations", "source_manifest"):
+            if e1_record[field] != e4_record[field]:
+                raise ValueError(f"E1/E4 {field} mismatch for {patient_key}")
+        if not deep:
+            continue
+        with h5py.File(e1_record["path"], "r", swmr=True) as e1_store, h5py.File(
+            e4_record["path"], "r", swmr=True
+        ) as e4_store:
+            hybrid_names = ["hybrid/target"] + [
+                f"hybrid/input/{acceleration}" for acceleration in e1_record["accelerations"]
+            ]
+            for name in hybrid_names:
+                for frame_idx, slice_idx in (
+                    (0, 0),
+                    (e1_store[name].shape[0] - 1, e1_store[name].shape[1] - 1),
+                ):
+                    if not np.array_equal(
+                        e1_store[name][frame_idx, slice_idx],
+                        e4_store[name][frame_idx, slice_idx],
+                    ):
+                        raise ValueError(f"E1/E4 value mismatch for {patient_key} at {name}")
+            compact_names = [f"mask/{acceleration}" for acceleration in e1_record["accelerations"]]
+            compact_names.extend(name for name in ("coilmap", "segmask") if name in e1_store)
+            for name in compact_names:
+                if not np.array_equal(e1_store[name][0], e4_store[name][0]):
+                    raise ValueError(f"E1/E4 compact value mismatch for {patient_key} at {name}")
+                if not np.array_equal(e1_store[name][-1], e4_store[name][-1]):
+                    raise ValueError(f"E1/E4 compact value mismatch for {patient_key} at {name}")
+
+    return {
+        "schema": WINDOWED_4DFLOW_SCHEMA,
+        "schema_version": WINDOWED_4DFLOW_SCHEMA_VERSION,
+        "patients": len(e1_patients),
+        "e1_index": str(Path(e1_output_root) / "index.json"),
+        "e4_index": str(Path(e4_output_root) / "index.json"),
+        "deep": bool(deep),
+    }
 
 
 def build_windowed_4dflow_manifests(
@@ -367,14 +582,31 @@ def build_windowed_4dflow_manifests(
     accelerations: Sequence[int],
     encodings: Sequence[int],
     joint_encodings: bool,
+    expected_storage_profile: str | None = None,
+    allow_profile_mismatch: bool = False,
 ) -> list[Path]:
     index_path = Path(index_path)
     with index_path.open() as stream:
         index = json.load(stream)
     if index.get("schema") != WINDOWED_4DFLOW_SCHEMA:
         raise ValueError(f"Unexpected windowed index schema: {index_path}")
-    if int(index.get("schema_version", -1)) != WINDOWED_4DFLOW_SCHEMA_VERSION:
+    if int(index.get("schema_version", -1)) not in {
+        LEGACY_WINDOWED_4DFLOW_SCHEMA_VERSION,
+        WINDOWED_4DFLOW_SCHEMA_VERSION,
+    }:
         raise ValueError(f"Unsupported windowed index version: {index_path}")
+    storage_profile = str(index.get("storage_profile", ENCODING_CHUNK_1))
+    profile_requirement = expected_storage_profile
+    if profile_requirement is None:
+        profile_requirement = ENCODING_CHUNK_ALL if joint_encodings else ENCODING_CHUNK_1
+    if profile_requirement not in WINDOWED_4DFLOW_STORAGE_PROFILES:
+        raise ValueError(f"Unsupported requested storage profile: {profile_requirement!r}")
+    if not allow_profile_mismatch and storage_profile != profile_requirement:
+        mode = "joint" if joint_encodings else "legacy"
+        raise ValueError(
+            f"{mode} training requires storage profile {profile_requirement!r}, "
+            f"but {index_path} provides {storage_profile!r}"
+        )
 
     roots = [os.path.normpath(str(value)) for value in data_roots]
     out_dir = Path(out_dir)
@@ -400,6 +632,10 @@ def build_windowed_4dflow_manifests(
                     "acquisition": "Flow4d",
                     "is_4dflow": True,
                     "prewindowed_4dflow": True,
+                    "storage_profile": storage_profile,
+                    "encoding_chunk_size": int(
+                        patient.get("encoding_chunk_size", index.get("encoding_chunk_size", 1))
+                    ),
                 }
                 if joint_encodings:
                     payload["joint_encodings"] = True
@@ -516,19 +752,27 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
         except BaseException:
             pass
 
-    def _open(self, path: str) -> h5py.File:
+    def _open(self, path: str, expected_storage_profile: str) -> h5py.File:
         if path in self._handles:
             handle = self._handles.pop(path)
             self._handles[path] = handle
-            return handle
-        handle = h5py.File(path, "r", swmr=True, rdcc_nbytes=self.rdcc_nbytes)
-        if handle.attrs.get("schema") != WINDOWED_4DFLOW_SCHEMA or not bool(handle.attrs.get("complete", False)):
-            handle.close()
-            raise ValueError(f"Invalid or incomplete windowed store: {path}")
-        self._handles[path] = handle
-        while len(self._handles) > self.handle_capacity:
-            _, evicted = self._handles.popitem(last=False)
-            evicted.close()
+        else:
+            handle = h5py.File(path, "r", swmr=True, rdcc_nbytes=self.rdcc_nbytes)
+            if handle.attrs.get("schema") != WINDOWED_4DFLOW_SCHEMA or not bool(
+                handle.attrs.get("complete", False)
+            ):
+                handle.close()
+                raise ValueError(f"Invalid or incomplete windowed store: {path}")
+            self._handles[path] = handle
+            while len(self._handles) > self.handle_capacity:
+                _, evicted = self._handles.popitem(last=False)
+                evicted.close()
+        storage_profile = str(handle.attrs.get("storage_profile", ENCODING_CHUNK_1))
+        if storage_profile != expected_storage_profile:
+            raise ValueError(
+                f"Manifest/store storage profile mismatch for {path}: "
+                f"expected {expected_storage_profile!r}, found {storage_profile!r}"
+            )
         return handle
 
     def _choose_centers(self, total: int) -> np.ndarray:
@@ -547,7 +791,10 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
         manifest_path = Path(item["kspace"] if isinstance(item, dict) else item)
         with manifest_path.open() as stream:
             manifest = json.load(stream)
-        store = self._open(str(manifest["windowed_h5"]))
+        store = self._open(
+            str(manifest["windowed_h5"]),
+            str(manifest.get("storage_profile", ENCODING_CHUNK_1)),
+        )
         acceleration = str(int(manifest["acceleration"]))
         target_dataset = store["hybrid/target"]
         total_frames, total_slices, encoding_count, coils, height, width, _ = target_dataset.shape
@@ -635,6 +882,7 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
             "ifft_ms": ifft_ms,
             "window_count": int(centers.size),
             "unique_coordinate_count": int(len({tuple(value) for value in indices.reshape(-1, 2)})),
+            "hybrid_read_call_count": int(len({tuple(value) for value in indices.reshape(-1, 2)})),
         }
         metadata = {
             "filename": manifest_path.name,

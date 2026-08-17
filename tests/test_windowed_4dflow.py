@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import h5py
 import numpy as np
 import scipy.io
 import torch
@@ -26,12 +27,16 @@ from transforms import (
 )
 from utils import complex_zscore, load_config, windowed_input_x_slab
 from windowed_4dflow import (
+    ENCODING_CHUNK_1,
+    ENCODING_CHUNK_ALL,
     Windowed4DFlowDataset,
     build_window_indices,
     build_windowed_4dflow_manifests,
     convert_patient_to_windowed_hdf5,
+    convert_patient_to_windowed_hdf5_profiles,
     rebuild_windowed_index,
     validate_patient_store,
+    validate_windowed_profile_pair,
     windowed_hdf5_enabled,
 )
 
@@ -98,6 +103,7 @@ def _convert_and_manifest(tmp_path: Path, *, joint: bool):
     source = _write_synthetic_patient(tmp_path / "raw")
     output_root = tmp_path / "converted"
     store_path = output_root / "patients" / "Center001" / "ScannerA" / "P001.h5"
+    storage_profile = ENCODING_CHUNK_ALL if joint else ENCODING_CHUNK_1
     convert_patient_to_windowed_hdf5(
         patient_key="Center001/ScannerA/P001",
         target_path=source["target_path"],
@@ -105,6 +111,7 @@ def _convert_and_manifest(tmp_path: Path, *, joint: bool):
         acceleration_masks={10: source["mask_path"]},
         output_path=store_path,
         coilmap_path=source["coilmap_path"],
+        storage_profile=storage_profile,
     )
     index = rebuild_windowed_index(output_root, deep=True)
     manifests = build_windowed_4dflow_manifests(
@@ -147,6 +154,7 @@ def test_windowed_backend_is_opt_in_for_joint_and_legacy_configs():
     opt_in_names = (
         "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_windowed_h5_pg.json",
         "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
+        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_e4_pg.json",
     )
     for name in opt_in_names:
         config = load_config(REPO_ROOT / "configs" / name)
@@ -154,6 +162,15 @@ def test_windowed_backend_is_opt_in_for_joint_and_legacy_configs():
         assert not windowed_hdf5_enabled(config, "val")
         assert config.batch_size == 8
         assert config.num_samples_per_case == 8
+    legacy = load_config(REPO_ROOT / "configs" / opt_in_names[0])
+    joint = load_config(REPO_ROOT / "configs" / opt_in_names[1])
+    joint_e4 = load_config(REPO_ROOT / "configs" / opt_in_names[2])
+    assert legacy.four_dflow_storage.storage_profile == ENCODING_CHUNK_1
+    assert joint.four_dflow_storage.storage_profile == ENCODING_CHUNK_1
+    assert joint_e4.four_dflow_storage.storage_profile == ENCODING_CHUNK_ALL
+    assert "/windowed-e1-v2/" in legacy.four_dflow_storage.index_path
+    assert "/windowed-e1-v2/" in joint.four_dflow_storage.index_path
+    assert "/windowed-e4-v2/" in joint_e4.four_dflow_storage.index_path
 
 
 def test_converter_is_restart_safe_and_manifests_cover_both_modes(tmp_path):
@@ -170,11 +187,23 @@ def test_converter_is_restart_safe_and_manifests_cover_both_modes(tmp_path):
         acceleration_masks={10: source["mask_path"]},
         output_path=store_path,
         coilmap_path=source["coilmap_path"],
+        storage_profile=ENCODING_CHUNK_ALL,
     )
     assert record["shape"] == [3, 6, 4, 2, 4, 5, 2]
 
+    single_root = tmp_path / "converted_e1"
+    convert_patient_to_windowed_hdf5(
+        patient_key="Center001/ScannerA/P001",
+        target_path=source["target_path"],
+        acceleration_inputs={10: source["input_path"]},
+        acceleration_masks={10: source["mask_path"]},
+        output_path=single_root / "patients" / "Center001" / "ScannerA" / "P001.h5",
+        coilmap_path=source["coilmap_path"],
+        storage_profile=ENCODING_CHUNK_1,
+    )
+    rebuild_windowed_index(single_root, deep=True)
     single_manifests = build_windowed_4dflow_manifests(
-        index_path=tmp_path / "converted" / "index.json",
+        index_path=single_root / "index.json",
         data_roots=[source["root"]],
         out_dir=tmp_path / "single_manifests",
         accelerations=[10],
@@ -184,6 +213,86 @@ def test_converter_is_restart_safe_and_manifests_cover_both_modes(tmp_path):
     assert len(single_manifests) == 4
     assert {json.loads(path.read_text())["encoding_idx"] for path in single_manifests} == {0, 1, 2, 3}
     assert validate_patient_store(store_path, deep=True)["size_bytes"] > 0
+
+
+def test_paired_converter_writes_equal_e1_and_e4_profiles(tmp_path):
+    source = _write_synthetic_patient(tmp_path / "raw")
+    roots = {
+        ENCODING_CHUNK_1: tmp_path / "e1",
+        ENCODING_CHUNK_ALL: tmp_path / "e4",
+    }
+    output_paths = {
+        profile: root / "patients" / "Center001" / "ScannerA" / "P001.h5"
+        for profile, root in roots.items()
+    }
+    records = convert_patient_to_windowed_hdf5_profiles(
+        patient_key="Center001/ScannerA/P001",
+        target_path=source["target_path"],
+        acceleration_inputs={10: source["input_path"]},
+        acceleration_masks={10: source["mask_path"]},
+        output_paths=output_paths,
+        coilmap_path=source["coilmap_path"],
+    )
+    assert records[ENCODING_CHUNK_1]["hybrid_chunks"] == [1, 1, 1, 2, 4, 5, 2]
+    assert records[ENCODING_CHUNK_ALL]["hybrid_chunks"] == [1, 1, 4, 2, 4, 5, 2]
+    with h5py.File(output_paths[ENCODING_CHUNK_1], "r") as e1_store, h5py.File(
+        output_paths[ENCODING_CHUNK_ALL], "r"
+    ) as e4_store:
+        assert e1_store["hybrid/target"].chunks == (1, 1, 1, 2, 4, 5, 2)
+        assert e4_store["hybrid/target"].chunks == (1, 1, 4, 2, 4, 5, 2)
+        np.testing.assert_array_equal(e1_store["hybrid/target"][:], e4_store["hybrid/target"][:])
+        np.testing.assert_array_equal(e1_store["hybrid/input/10"][:], e4_store["hybrid/input/10"][:])
+    pair = validate_windowed_profile_pair(roots[ENCODING_CHUNK_1], roots[ENCODING_CHUNK_ALL], deep=True)
+    assert pair["patients"] == 1
+
+    restarted = convert_patient_to_windowed_hdf5_profiles(
+        patient_key="Center001/ScannerA/P001",
+        target_path=source["target_path"],
+        acceleration_inputs={10: source["input_path"]},
+        acceleration_masks={10: source["mask_path"]},
+        output_paths=output_paths,
+        coilmap_path=source["coilmap_path"],
+    )
+    assert set(restarted) == {ENCODING_CHUNK_1, ENCODING_CHUNK_ALL}
+
+
+def test_manifest_profile_guard_rejects_wrong_training_mode(tmp_path):
+    source = _write_synthetic_patient(tmp_path / "raw")
+    output_root = tmp_path / "e1"
+    store_path = output_root / "patients" / "Center001" / "ScannerA" / "P001.h5"
+    convert_patient_to_windowed_hdf5(
+        patient_key="Center001/ScannerA/P001",
+        target_path=source["target_path"],
+        acceleration_inputs={10: source["input_path"]},
+        acceleration_masks={10: source["mask_path"]},
+        output_path=store_path,
+        storage_profile=ENCODING_CHUNK_1,
+    )
+    rebuild_windowed_index(output_root)
+    try:
+        build_windowed_4dflow_manifests(
+            index_path=output_root / "index.json",
+            data_roots=[source["root"]],
+            out_dir=tmp_path / "manifests",
+            accelerations=[10],
+            encodings=[0, 1, 2, 3],
+            joint_encodings=True,
+        )
+    except ValueError as error:
+        assert "joint training requires storage profile" in str(error)
+    else:
+        raise AssertionError("Expected profile mismatch to be rejected")
+
+    manifests = build_windowed_4dflow_manifests(
+        index_path=output_root / "index.json",
+        data_roots=[source["root"]],
+        out_dir=tmp_path / "configured_manifests",
+        accelerations=[10],
+        encodings=[0, 1, 2, 3],
+        joint_encodings=True,
+        expected_storage_profile=ENCODING_CHUNK_1,
+    )
+    assert len(manifests) == 1
 
 
 def test_joint_windowed_dataset_matches_existing_full_volume_pipeline(tmp_path):
@@ -225,6 +334,8 @@ def test_joint_windowed_dataset_matches_existing_full_volume_pipeline(tmp_path):
     torch.testing.assert_close(sample["std"], expected_std)
     torch.testing.assert_close(sample["sensitivity_maps"], expected_csm)
     assert sample["kspace_meta_dict"]["window_centers"].tolist() == centers.tolist()
+    timing = sample["kspace_meta_dict"]["worker_timing"]
+    assert timing["hybrid_read_call_count"] == timing["unique_coordinate_count"]
 
 
 def test_non_joint_windowed_dataset_matches_existing_full_volume_pipeline(tmp_path):

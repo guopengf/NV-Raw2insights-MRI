@@ -369,6 +369,9 @@ def trainer(args):
                     accelerations=getattr(args, "four_dflow_accelerations", [10, 20, 30, 40, 50]),
                     encodings=getattr(args, "four_dflow_encodings", [0, 1, 2, 3]),
                     joint_encodings=joint_spec.enabled,
+                    expected_storage_profile=cfg_get(
+                        args, "four_dflow_storage.storage_profile", None
+                    ),
                 )
             else:
                 build_4dflow_aorta_manifests(

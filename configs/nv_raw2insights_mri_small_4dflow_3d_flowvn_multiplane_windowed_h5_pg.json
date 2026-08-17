@@ -48,7 +48,8 @@
         "backend": "raw_mat",
         "train_backend": "windowed_hdf5",
         "val_backend": "raw_mat",
-        "index_path": "/workspace/datasets/CMRx4DFlow2026-windowed-v1/index.json",
+        "index_path": "/data/CMRx4DFlow2026-ChallengeData/windowed-e1-v2/index.json",
+        "storage_profile": "encoding_chunk_1",
         "handle_cache_entries": 1,
         "hdf5_chunk_cache_bytes": 268435456
     },

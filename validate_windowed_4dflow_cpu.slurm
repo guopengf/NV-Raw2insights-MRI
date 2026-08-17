@@ -14,7 +14,8 @@ REPO=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5
 IMAGE=/home/pengfeig/workspace/cache/conda_raw2insights.sqsh
 USER_ROOT=/lustre/fsw/portfolios/healthcareeng/users/pengfeig
 DATA_ROOT=/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_monai/datasets/CMRx4DFlow2026-ChallengeData
-CANARY_ROOT=/workspace/datasets/CMRx4DFlow2026-windowed-v1-canary
+CANARY_E1_ROOT=/data/CMRx4DFlow2026-ChallengeData/windowed-e1-v2-canary
+CANARY_E4_ROOT=/data/CMRx4DFlow2026-ChallengeData/windowed-e4-v2-canary
 RUN_ROOT=/workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5/outputs/4dflow/windowed_hdf5_validation/${SLURM_JOB_ID}
 
 srun --kill-on-bad-exit=1 \
@@ -37,12 +38,14 @@ srun --kill-on-bad-exit=1 \
         \"\$PY\" scripts/tools/run_direct_regression_tests.py | tee '$RUN_ROOT/regressions.log'
         \"\$PY\" scripts/tools/build_4dflow_windowed_h5.py \
             --config configs/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json \
-            --output-root '$CANARY_ROOT' \
+            --e1-output-root '$CANARY_E1_ROOT' \
+            --e4-output-root '$CANARY_E4_ROOT' \
             --limit-patients 1 \
             --deep-verify | tee '$RUN_ROOT/conversion.log'
         \"\$PY\" scripts/tools/build_4dflow_windowed_h5.py \
             --config configs/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json \
-            --output-root '$CANARY_ROOT' \
+            --e1-output-root '$CANARY_E1_ROOT' \
+            --e4-output-root '$CANARY_E4_ROOT' \
             --verify-only --deep-verify | tee '$RUN_ROOT/verification.log'
 
         for MODE in joint_batch legacy; do
@@ -51,11 +54,19 @@ srun --kill-on-bad-exit=1 \
             else
                 CONFIG=configs/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_windowed_h5_pg.json
             fi
-            \"\$PY\" scripts/tools/benchmark_4dflow_windowed_loader.py \
-                --config \"\$CONFIG\" \
-                --index-path '$CANARY_ROOT/index.json' \
-                --work-dir '$RUN_ROOT/benchmark_'\"\$MODE\" \
-                --output '$RUN_ROOT/benchmark_'\"\$MODE\"'.json'
+            for PROFILE in e1 e4; do
+                if [[ \"\$PROFILE\" == e1 ]]; then
+                    INDEX='$CANARY_E1_ROOT/index.json'
+                else
+                    INDEX='$CANARY_E4_ROOT/index.json'
+                fi
+                \"\$PY\" scripts/tools/benchmark_4dflow_windowed_loader.py \
+                    --config \"\$CONFIG\" \
+                    --index-path \"\$INDEX\" \
+                    --work-dir '$RUN_ROOT/benchmark_'\"\$MODE\"'_'\"\$PROFILE\" \
+                    --output '$RUN_ROOT/benchmark_'\"\$MODE\"'_'\"\$PROFILE\"'.json'
+            done
         done
+        touch '$CANARY_E1_ROOT/COMPLETED' '$CANARY_E4_ROOT/COMPLETED'
         touch '$RUN_ROOT/COMPLETED'
     "

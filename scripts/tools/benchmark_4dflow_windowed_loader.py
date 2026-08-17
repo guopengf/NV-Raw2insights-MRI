@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--work-dir", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--max-manifests", type=int, default=5)
+    parser.add_argument(
+        "--skip-raw",
+        action="store_true",
+        help="Measure only the windowed store when the raw baseline is already available.",
+    )
     return parser.parse_args()
 
 
@@ -94,10 +99,12 @@ def main() -> None:
         raise RuntimeError("No requested acceleration is available in the converted store")
     joint = joint_encoding_spec(config).enabled
 
-    raw_manifests = [
-        _raw_manifest(patient, int(acceleration), cli.work_dir / "raw", joint=joint)
-        for acceleration in accelerations
-    ]
+    raw_manifests = []
+    if not cli.skip_raw:
+        raw_manifests = [
+            _raw_manifest(patient, int(acceleration), cli.work_dir / "raw", joint=joint)
+            for acceleration in accelerations
+        ]
     h5_manifests = build_windowed_4dflow_manifests(
         index_path=cli.index_path,
         data_roots=config.data_path_train,
@@ -105,30 +112,38 @@ def main() -> None:
         accelerations=accelerations,
         encodings=[0] if not joint else config.four_dflow_encodings,
         joint_encodings=joint,
-    )
-    raw_dataset = Dataset(
-        data=[{"kspace": path} for path in raw_manifests],
-        transform=get_train_transforms(config),
+        allow_profile_mismatch=True,
     )
     h5_dataset = Windowed4DFlowDataset(
         [{"kspace": path} for path in h5_manifests], config
     )
 
-    raw_ms, raw_shapes = _measure(raw_dataset, len(raw_manifests), seed=100)
+    raw_ms = []
+    raw_shapes = []
+    if raw_manifests:
+        raw_dataset = Dataset(
+            data=[{"kspace": path} for path in raw_manifests],
+            transform=get_train_transforms(config),
+        )
+        raw_ms, raw_shapes = _measure(raw_dataset, len(raw_manifests), seed=100)
     h5_ms, h5_shapes = _measure(h5_dataset, len(h5_manifests), seed=100)
+    raw_total_ms = float(sum(raw_ms)) if raw_ms else None
+    speedup = raw_total_ms / sum(h5_ms) if raw_total_ms is not None else None
     payload = {
         "config": str(cli.config),
         "index_path": str(cli.index_path),
         "patient_key": patient["patient_key"],
         "joint_encodings": joint,
+        "storage_profile": patient["storage_profile"],
+        "encoding_chunk_size": int(patient["encoding_chunk_size"]),
         "batch_size": int(config.batch_size),
         "num_samples_per_case": int(config.num_samples_per_case),
         "accelerations": [int(value) for value in accelerations],
         "raw_ms": raw_ms,
         "windowed_ms": h5_ms,
-        "raw_total_ms": float(sum(raw_ms)),
+        "raw_total_ms": raw_total_ms,
         "windowed_total_ms": float(sum(h5_ms)),
-        "speedup": float(sum(raw_ms) / sum(h5_ms)),
+        "speedup": speedup,
         "raw_shapes": raw_shapes,
         "windowed_shapes": h5_shapes,
         "max_rss_kib": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
