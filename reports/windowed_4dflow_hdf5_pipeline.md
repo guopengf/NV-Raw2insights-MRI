@@ -12,15 +12,16 @@ Both supplied training configurations keep `batch_size=8` and
 both work with either storage profile when the config and index declare the same
 profile.
 
-## Full-Dataset Destinations
+## Production Destination
 
-The restartable paired converter is configured to write exactly:
+The restartable production converter is configured to write only the measured-fast E1 profile:
 
 - E1 host root: `/home/pengfeig/healthcareeng_monai/datasets/CMRx4DFlow2026-ChallengeData/windowed-e1-v2`
-- E4 host root: `/home/pengfeig/healthcareeng_monai/datasets/CMRx4DFlow2026-ChallengeData/windowed-e4-v2`
 
-Inside the training container these are mounted as `/data/CMRx4DFlow2026-ChallengeData/windowed-e1-v2`
-and `/data/CMRx4DFlow2026-ChallengeData/windowed-e4-v2`.
+Inside the training container this is mounted as
+`/data/CMRx4DFlow2026-ChallengeData/windowed-e1-v2`. The converter CLI still
+accepts an optional E4 output for controlled experiments, but the production
+launcher intentionally omits it.
 
 ## Storage Profiles
 
@@ -40,8 +41,9 @@ The profiles differ only in the hybrid dataset chunk shape:
 - E4, `encoding_chunk_all`: `[1,1,4,C,Z,Y,2]`.
 
 During conversion, each source MAT array is opened and transformed once. The
-result is written to PID-scoped E1 and E4 temporary stores in the same pass.
-Each store is validated and atomically renamed only after all five acceleration
+result is written to a PID-scoped E1 temporary store. When the optional E4
+output is requested, both profiles are written in the same source-read pass.
+Each requested store is validated and atomically renamed only after all five acceleration
 inputs, target, masks, coil map, optional segmentation, metadata, and source
 provenance are complete. Restart skips verified stores; changed source size or
 mtime requires explicit `--overwrite`.
@@ -117,16 +119,17 @@ or compression experiments.
 ## Capacity And Launch
 
 The canary stores are intentionally uncompressed to favor runtime throughput.
-There are 138 eligible patients. A canary-size projection is about 1.54 TB per
-profile, or about 3.08 TB for the pair; exact usage varies with geometry.
+There are 138 eligible patients. A canary-size projection is about 1.54 TB for
+the E1 production dataset; exact usage varies with geometry.
 
 Reproducible launchers:
 
-- `build_4dflow_windowed_h5.slurm`: paired, restartable full conversion and deep verification.
+- `build_4dflow_windowed_h5.slurm`: E1-only restartable full conversion and deep verification.
 - `submit_4dflow_windowed_h5.sh`: thin submission wrapper.
 - `validate_windowed_4dflow_cpu.slurm`: paired canary and CPU benchmarks.
 - `validate_windowed_4dflow_gpu.slurm`: one-batch joint/legacy GPU smoke.
 - `validate_windowed_4dflow_interactive.sh`: validation inside an existing allocation.
 - `validate_windowed_4dflow_gpu_interactive.sh`: E1/E4 GPU comparison inside an existing allocation.
+- `validate_windowed_4dflow_e1_only_cpu.slurm`: E1-only CLI and canary verification.
 
 The full 138-patient conversion was not launched during validation.

@@ -28,7 +28,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--e1-output-root", required=True, type=Path)
-    parser.add_argument("--e4-output-root", required=True, type=Path)
+    parser.add_argument(
+        "--e4-output-root",
+        type=Path,
+        help="Optional E4 output. Omit it for the recommended E1-only conversion.",
+    )
     parser.add_argument("--limit-patients", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--verify-only", action="store_true")
@@ -39,12 +43,25 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     cli = parse_args()
     if cli.verify_only:
-        result = validate_windowed_profile_pair(
-            cli.e1_output_root,
-            cli.e4_output_root,
-            deep=cli.deep_verify,
-        )
-        print(json.dumps({"status": "verified", **result}, sort_keys=True))
+        e1_index = rebuild_windowed_index(cli.e1_output_root, deep=cli.deep_verify)
+        if e1_index["storage_profile"] != ENCODING_CHUNK_1:
+            raise RuntimeError(
+                f"Expected E1 profile at {cli.e1_output_root}, "
+                f"found {e1_index['storage_profile']!r}"
+            )
+        payload = {
+            "status": "verified",
+            "patients": len(e1_index["patients"]),
+            "e1_index": str(cli.e1_output_root / "index.json"),
+            "e1_profile": e1_index["storage_profile"],
+        }
+        if cli.e4_output_root is not None:
+            payload["pair"] = validate_windowed_profile_pair(
+                cli.e1_output_root,
+                cli.e4_output_root,
+                deep=cli.deep_verify,
+            )
+        print(json.dumps(payload, sort_keys=True))
         return
 
     config = load_config(cli.config)
@@ -59,15 +76,19 @@ def main() -> None:
         raise RuntimeError("No fully populated 4D-flow patients were discovered")
 
     for patient_index, patient in enumerate(patients, start=1):
+        output_paths = {
+            ENCODING_CHUNK_1: cli.e1_output_root / "patients" / f"{patient['patient_key']}.h5",
+        }
+        if cli.e4_output_root is not None:
+            output_paths[ENCODING_CHUNK_ALL] = (
+                cli.e4_output_root / "patients" / f"{patient['patient_key']}.h5"
+            )
         records = convert_patient_to_windowed_hdf5_profiles(
             patient_key=patient["patient_key"],
             target_path=patient["target_path"],
             acceleration_inputs=patient["inputs"],
             acceleration_masks=patient["masks"],
-            output_paths={
-                ENCODING_CHUNK_1: cli.e1_output_root / "patients" / f"{patient['patient_key']}.h5",
-                ENCODING_CHUNK_ALL: cli.e4_output_root / "patients" / f"{patient['patient_key']}.h5",
-            },
+            output_paths=output_paths,
             coilmap_path=patient["coilmap_path"],
             segmask_path=patient["segmask_path"],
             mask_args=config,
@@ -87,23 +108,21 @@ def main() -> None:
             flush=True,
         )
     e1_index = rebuild_windowed_index(cli.e1_output_root, deep=cli.deep_verify)
-    e4_index = rebuild_windowed_index(cli.e4_output_root, deep=cli.deep_verify)
-    result = validate_windowed_profile_pair(
-        cli.e1_output_root,
-        cli.e4_output_root,
-        deep=cli.deep_verify,
-    )
-    print(
-        json.dumps(
-            {
-                "status": "complete",
-                "patients": len(e1_index["patients"]),
-                "e1_profile": e1_index["storage_profile"],
-                "e4_profile": e4_index["storage_profile"],
-                "pair": result,
-            },
-            sort_keys=True,
+    payload = {
+        "status": "complete",
+        "patients": len(e1_index["patients"]),
+        "e1_profile": e1_index["storage_profile"],
+    }
+    if cli.e4_output_root is not None:
+        e4_index = rebuild_windowed_index(cli.e4_output_root, deep=cli.deep_verify)
+        payload["e4_profile"] = e4_index["storage_profile"]
+        payload["pair"] = validate_windowed_profile_pair(
+            cli.e1_output_root,
+            cli.e4_output_root,
+            deep=cli.deep_verify,
         )
+    print(
+        json.dumps(payload, sort_keys=True)
     )
 
 
