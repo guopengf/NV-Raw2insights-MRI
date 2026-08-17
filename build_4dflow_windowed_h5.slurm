@@ -5,6 +5,7 @@
 #SBATCH --ntasks=10
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
+#SBATCH --exclude=cpu1-00012
 #SBATCH --time=04:00:00
 #SBATCH --job-name=build-windowed4d-e1-10n
 #SBATCH --output=/home/pengfeig/workspace/slurm-logs-agent/%j-build-windowed4d-e1-10n.out
@@ -32,6 +33,21 @@ container_args=(
     --no-container-mount-home
     --container-remap-root
 )
+
+srun --nodes=10 --ntasks=10 --ntasks-per-node=1 --cpus-per-task=1 \
+    --kill-on-bad-exit=1 \
+    --output="$HOST_CONTROL_ROOT/preflight-%t.out" \
+    --error="$HOST_CONTROL_ROOT/preflight-%t.err" \
+    "${container_args[@]}" \
+    bash -lc "
+        set -euo pipefail
+        test -d /workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5
+        test -d '$E1_OUTPUT_ROOT'
+        test ! -e '$E4_OUTPUT_ROOT'
+        PY=/root/miniconda3/envs/nv-raw2insights-mri/bin/python
+        \"\$PY\" -c 'import h5py, scipy, torch; from monai.data.fft_utils import ifftn_centered; print("PYXIS_PREFLIGHT_OK")'
+        printf 'NODE_PREFLIGHT_OK host=%s rank=%s\n' \"\$(hostname)\" \"\${SLURM_PROCID}\"
+    "
 
 srun --nodes=1 --ntasks=1 --cpus-per-task=1 \
     "${container_args[@]}" \
