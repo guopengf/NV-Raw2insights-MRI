@@ -1,16 +1,19 @@
 #!/bin/bash
 #SBATCH --account=healthcareeng_monai
 #SBATCH --partition=cpu_short
-#SBATCH --nodes=10
-#SBATCH --ntasks=10
+#SBATCH --nodes=2
+#SBATCH --ntasks=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
 #SBATCH --exclude=cpu1-00012
 #SBATCH --time=04:00:00
-#SBATCH --job-name=build-windowed4d-e1-10n
-#SBATCH --output=/home/pengfeig/workspace/slurm-logs-agent/%j-build-windowed4d-e1-10n.out
+#SBATCH --job-name=build-windowed4d-e1-2n
+#SBATCH --output=/home/pengfeig/workspace/slurm-logs-agent/%j-build-windowed4d-e1-2n.out
 
 set -euo pipefail
+
+NODE_COUNT=${SLURM_NNODES}
+test "$NODE_COUNT" -ge 1
 
 IMAGE=/home/pengfeig/workspace/cache/conda_raw2insights.sqsh
 USER_ROOT=/lustre/fsw/portfolios/healthcareeng/users/pengfeig
@@ -34,7 +37,7 @@ container_args=(
     --container-remap-root
 )
 
-srun --nodes=10 --ntasks=10 --ntasks-per-node=1 --cpus-per-task=1 \
+srun --nodes="$NODE_COUNT" --ntasks="$NODE_COUNT" --ntasks-per-node=1 --cpus-per-task=1 \
     --kill-on-bad-exit=1 \
     --output="$HOST_CONTROL_ROOT/preflight-%t.out" \
     --error="$HOST_CONTROL_ROOT/preflight-%t.err" \
@@ -61,12 +64,12 @@ srun --nodes=1 --ntasks=1 --cpus-per-task=1 \
             --config configs/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json \
             --e1-output-root '$E1_OUTPUT_ROOT' \
             --plan-out '$PLAN' \
-            --num-shards 10 \
+            --num-shards '$NODE_COUNT' \
             --expected-patients 138 \
             --forbid-path '$E4_OUTPUT_ROOT'
     "
 
-srun --nodes=10 --ntasks=10 --ntasks-per-node=1 --cpus-per-task=32 \
+srun --nodes="$NODE_COUNT" --ntasks="$NODE_COUNT" --ntasks-per-node=1 --cpus-per-task=32 \
     --kill-on-bad-exit=1 \
     --output="$HOST_CONTROL_ROOT/shard-%t.out" \
     --error="$HOST_CONTROL_ROOT/shard-%t.err" \
