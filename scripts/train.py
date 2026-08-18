@@ -95,6 +95,15 @@ def cfg_get(obj, path, default=None):
     return cur
 
 
+def resolve_training_loss_flags(args, joint_spec):
+    """Resolve independently configured losses that can accompany joint supervision."""
+    return {
+        "main_zy": bool(cfg_get(args, "phase3.loss.use_ssim_zy", True)) and not joint_spec.enabled,
+        "phase": bool(cfg_get(args, "phase3.loss.use_phase", False)),
+        "vascular": bool(cfg_get(args, "phase3.loss.use_vascular", False)) and not joint_spec.enabled,
+    }
+
+
 def group_4dflow_manifests_by_target(manifest_paths):
     """Group acceleration manifests that share one fully sampled target."""
     grouped = {}
@@ -391,7 +400,7 @@ def trainer(args):
         if args.ddp:
             dist.barrier(device_ids=[local_rank])
         train_files = sorted(train_manifest_dir.glob("*.json"))
-        val_files = sorted(val_manifest_dir.glob("*.json"))[:16]
+        val_files = sorted(val_manifest_dir.glob("*.json"))[:80]
         print(f"we only use 160 validation files for debugging!!!")
     else:
         train_files = [file for path_str in args.data_path_train for file in Path(path_str).iterdir()]
@@ -661,9 +670,10 @@ def trainer(args):
         encoding_count=joint_spec.count,
         eps=float(cfg_get(joint_loss_cfg, "eps", 1e-8)),
     ).to(device)
-    use_main_zy_loss = bool(cfg_get(args, "phase3.loss.use_ssim_zy", True)) and not joint_spec.enabled
-    use_phase_loss = bool(cfg_get(args, "phase3.loss.use_phase", False)) and not joint_spec.enabled
-    use_vascular_loss = bool(cfg_get(args, "phase3.loss.use_vascular", False)) and not joint_spec.enabled
+    loss_flags = resolve_training_loss_flags(args, joint_spec)
+    use_main_zy_loss = loss_flags["main_zy"]
+    use_phase_loss = loss_flags["phase"]
+    use_vascular_loss = loss_flags["vascular"]
     recon_slab = is_slab_recon(args)
     recon_num_slices = slab_num_slices(args)
     if not (joint_spec.enabled or use_main_zy_loss or use_phase_loss or use_vascular_loss):
@@ -1203,11 +1213,12 @@ def trainer(args):
                             if prewindowed_4dflow and case_joint_mask is not None
                             else select_joint_mask_slab(case_joint_mask, micro_b, final_shape, recon_num_slices)
                         )
-                        loss, joint_components = joint_loss_function(joint_output, joint_target, joint_mask)
+                        joint_loss, joint_components = joint_loss_function(joint_output, joint_target, joint_mask)
+                        loss = loss + joint_loss
                         raw_loss_log.update(
                             {f"joint_{name}": value.detach() for name, value in joint_components.items()}
                         )
-                        weighted_loss_log["joint_loss_weighted"] = loss.detach()
+                        weighted_loss_log["joint_loss_weighted"] = joint_loss.detach()
                 stop_phase_timing(
                     step_timings,
                     "loss_ms",

@@ -949,13 +949,24 @@ def get_optimizer(args, model):
             "dc_weight",
             "feat_extract",
         ]
+
+        def use_adam(name, parameter):
+            return (
+                parameter.ndim < 2
+                or any(pattern in name for pattern in excluded_patterns)
+                or (
+                    "flowvn_mixer.regularizers." in name
+                    and name.endswith(".weight")
+                )
+            )
+
         muon_params = [
             p
             for n, p in model.named_parameters()
-            if p.ndim >= 2 and not any(exclude in n for exclude in excluded_patterns)
+            if not use_adam(n, p)
         ]
         adam_params = [
-            p for n, p in model.named_parameters() if p.ndim < 2 or any(include in n for include in excluded_patterns)
+            p for n, p in model.named_parameters() if use_adam(n, p)
         ]
         param_groups = [
             dict(

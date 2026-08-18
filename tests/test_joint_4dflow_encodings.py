@@ -24,14 +24,17 @@ from joint_encoding import (
     restore_joint_model_batch,
 )
 from inference import prepare_joint_encoding_output_for_save
+from models.flowvn_mixer import FlowVNMultiPlaneMixer
 from models.restormer.restormer import restormer_mri
 from readers import CMRxReconReader
 from train import (
     build_4dflow_aorta_manifests,
     group_4dflow_manifests_by_target,
     partition_4dflow_target_groups,
+    resolve_training_loss_flags,
 )
 from transforms import raw_4dflow_to_hybrid, raw_4dflow_to_joint_hybrid
+from train_utils import get_optimizer
 from utils import TargetGroupedSampler, load_config, load_shape_compatible_state_dict
 
 
@@ -90,6 +93,9 @@ def test_joint_loss_is_zero_for_identity_and_has_finite_gradients():
     identity_loss, components = loss_fn(pred, target, mask)
     assert identity_loss.abs().item() < 1e-6
     assert all(value.abs().item() < 1e-6 for value in components.values())
+    identity_loss.backward()
+    assert pred.grad is not None
+    assert torch.isfinite(pred.grad).all()
 
     perturbed = target.clone()
     perturbed[:, 2, ..., 0] += 0.2
@@ -100,6 +106,99 @@ def test_joint_loss_is_zero_for_identity_and_has_finite_gradients():
     loss.backward()
     assert perturbed.grad is not None
     assert torch.isfinite(perturbed.grad).all()
+
+
+def test_joint_loss_empty_mask_is_zero_with_finite_gradients():
+    torch.manual_seed(11)
+    target = torch.randn(2, 4, 3, 1, 6, 8, 2)
+    pred = torch.randn_like(target, requires_grad=True)
+    mask = torch.zeros(2, 3, 6, 8)
+
+    loss, components = JointEncodingLoss(encoding_count=4)(pred, target, mask)
+
+    assert loss.abs().item() < 1e-6
+    assert all(value.abs().item() < 1e-6 for value in components.values())
+    loss.backward()
+    assert pred.grad is not None
+    assert torch.isfinite(pred.grad).all()
+    assert torch.count_nonzero(pred.grad) == 0
+
+
+def test_joint_loss_zero_signal_has_finite_gradients():
+    target = torch.zeros(2, 4, 3, 1, 6, 8, 2)
+    pred = torch.zeros_like(target, requires_grad=True)
+    mask = torch.ones(2, 3, 6, 8)
+
+    loss, components = JointEncodingLoss(encoding_count=4)(pred, target, mask)
+
+    assert loss.abs().item() < 1e-6
+    assert all(torch.isfinite(value) for value in components.values())
+    loss.backward()
+    assert pred.grad is not None
+    assert torch.isfinite(pred.grad).all()
+
+
+def test_joint_configs_keep_global_flowvn_complex_loss_enabled():
+    config_names = (
+        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
+        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
+    )
+    for config_name in config_names:
+        config = load_config(REPO_ROOT / "configs" / config_name)
+        spec = joint_encoding_spec(config)
+        flags = resolve_training_loss_flags(config, spec)
+
+        assert spec.enabled is True
+        assert config.phase3.loss.phase.method == "flowvn_complex_l1"
+        assert config.phase3.loss.phase.weight > 0
+        assert flags == {"main_zy": False, "phase": True, "vascular": False}
+
+
+def test_non_joint_loss_flags_remain_config_driven():
+    args = SimpleNamespace(
+        phase3=SimpleNamespace(
+            loss=SimpleNamespace(use_ssim_zy=True, use_phase=True, use_vascular=True),
+        ),
+    )
+    spec = SimpleNamespace(enabled=False)
+
+    assert resolve_training_loss_flags(args, spec) == {
+        "main_zy": True,
+        "phase": True,
+        "vascular": True,
+    }
+
+
+def test_flowvn_conv3d_kernels_use_adam_with_muon_optimizer():
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.flowvn_mixer = FlowVNMultiPlaneMixer(features=2, num_knots=5)
+            self.hidden = torch.nn.Linear(4, 4, bias=False)
+
+    model = Model()
+    args = SimpleNamespace(muon=True, lookahead=False, lr=1e-3, weight_decay=0.0)
+    optimizer = get_optimizer(args, model)
+    muon_ids = {
+        id(parameter)
+        for group in optimizer.param_groups
+        if group["use_muon"]
+        for parameter in group["params"]
+    }
+    adam_ids = {
+        id(parameter)
+        for group in optimizer.param_groups
+        if not group["use_muon"]
+        for parameter in group["params"]
+    }
+    flowvn_kernel_ids = {
+        id(regularizer.weight)
+        for regularizer in model.flowvn_mixer.regularizers.values()
+    }
+
+    assert flowvn_kernel_ids <= adam_ids
+    assert flowvn_kernel_ids.isdisjoint(muon_ids)
+    assert id(model.hidden.weight) in muon_ids
 
 
 def test_grouped_manifest_has_one_json_per_case_acceleration(tmp_path):
@@ -230,10 +329,14 @@ def test_non_joint_reader_slices_one_encoding_without_target_cache(tmp_path):
 
 
 def _small_joint_config(mode: str):
+    config_names = {
+        "batch": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
+        "channel": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
+    }
     config = load_config(
         REPO_ROOT
         / "configs"
-        / f"nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_{mode}_pg.json"
+        / config_names[mode]
     )
     config.num_frames = 3
     config.channels = [8, 16]
@@ -306,16 +409,20 @@ def test_batch_and_channel_models_preserve_shape_and_channel_bootstrap_equivalen
 
 
 def test_joint_configs_keep_fixed_training_cardinality():
-    for mode in ("batch", "channel"):
+    config_names = {
+        "batch": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
+        "channel": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
+    }
+    for mode, config_name in config_names.items():
         config_path = (
             REPO_ROOT
             / "configs"
-            / f"nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_{mode}_pg.json"
+            / config_name
         )
         payload = json.loads(config_path.read_text())
         assert payload["batch_size"] == 8
         assert payload["num_samples_per_case"] == 8
-        assert payload["train_num_workers"] == 1
+        assert payload["train_num_workers"] == 4
         assert payload["val_num_workers"] == 0
         assert payload["group_accelerations_by_target"] is True
         assert payload["reader_target_cache_entries"] == 1
@@ -338,6 +445,11 @@ def run_directly():
         test_joint_slab_window_uses_identical_indices_for_every_encoding,
         test_joint_hybrid_matches_stacked_single_encoding_conversion,
         test_joint_loss_is_zero_for_identity_and_has_finite_gradients,
+        test_joint_loss_empty_mask_is_zero_with_finite_gradients,
+        test_joint_loss_zero_signal_has_finite_gradients,
+        test_joint_configs_keep_global_flowvn_complex_loss_enabled,
+        test_non_joint_loss_flags_remain_config_driven,
+        test_flowvn_conv3d_kernels_use_adam_with_muon_optimizer,
         test_target_grouped_sampler_shuffles_groups_without_splitting_them,
         test_reader_target_lru_reuses_one_full_array_per_worker,
         test_batch_and_channel_models_preserve_shape_and_channel_bootstrap_equivalence,

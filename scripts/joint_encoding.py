@@ -181,8 +181,11 @@ class JointEncodingLoss(nn.Module):
         pred_speed = torch.linalg.vector_norm(pred_flow, dim=1)
         target_speed = torch.linalg.vector_norm(target_flow, dim=1)
         speed_error = (pred_speed - target_speed).square()
-        speed_denominator = self._masked_mean(target_speed.square(), mask).clamp_min(self.eps)
-        speed_loss = torch.sqrt(self._masked_mean(speed_error, mask) / speed_denominator)
+        speed_mse = self._masked_mean(speed_error, mask)
+        speed_reference_energy = self._masked_mean(target_speed.square(), mask)
+        speed_loss = (
+            torch.sqrt(speed_mse + self.eps) - self.eps**0.5
+        ) / torch.sqrt(speed_reference_energy + self.eps)
 
         dot = torch.sum(pred_flow * target_flow, dim=1)
         norms = pred_speed * target_speed
