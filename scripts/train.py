@@ -391,7 +391,7 @@ def trainer(args):
         if args.ddp:
             dist.barrier(device_ids=[local_rank])
         train_files = sorted(train_manifest_dir.glob("*.json"))
-        val_files = sorted(val_manifest_dir.glob("*.json"))[:160]
+        val_files = sorted(val_manifest_dir.glob("*.json"))[:16]
         print(f"we only use 160 validation files for debugging!!!")
     else:
         train_files = [file for path_str in args.data_path_train for file in Path(path_str).iterdir()]

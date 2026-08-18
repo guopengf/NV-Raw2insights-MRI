@@ -8,7 +8,7 @@
     ],
     "pretrained_csm": null,
     "pretrained_recon": null,
-    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase4/small_ft_4dflow_encbatch_phase4_3d_flowvn_multiplane/nv_raw2insights_mri_small_ft_4dflow_phase4_3d_flowvn_multiplane_epoch200.pt",
+    "resume_ckpt": "outputs/4dflow/4dflow_finetune_phase4/small_ft_4dflow_encbatch_phase4_3d_flowvn_multiplane/nv_raw2insights_mri_small_ft_4dflow_phase4_3d_flowvn_multiplane_epoch300.pt",
     "resume_weights_only": true,
     "pp_z_score_norm": false,
     "fixed_mask_types": [
@@ -37,8 +37,8 @@
     "acs_lines": 20,
     "pp_norm": false,
     "batch_size": 8,
-    "num_workers": 1,
-    "train_num_workers": 1,
+    "num_workers": 8,
+    "train_num_workers": 8,
     "val_num_workers": 0,
     "train_prefetch_factor": 1,
     "val_prefetch_factor": 1,
@@ -107,7 +107,7 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 320,
+    "num_epochs": 100,
     "exp_dir": "outputs/4dflow/4dflow_joint_encoding/",
     "exp": "small_ft_4dflow_joint_batch_3d_flowvn_multiplane_windowed_h5",
     "lr": 1e-05,
@@ -117,7 +117,7 @@
     "dataset": "CMRxRecon",
     "warmup_epochs": 1,
     "lr_schedule": "cosine",
-    "min_lr": 7.5e-06,
+    "min_lr": 2.0e-06,
     "model_filename": "nv_raw2insights_mri_small_ft_4dflow_joint_batch_3d_flowvn_multiplane_windowed_h5.pt",
     "use_csm": true,
     "use_tau_csm": false,
