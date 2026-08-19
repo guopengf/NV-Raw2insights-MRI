@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=raw2ins_joint_ep100_full
-#SBATCH --array=0-5%2
+#SBATCH --array=0-5%6
 #SBATCH --nodes=1
 #SBATCH -A healthcareeng_monai
-#SBATCH --partition=batch
+#SBATCH --partition=interactive,batch
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=8
 #SBATCH --time=04:00:00
@@ -49,5 +49,5 @@ python scripts/tools/run_4dflow_challenge_submission.py run-shard \
     --expected-wandb-run-id kqi05x9h \
     --nproc 8 \
     --batch-size 4 \
-    --num-workers 0
+    --num-workers 4
 INNER

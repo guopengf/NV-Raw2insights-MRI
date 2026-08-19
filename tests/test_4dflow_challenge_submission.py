@@ -28,17 +28,26 @@ class ChallengeSubmissionTest(unittest.TestCase):
         self.assertIn("    --batch-size 4 \\", text)
         self.assertIn("    --num-workers 0", text)
 
-    def test_full_and_recovery_launchers_use_memory_safe_inference_settings(self):
+    def test_full_launcher_uses_approved_scheduler_and_loader_settings(self):
         root = Path(__file__).resolve().parents[1]
-        for name in (
-            "run_raw2ins_4dflow_joint_epoch100_challenge_full.slurm",
-            "run_raw2ins_4dflow_joint_epoch100_challenge_recover.slurm",
-        ):
-            text = (root / name).read_text()
-            self.assertNotIn("#SBATCH --exclusive", text)
-            self.assertNotIn("#SBATCH --cpus-per-task", text)
-            self.assertIn("    --batch-size 4 \\", text)
-            self.assertIn("    --num-workers 0", text)
+        text = (root / "run_raw2ins_4dflow_joint_epoch100_challenge_full.slurm").read_text()
+        self.assertIn("#SBATCH --array=0-5%6", text)
+        self.assertIn("#SBATCH --partition=interactive,batch", text)
+        self.assertIn("#SBATCH --gpus-per-node=8", text)
+        self.assertNotIn("#SBATCH --exclusive", text)
+        self.assertNotIn("#SBATCH --cpus-per-task", text)
+        self.assertIn("    --nproc 8 \\", text)
+        self.assertIn("    --batch-size 4 \\", text)
+        self.assertIn("    --num-workers 4", text)
+
+    def test_recovery_launcher_keeps_single_process_settings(self):
+        root = Path(__file__).resolve().parents[1]
+        text = (root / "run_raw2ins_4dflow_joint_epoch100_challenge_recover.slurm").read_text()
+        self.assertNotIn("#SBATCH --exclusive", text)
+        self.assertNotIn("#SBATCH --cpus-per-task", text)
+        self.assertIn("    --nproc 1 \\", text)
+        self.assertIn("    --batch-size 4 \\", text)
+        self.assertIn("    --num-workers 0", text)
 
     def test_shard_inventory_matches_validation_contract(self):
         self.assertEqual(sum(spec["full_cases"] for spec in submission.SHARDS.values()), 112)
