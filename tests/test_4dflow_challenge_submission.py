@@ -21,7 +21,8 @@ class ChallengeSubmissionTest(unittest.TestCase):
         text = launcher.read_text()
         self.assertIn("#SBATCH --array=0-5%6", text)
         self.assertIn("#SBATCH --partition=batch,batch_short,interactive", text)
-        self.assertIn("#SBATCH --exclusive", text)
+        self.assertNotIn("#SBATCH --exclusive", text)
+        self.assertNotIn("#SBATCH --cpus-per-task", text)
         self.assertIn("#SBATCH --gpus-per-node=1", text)
         self.assertIn("    --nproc 1 \\", text)
         self.assertIn("    --batch-size 4 \\", text)
@@ -34,7 +35,8 @@ class ChallengeSubmissionTest(unittest.TestCase):
             "run_raw2ins_4dflow_joint_epoch100_challenge_recover.slurm",
         ):
             text = (root / name).read_text()
-            self.assertIn("#SBATCH --exclusive", text)
+            self.assertNotIn("#SBATCH --exclusive", text)
+            self.assertNotIn("#SBATCH --cpus-per-task", text)
             self.assertIn("    --batch-size 4 \\", text)
             self.assertIn("    --num-workers 0", text)
 

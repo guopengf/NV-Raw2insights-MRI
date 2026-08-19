@@ -4,10 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH -A healthcareeng_monai
 #SBATCH --partition=batch
-#SBATCH --exclusive
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=8
-#SBATCH --cpus-per-task=96
 #SBATCH --time=04:00:00
 #SBATCH --output=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork/logs/%A_%a-raw2ins-joint-ep100-full.out
 
