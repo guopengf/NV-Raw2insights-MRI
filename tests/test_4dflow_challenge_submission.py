@@ -13,6 +13,18 @@ from scripts.tools import run_4dflow_challenge_submission as submission
 
 
 class ChallengeSubmissionTest(unittest.TestCase):
+    def test_smoke_launcher_matches_one_case_per_shard(self):
+        launcher = (
+            Path(__file__).resolve().parents[1]
+            / "run_raw2ins_4dflow_joint_epoch100_challenge_smoke.slurm"
+        )
+        text = launcher.read_text()
+        self.assertIn("#SBATCH --array=0-5%6", text)
+        self.assertIn("#SBATCH --partition=batch,batch_short,interactive", text)
+        self.assertIn("#SBATCH --gpus-per-node=1", text)
+        self.assertIn("    --nproc 1 \\", text)
+        self.assertIn("    --num-workers 4", text)
+
     def test_shard_inventory_matches_validation_contract(self):
         self.assertEqual(sum(spec["full_cases"] for spec in submission.SHARDS.values()), 112)
         task_counts = {}

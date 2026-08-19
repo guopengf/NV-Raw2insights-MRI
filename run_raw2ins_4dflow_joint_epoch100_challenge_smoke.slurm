@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=raw2ins_joint_ep100_smoke
-#SBATCH --array=0-5%2
+#SBATCH --array=0-5%6
 #SBATCH --nodes=1
 #SBATCH -A healthcareeng_monai
-#SBATCH --partition=batch_short
+#SBATCH --partition=batch,batch_short,interactive
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-node=4
-#SBATCH --cpus-per-task=48
+#SBATCH --gpus-per-node=1
+#SBATCH --cpus-per-task=16
 #SBATCH --time=02:00:00
 #SBATCH --output=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork/logs/%A_%a-raw2ins-joint-ep100-smoke.out
 
@@ -48,6 +48,6 @@ python scripts/tools/run_4dflow_challenge_submission.py run-shard \
     --expected-epoch 100 \
     --expected-global-step 17606 \
     --expected-wandb-run-id kqi05x9h \
-    --nproc 4 \
+    --nproc 1 \
     --num-workers 4
 INNER
