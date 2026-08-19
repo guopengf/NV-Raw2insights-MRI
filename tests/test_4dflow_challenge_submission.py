@@ -19,6 +19,62 @@ class ChallengeSubmissionTest(unittest.TestCase):
         for spec in submission.SHARDS.values():
             task_counts[spec["task"]] = task_counts.get(spec["task"], 0) + spec["full_cases"]
         self.assertEqual(task_counts, {"TaskR1R2": 32, "TaskS1": 40, "TaskS2": 40})
+        self.assertEqual(
+            {spec["smoke_acceleration"] for spec in submission.SHARDS.values()},
+            {10, 20, 30, 40, 50},
+        )
+
+    def test_joint_manifest_has_one_input_and_four_reconstructions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record = {
+                "anatomy": "Aorta",
+                "center": "Center001",
+                "scanner": "Scanner",
+                "patient": "P001",
+                "acceleration": 20,
+                "kspace": "/data/kdata_ktGaussian20.mat",
+                "mask": "/data/usmask_ktGaussian20.mat",
+                "coilmap": "/data/coilmap.mat",
+                "segmask": "/data/segmask.mat",
+            }
+            inputs, reconstructions = submission.build_inference_manifest(
+                [record], root / "jsons", "TaskR1R2", [0, 1, 2, 3]
+            )
+            self.assertEqual(len(inputs), 1)
+            self.assertEqual(len(reconstructions), 4)
+            payload = json.loads(Path(inputs[0]["json"]).read_text())
+            self.assertTrue(payload["joint_encodings"])
+            self.assertEqual(payload["encoding_indices"], [0, 1, 2, 3])
+            self.assertNotIn("encoding_idx", payload)
+            self.assertEqual(
+                [item["stem"].rsplit("__", 1)[-1] for item in reconstructions],
+                ["enc0", "enc1", "enc2", "enc3"],
+            )
+
+    def test_joint_config_and_effective_worker_override(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.json"
+            effective = root / "effective.json"
+            source.write_text(
+                json.dumps(
+                    {
+                        "num_workers": 8,
+                        "phase3": {
+                            "joint_encoding": {
+                                "enabled": True,
+                                "mode": "batch",
+                                "count": 4,
+                                "order": [0, 1, 2, 3],
+                            }
+                        },
+                    }
+                )
+            )
+            self.assertEqual(submission.joint_encoding_order(source), [0, 1, 2, 3])
+            submission.write_effective_config(source, effective, 4)
+            self.assertEqual(json.loads(effective.read_text())["num_workers"], 4)
 
     def test_package_shards_validates_and_writes_expected_archives(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -77,7 +133,11 @@ class ChallengeSubmissionTest(unittest.TestCase):
 
             with contextlib.redirect_stdout(io.StringIO()):
                 submission.package_shards(
-                    argparse.Namespace(run_root=run_root, artifact_tag="epoch300")
+                    argparse.Namespace(
+                        run_root=run_root,
+                        artifact_tag="small_joint_epoch100",
+                        skip_combined_zip=True,
+                    )
                 )
 
             artifact_manifest = json.loads(
@@ -88,10 +148,9 @@ class ChallengeSubmissionTest(unittest.TestCase):
                 artifact_manifest["task_counts"],
                 {"TaskR1R2": 32, "TaskS1": 40, "TaskS2": 40},
             )
-            self.assertEqual(len(artifact_manifest["zip_artifacts"]), 4)
-            with zipfile.ZipFile(run_root / "artifacts" / "Submission.zip") as archive:
-                self.assertEqual(len(archive.namelist()), 112)
-                self.assertIsNone(archive.testzip())
+            self.assertEqual(len(artifact_manifest["zip_artifacts"]), 3)
+            self.assertFalse(artifact_manifest["combined_zip_included"])
+            self.assertFalse((run_root / "artifacts" / "Submission.zip").exists())
 
     def test_package_shards_rejects_unsafe_artifact_tag(self):
         with self.assertRaises(ValueError):
