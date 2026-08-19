@@ -54,7 +54,11 @@ class ChallengeSubmissionTest(unittest.TestCase):
         self.assertNotIn("#SBATCH --cpus-per-task", text)
         self.assertIn("    --nproc 1 \\", text)
         self.assertIn("    --batch-size 4 \\", text)
-        self.assertIn("    --num-workers 0", text)
+        self.assertIn("    --num-workers 0 \\", text)
+        self.assertIn(
+            "    --data-base /data/CMRx4DFlow2026-ChallengeData \\", text
+        )
+        self.assertIn("    --skip-preflight", text)
 
     def test_shard_inventory_matches_validation_contract(self):
         self.assertEqual(sum(spec["full_cases"] for spec in submission.SHARDS.values()), 112)

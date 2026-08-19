@@ -46,16 +46,63 @@ def verify_frozen_provenance(orchestrator, preflight: dict) -> dict:
     return provenance
 
 
-def recover(args: argparse.Namespace) -> None:
-    started = time.time()
-    orchestrator = load_orchestrator()
-    spec = orchestrator.SHARDS[args.shard_index]
-    run_root = args.run_root.resolve()
+def completed_shard_provenance(
+    orchestrator, run_root: Path, failed_index: int
+) -> dict:
+    summaries = []
+    for shard_index, shard_spec in orchestrator.SHARDS.items():
+        if shard_index == failed_index:
+            continue
+        summary_path = (
+            run_root / "work" / shard_spec["work_name"] / "shard_summary.json"
+        )
+        if not summary_path.is_file():
+            raise FileNotFoundError(
+                f"Missing completed peer shard summary: {summary_path}"
+            )
+        summary = json.loads(summary_path.read_text())
+        if summary.get("status") != "complete" or summary.get("mode") != "full":
+            raise RuntimeError(f"Invalid completed peer shard summary: {summary_path}")
+        summaries.append((summary_path, summary["provenance"]))
+
+    reference_path, reference = summaries[0]
+    for summary_path, provenance in summaries[1:]:
+        if provenance != reference:
+            raise RuntimeError(
+                "Completed peer shard provenance mismatch: "
+                f"reference={reference_path}, mismatch={summary_path}"
+            )
+    return reference
+
+
+def recovery_provenance(
+    orchestrator, args: argparse.Namespace, run_root: Path
+) -> tuple[dict, Path]:
+    if args.skip_preflight:
+        if args.data_base is None:
+            raise ValueError("--data-base is required with --skip-preflight")
+        provenance = completed_shard_provenance(
+            orchestrator, run_root, args.shard_index
+        )
+        verified = verify_frozen_provenance(
+            orchestrator, {"provenance": provenance}
+        )
+        return verified, args.data_base.resolve()
+
     preflight_path = run_root / "preflight.json"
     preflight = json.loads(preflight_path.read_text())
     if preflight.get("status") != "complete" or preflight.get("case_count") != 112:
         raise RuntimeError(f"Invalid preflight report: {preflight_path}")
     provenance = verify_frozen_provenance(orchestrator, preflight)
+    return provenance, Path(preflight["data_base"])
+
+
+def recover(args: argparse.Namespace) -> None:
+    started = time.time()
+    orchestrator = load_orchestrator()
+    spec = orchestrator.SHARDS[args.shard_index]
+    run_root = args.run_root.resolve()
+    provenance, data_base = recovery_provenance(orchestrator, args, run_root)
 
     task_root = run_root / "work" / spec["work_name"]
     summary_path = task_root / "shard_summary.json"
@@ -193,12 +240,7 @@ def recover(args: argparse.Namespace) -> None:
     reconstructions = orchestrator.organize_reconstructions(
         reconstruction_manifest, temporary_root, final_root
     )
-    split_root = (
-        Path(preflight["data_base"])
-        / spec["family"]
-        / spec["task"]
-        / "ValidationSet"
-    )
+    split_root = data_base / spec["family"] / spec["task"] / "ValidationSet"
     submission_files = orchestrator.export_submission(
         records,
         final_root,
@@ -263,14 +305,16 @@ def recover(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Recover a failed joint epoch-100 challenge shard from existing MAT outputs."
+        description="Recover a failed 4D-flow challenge shard from existing MAT outputs."
     )
     parser.add_argument("--shard-index", type=int, choices=RECOVERABLE_SHARDS, required=True)
     parser.add_argument("--run-root", type=Path, required=True)
+    parser.add_argument("--data-base", type=Path)
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--nproc", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--skip-preflight", action="store_true")
     return parser.parse_args()
 
 

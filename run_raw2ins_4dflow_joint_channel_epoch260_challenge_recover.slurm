@@ -36,7 +36,9 @@ cd "$GIT_WORK_TREE"
 python scripts/tools/recover_4dflow_challenge_shard.py \
     --shard-index "${SLURM_ARRAY_TASK_ID}" \
     --run-root "/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/challenge_submission_joint_channel_epoch260_3d_flowvn_multiplane/runs/${RUN_NAME}" \
+    --data-base /data/CMRx4DFlow2026-ChallengeData \
     --batch-size 4 \
     --nproc 1 \
-    --num-workers 0
+    --num-workers 0 \
+    --skip-preflight
 INNER
