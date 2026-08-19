@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=raw2ins_joint_ep100_smoke
+#SBATCH --job-name=raw2ins_joint_ch260_smoke
 #SBATCH --array=0-5%6
 #SBATCH --nodes=1
 #SBATCH -A healthcareeng_monai
@@ -7,7 +7,7 @@
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --time=02:00:00
-#SBATCH --output=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork/logs/%A_%a-raw2ins-joint-ep100-smoke.out
+#SBATCH --output=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork/logs/%A_%a-raw2ins-joint-ch260-smoke.out
 
 set -euo pipefail
 : "${RUN_NAME:?Submit with --export=ALL,RUN_NAME=<unique-smoke-run-name>}"
@@ -29,24 +29,24 @@ set +u
 source ~/.bashrc
 set -u
 conda activate nv-raw2insights-mri
-export GIT_DIR=/workspace/code/NV-Raw2insights-MRI-fork/.git/worktrees/NV-Raw2insights-MRI-fork-joint-epoch100-inference
-export GIT_WORK_TREE=/workspace/code/NV-Raw2insights-MRI-fork-joint-epoch100-inference
+export GIT_DIR=/workspace/code/NV-Raw2insights-MRI-fork/.git/worktrees/NV-Raw2insights-MRI-fork-joint-channel-epoch260-inference
+export GIT_WORK_TREE=/workspace/code/NV-Raw2insights-MRI-fork-joint-channel-epoch260-inference
 cd "$GIT_WORK_TREE"
 
 python scripts/tools/run_4dflow_challenge_submission.py run-shard \
     --shard-index "${SLURM_ARRAY_TASK_ID}" \
     --mode smoke \
     --data-base /data/CMRx4DFlow2026-ChallengeData \
-    --config configs/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json \
-    --checkpoint /workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/4dflow_joint_encoding/small_ft_4dflow_joint_batch_3d_flowvn_multiplane_windowed_h5/nv_raw2insights_mri_small_ft_4dflow_joint_batch_3d_flowvn_multiplane_windowed_h5_epoch100.pt \
-    --output-root "/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/challenge_submission_joint_epoch100_3d_flowvn_multiplane/runs/${RUN_NAME}" \
-    --expected-checkpoint-sha256 65af7ea1d0004afa4f15fac0ceb4c1ab6a53984c40fa1fe4581d059db8a6365d \
-    --expected-config-sha256 dbb324f41b3c9fafa5728a9f40d727a68cb6c596f8264719fea70ecadeb9cbb2 \
+    --config configs/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json \
+    --checkpoint /workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/4dflow_joint_encoding/small_ft_4dflow_joint_channel_3d_flowvn_multiplane/nv_raw2insights_mri_small_ft_4dflow_joint_channel_3d_flowvn_multiplane_epoch260.pt \
+    --output-root "/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/challenge_submission_joint_channel_epoch260_3d_flowvn_multiplane/runs/${RUN_NAME}" \
+    --expected-checkpoint-sha256 154ffdd3ea68512d699ce7d65448122fdc6fa7ecff8f050bcd7a6301359f3817 \
+    --expected-config-sha256 5d784d2d07f10da41c7b0465f034449c061a61b26446789cdf966d1ebab9280e \
     --expected-inference-sha256 aa6fbbf3a10dc8ec01123c7dd5414812126f67486dea787e93c4b2a3a345b210 \
     --expected-exporter-sha256 45b140e492f45a24dbf972b7f44d3bb15b89be883bcd133f5b481d5da8dec06b \
-    --expected-epoch 100 \
-    --expected-global-step 17606 \
-    --expected-wandb-run-id kqi05x9h \
+    --expected-epoch 260 \
+    --expected-global-step 45941 \
+    --expected-wandb-run-id v9yybr91 \
     --nproc 1 \
     --batch-size 4 \
     --num-workers 0

@@ -27,9 +27,9 @@ from path_safety import assert_outputs_not_in_data
 
 ENCODINGS = [0, 1, 2, 3]
 ACCEL_RE = re.compile(r"^kdata_ktGaussian(?P<acc>\d+)\.mat$")
-EXPECTED_CHECKPOINT_SHA256 = "e1604419858be0592059458e2cdb186e101f02baf362457d847e6fd642a8dec8"
-EXPECTED_CONFIG_SHA256 = "2f7936aac4e2d43a4b86795ad0cf22099fc38ef70bfc55ddf728de475aa22df2"
-EXPECTED_INFERENCE_SHA256 = "3f5d291abcbea649de8b4f5fa6b7b850424738b7cd19d29f7aad0bf4410e67f7"
+EXPECTED_CHECKPOINT_SHA256 = "154ffdd3ea68512d699ce7d65448122fdc6fa7ecff8f050bcd7a6301359f3817"
+EXPECTED_CONFIG_SHA256 = "5d784d2d07f10da41c7b0465f034449c061a61b26446789cdf966d1ebab9280e"
+EXPECTED_INFERENCE_SHA256 = "aa6fbbf3a10dc8ec01123c7dd5414812126f67486dea787e93c4b2a3a345b210"
 EXPECTED_EXPORTER_SHA256 = "45b140e492f45a24dbf972b7f44d3bb15b89be883bcd133f5b481d5da8dec06b"
 
 TASKS = {
@@ -322,8 +322,8 @@ def joint_encoding_order(config: Path) -> list[int] | None:
     if not bool(joint.get("enabled", False)):
         return None
     mode = str(joint.get("mode", "batch")).lower()
-    if mode != "batch":
-        raise ValueError(f"Challenge inference requires joint batch mode, got {mode!r}")
+    if mode not in {"batch", "channel"}:
+        raise ValueError(f"Challenge inference requires joint batch or channel mode, got {mode!r}")
     count = int(joint.get("count", len(ENCODINGS)))
     order = [int(value) for value in joint.get("order", ENCODINGS)]
     if count != len(ENCODINGS) or order != ENCODINGS:
@@ -850,10 +850,12 @@ def package_shards(args: argparse.Namespace) -> None:
 
     run_root = args.run_root.resolve()
     submission_root = run_root / "submission"
-    preflight_path = run_root / "preflight.json"
-    preflight = json.loads(preflight_path.read_text())
-    if preflight.get("status") != "complete" or preflight.get("case_count") != 112:
-        raise RuntimeError(f"Invalid preflight report: {preflight_path}")
+    preflight = None
+    if not getattr(args, "skip_preflight", False):
+        preflight_path = run_root / "preflight.json"
+        preflight = json.loads(preflight_path.read_text())
+        if preflight.get("status") != "complete" or preflight.get("case_count") != 112:
+            raise RuntimeError(f"Invalid preflight report: {preflight_path}")
 
     expected_paths = set()
     summaries = {}
@@ -877,7 +879,7 @@ def package_shards(args: argparse.Namespace) -> None:
         task_counts[spec["task"]] = task_counts.get(spec["task"], 0) + summary["submission_count"]
         expected_paths.update(submission_root / path for path in summary["expected_submission_relpaths"])
 
-    if reference_provenance != preflight.get("provenance"):
+    if preflight is not None and reference_provenance != preflight.get("provenance"):
         raise RuntimeError("Shard provenance does not match preflight provenance")
     if task_counts != {"TaskR1R2": 32, "TaskS1": 40, "TaskS2": 40}:
         raise RuntimeError(f"Unexpected per-task submission counts: {task_counts}")
@@ -989,6 +991,7 @@ def parse_args() -> argparse.Namespace:
     shard_package_parser = subparsers.add_parser("package-shards")
     shard_package_parser.add_argument("--run-root", type=Path, required=True)
     shard_package_parser.add_argument("--artifact-tag", required=True)
+    shard_package_parser.add_argument("--skip-preflight", action="store_true")
     shard_package_parser.add_argument("--skip-combined-zip", action="store_true")
     shard_package_parser.set_defaults(handler=package_shards)
     return parser.parse_args()
