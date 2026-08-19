@@ -15,6 +15,7 @@ import numpy as np
 import torch
 from monai.data.fft_utils import ifftn_centered
 
+from four_dflow_augmentation import FourDFlowOnlineAugmenter
 from mra_utils import load_vessel_mask_prior, read_mat_array, read_real_mat_array
 from transforms import raw_4dflow_coilmap_to_hybrid, raw_4dflow_to_joint_hybrid
 from utils import complex_zscore, is_slab_recon, slab_num_slices
@@ -740,11 +741,10 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
         self.center_selector = center_selector
         self.handle_capacity = max(1, int(cfg_get(args, "four_dflow_storage.handle_cache_entries", 1)))
         self.rdcc_nbytes = max(0, int(cfg_get(args, "four_dflow_storage.hdf5_chunk_cache_bytes", 256 << 20)))
+        self.augmenter = FourDFlowOnlineAugmenter(args)
         self._handles: OrderedDict[str, h5py.File] = OrderedDict()
         if not bool(getattr(args, "is_4dflow_aorta", False)):
             raise ValueError("windowed_hdf5 is only supported for is_4dflow_aorta=true")
-        if bool(getattr(args, "data_aug", False)):
-            raise ValueError("windowed_hdf5 currently requires data_aug=false")
         if [str(value).lower() for value in getattr(args, "train_mask_types", [])] != ["fixed"]:
             raise ValueError("windowed_hdf5 currently requires train_mask_types=['fixed']")
         if bool(cfg_get(args, "phase3.enable_vaa", False)) or bool(cfg_get(args, "phase3.loss.use_vascular", False)):
@@ -826,35 +826,12 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
         joint = bool(manifest.get("joint_encodings", False))
         encoding_idx = None if joint else int(manifest["encoding_idx"])
 
-        input_started = time.perf_counter()
-        input_hybrid = _read_hybrid_windows(store[f"hybrid/input/{acceleration}"], indices, encoding_idx)
-        input_read_ms = (time.perf_counter() - input_started) * 1000.0
         target_started = time.perf_counter()
         target_hybrid = _read_hybrid_windows(target_dataset, indices, encoding_idx)
         target_read_ms = (time.perf_counter() - target_started) * 1000.0
 
-        ifft_started = time.perf_counter()
-        input_image = ifftn_centered(torch.from_numpy(input_hybrid), spatial_dims=2, is_complex=True)
-        target_image = ifftn_centered(torch.from_numpy(target_hybrid), spatial_dims=2, is_complex=True)
-        ifft_ms = (time.perf_counter() - ifft_started) * 1000.0
-
-        if joint:
-            input_image = input_image.permute(0, 3, 1, 2, 4, 5, 6, 7).contiguous()
-            target_image = target_image.permute(0, 3, 1, 2, 4, 5, 6, 7).contiguous()
-            input_image, mean, std = complex_zscore(input_image, dim=[4, 5, 6])
-        else:
-            input_image = input_image.contiguous()
-            target_image = target_image.contiguous()
-            input_image, mean, std = complex_zscore(input_image, dim=[3, 4, 5])
-
         mask_started = time.perf_counter()
         compact_mask = torch.from_numpy(_read_mask_windows(store[f"mask/{acceleration}"], indices))
-        if joint:
-            mask = compact_mask[:, None, :, :, None, :, :, None].expand(
-                -1, encoding_count, -1, -1, 1, -1, -1, 1
-            )
-        else:
-            mask = compact_mask[:, :, :, None, :, :, None]
         mask_read_ms = (time.perf_counter() - mask_started) * 1000.0
 
         sensitivity = None
@@ -880,7 +857,7 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
                     nested = np.repeat(nested[:, :, :, None], encoding_count, axis=3)
                 elif layout != "encoding":
                     raise ValueError(f"Unknown coilmap layout: {layout}")
-                sensitivity = torch.from_numpy(nested).permute(0, 3, 1, 2, 4, 5, 6, 7).contiguous()
+                sensitivity = torch.from_numpy(nested).contiguous()
             else:
                 if layout == "encoding":
                     nested = nested[:, :, :, encoding_idx]
@@ -888,6 +865,65 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
                     raise ValueError(f"Unknown coilmap layout: {layout}")
                 sensitivity = torch.from_numpy(nested).contiguous()
             coilmap_read_ms = (time.perf_counter() - coil_started) * 1000.0
+
+        joint_segmask = None
+        if "segmask" in store:
+            segmask = store["segmask"]
+            joint_segmask = torch.from_numpy(
+                np.asarray(
+                    [
+                        [segmask[int(indices[n, s, 0, 1])] for s in range(indices.shape[1])]
+                        for n in range(indices.shape[0])
+                    ],
+                    dtype=np.float32,
+                )
+            )
+
+        input_hybrid = None
+        input_read_ms = 0.0
+        if not self.augmenter.enabled:
+            input_started = time.perf_counter()
+            input_hybrid = _read_hybrid_windows(store[f"hybrid/input/{acceleration}"], indices, encoding_idx)
+            input_read_ms = (time.perf_counter() - input_started) * 1000.0
+
+        ifft_started = time.perf_counter()
+        target_image = ifftn_centered(torch.from_numpy(target_hybrid), spatial_dims=2, is_complex=True)
+        augmentation_ms = 0.0
+        augmentation_params = None
+        if self.augmenter.enabled:
+            augmentation_started = time.perf_counter()
+            augmented = self.augmenter(
+                target_image,
+                compact_mask,
+                joint_encodings=joint,
+                sensitivity_maps=sensitivity,
+                segmask=joint_segmask,
+            )
+            input_image = augmented["input_image"]
+            target_image = augmented["target_image"]
+            sensitivity = augmented["sensitivity_maps"]
+            joint_segmask = augmented["segmask"]
+            augmentation_params = augmented["params"]
+            augmentation_ms = (time.perf_counter() - augmentation_started) * 1000.0
+        else:
+            assert input_hybrid is not None
+            input_image = ifftn_centered(torch.from_numpy(input_hybrid), spatial_dims=2, is_complex=True)
+        ifft_ms = (time.perf_counter() - ifft_started) * 1000.0 - augmentation_ms
+
+        if joint:
+            input_image = input_image.permute(0, 3, 1, 2, 4, 5, 6, 7).contiguous()
+            target_image = target_image.permute(0, 3, 1, 2, 4, 5, 6, 7).contiguous()
+            if sensitivity is not None:
+                sensitivity = sensitivity.permute(0, 3, 1, 2, 4, 5, 6, 7).contiguous()
+            input_image, mean, std = complex_zscore(input_image, dim=[4, 5, 6])
+            mask = compact_mask[:, None, :, :, None, :, :, None].expand(
+                -1, encoding_count, -1, -1, 1, -1, -1, 1
+            )
+        else:
+            input_image = input_image.contiguous()
+            target_image = target_image.contiguous()
+            input_image, mean, std = complex_zscore(input_image, dim=[3, 4, 5])
+            mask = compact_mask[:, :, :, None, :, :, None]
 
         worker_timing = {
             "worker_total_ms": (time.monotonic_ns() - started_ns) / 1.0e6,
@@ -897,6 +933,8 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
             "mask_read_ms": mask_read_ms,
             "coilmap_read_ms": coilmap_read_ms,
             "ifft_ms": ifft_ms,
+            "augmentation_ms": augmentation_ms,
+            "input_read_skipped": float(self.augmenter.enabled),
             "window_count": int(centers.size),
             "unique_coordinate_count": int(len({tuple(value) for value in indices.reshape(-1, 2)})),
             "hybrid_read_call_count": int(len({tuple(value) for value in indices.reshape(-1, 2)})),
@@ -909,6 +947,8 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
             "window_centers": centers,
             "worker_timing": worker_timing,
         }
+        if augmentation_params is not None:
+            metadata["four_dflow_augmentation"] = augmentation_params
         result = {
             "kspace_masked_ifft": input_image,
             "kspace_ifft": target_image,
@@ -923,15 +963,6 @@ class Windowed4DFlowDataset(torch.utils.data.Dataset):
         }
         if sensitivity is not None:
             result["sensitivity_maps"] = sensitivity
-        if "segmask" in store:
-            segmask = store["segmask"]
-            result["joint_segmask"] = torch.from_numpy(
-                np.asarray(
-                    [
-                        [segmask[int(indices[n, s, 0, 1])] for s in range(indices.shape[1])]
-                        for n in range(indices.shape[0])
-                    ],
-                    dtype=np.float32,
-                )
-            )
+        if joint_segmask is not None:
+            result["joint_segmask"] = joint_segmask.contiguous()
         return result

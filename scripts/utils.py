@@ -224,39 +224,40 @@ def save_args_to_file_json(args, filename):
 
 
 class Config:
-    def __init__(self, d):
+    def __init__(self, d, *, _apply_defaults: bool = True):
         setattr(self, "_explicit_keys", set(d.keys()))
-        setattr(self, "data_path_train", None)
-        setattr(self, "data_path_val", None)
-        setattr(self, "pretrained_csm", None)
-        setattr(self, "pretrained_recon", None)
-        setattr(self, "pp_z_score_norm", False)
-        setattr(self, "fixed_mask_types", None)
-        setattr(self, "uniform_input_kspace", False)
-        setattr(self, "val_interval", 4)
-        setattr(self, "num_samples_per_case", 16)
-        setattr(self, "data_aug", True)
-        setattr(self, "use_multi_epochs_train_loader", False)
-        setattr(self, "resume_rng_state", False)
-        setattr(self, "do_mapping_shuffle", False)
-        setattr(self, "do_center_crop", True)
-        setattr(self, "seed", None)
-        setattr(self, "lookahead", False)
-        setattr(self, "muon", False)
-        setattr(self, "muon_scale", 5)
-        setattr(self, "enable_onelogger", False)
-        setattr(self, "flow", False)
-        setattr(self, "balance_data", False)
-        setattr(self, "enable_cas_skips", True)
-        setattr(self, "finetune_ms", False)
-        setattr(self, "adaptive_batch_size", False)
-        setattr(self, "constant_input_flow", False)
-        setattr(self, "amp", True)
-        setattr(self, "acs_lines", 20)
-        setattr(self, "pp_norm", True)
+        if _apply_defaults:
+            setattr(self, "data_path_train", None)
+            setattr(self, "data_path_val", None)
+            setattr(self, "pretrained_csm", None)
+            setattr(self, "pretrained_recon", None)
+            setattr(self, "pp_z_score_norm", False)
+            setattr(self, "fixed_mask_types", None)
+            setattr(self, "uniform_input_kspace", False)
+            setattr(self, "val_interval", 4)
+            setattr(self, "num_samples_per_case", 16)
+            setattr(self, "data_aug", True)
+            setattr(self, "use_multi_epochs_train_loader", False)
+            setattr(self, "resume_rng_state", False)
+            setattr(self, "do_mapping_shuffle", False)
+            setattr(self, "do_center_crop", True)
+            setattr(self, "seed", None)
+            setattr(self, "lookahead", False)
+            setattr(self, "muon", False)
+            setattr(self, "muon_scale", 5)
+            setattr(self, "enable_onelogger", False)
+            setattr(self, "flow", False)
+            setattr(self, "balance_data", False)
+            setattr(self, "enable_cas_skips", True)
+            setattr(self, "finetune_ms", False)
+            setattr(self, "adaptive_batch_size", False)
+            setattr(self, "constant_input_flow", False)
+            setattr(self, "amp", True)
+            setattr(self, "acs_lines", 20)
+            setattr(self, "pp_norm", True)
         for k, v in d.items():
             if isinstance(v, dict):
-                setattr(self, k, Config(v))
+                setattr(self, k, Config(v, _apply_defaults=False))
             else:
                 setattr(self, k, v)
 
@@ -615,7 +616,15 @@ def validate_phase3_config(config) -> None:
         _warn_unknown_config_keys(
             joint_loss,
             "phase3.loss.joint",
-            {"complex_weight", "magnitude_weight", "circular_weight", "speed_weight", "direction_weight", "eps"},
+            {
+                "enabled",
+                "complex_weight",
+                "magnitude_weight",
+                "circular_weight",
+                "speed_weight",
+                "direction_weight",
+                "eps",
+            },
         )
         _warn_unknown_config_keys(
             _get_attr(loss, "weights", None),

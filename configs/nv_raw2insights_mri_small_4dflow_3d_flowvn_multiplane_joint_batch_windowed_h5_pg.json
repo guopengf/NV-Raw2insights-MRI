@@ -17,7 +17,22 @@
     "uniform_input_kspace": false,
     "val_interval": 80,
     "num_samples_per_case": 8,
-    "data_aug": false,
+    "data_aug": true,
+    "four_dflow_augmentation": {
+        "enabled": true,
+        "flip": {
+            "prob": 0.25,
+            "axes": ["z", "y"]
+        },
+        "shift": {
+            "prob": 0.25,
+            "max_pixels": [3, 8]
+        },
+        "contrast": {
+            "prob": 0.2,
+            "gamma": [0.8, 1.2]
+        }
+    },
     "use_multi_epochs_train_loader": true,
     "resume_rng_state": false,
     "do_mapping_shuffle": false,

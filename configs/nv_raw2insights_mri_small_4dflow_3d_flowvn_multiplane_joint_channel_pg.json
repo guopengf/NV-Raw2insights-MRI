@@ -17,7 +17,22 @@
     "uniform_input_kspace": false,
     "val_interval": 80,
     "num_samples_per_case": 8,
-    "data_aug": false,
+    "data_aug": true,
+    "four_dflow_augmentation": {
+        "enabled": true,
+        "flip": {
+            "prob": 0.25,
+            "axes": ["z", "y"]
+        },
+        "shift": {
+            "prob": 0.25,
+            "max_pixels": [3, 8]
+        },
+        "contrast": {
+            "prob": 0.2,
+            "gamma": [0.8, 1.2]
+        }
+    },
     "use_multi_epochs_train_loader": true,
     "resume_rng_state": false,
     "do_mapping_shuffle": false,
@@ -39,7 +54,7 @@
     "batch_size": 8,
     "num_workers": 8,
     "train_num_workers": 8,
-    "val_num_workers": 0,
+    "val_num_workers": 4,
     "train_prefetch_factor": 1,
     "val_prefetch_factor": 1,
     "lazy_val_loader": true,
@@ -107,7 +122,7 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 320,
+    "num_epochs": 960,
     "exp_dir": "outputs/4dflow/4dflow_joint_encoding/",
     "exp": "small_ft_4dflow_joint_channel_3d_flowvn_multiplane",
     "lr": 5e-05,
@@ -267,6 +282,7 @@
                 "normalize_by_mask": true
             },
             "joint": {
+                "enabled": true,
                 "complex_weight": 1.0,
                 "magnitude_weight": 0.1,
                 "circular_weight": 0.5,

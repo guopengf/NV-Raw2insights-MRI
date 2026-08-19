@@ -30,6 +30,7 @@ from readers import CMRxReconReader
 from train import (
     build_4dflow_aorta_manifests,
     group_4dflow_manifests_by_target,
+    joint_encoding_loss_enabled,
     partition_4dflow_target_groups,
     resolve_training_loss_flags,
 )
@@ -152,6 +153,38 @@ def test_joint_configs_keep_global_flowvn_complex_loss_enabled():
         assert config.phase3.loss.phase.method == "flowvn_complex_l1"
         assert config.phase3.loss.phase.weight > 0
         assert flags == {"main_zy": False, "phase": True, "vascular": False}
+
+
+def test_joint_loss_gate_is_backward_compatible_and_independent():
+    spec = SimpleNamespace(enabled=True)
+    legacy_args = SimpleNamespace(phase3=SimpleNamespace(loss=SimpleNamespace(joint=SimpleNamespace())))
+    disabled_args = SimpleNamespace(
+        phase3=SimpleNamespace(loss=SimpleNamespace(joint=SimpleNamespace(enabled=False)))
+    )
+
+    assert joint_encoding_loss_enabled(legacy_args, spec) is True
+    assert joint_encoding_loss_enabled(disabled_args, spec) is False
+    assert joint_encoding_loss_enabled(legacy_args, SimpleNamespace(enabled=False)) is False
+
+
+def test_augmented_joint_configs_disable_only_joint_loss():
+    config_names = (
+        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_aug_pg.json",
+        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_aug_pg.json",
+    )
+    for config_name in config_names:
+        config = load_config(REPO_ROOT / "configs" / config_name)
+        spec = joint_encoding_spec(config)
+
+        assert spec.enabled is True
+        assert joint_encoding_loss_enabled(config, spec) is False
+        assert resolve_training_loss_flags(config, spec) == {
+            "main_zy": False,
+            "phase": True,
+            "vascular": False,
+        }
+        assert config.phase3.loss.phase.method == "flowvn_complex_l1"
+        assert config.phase3.loss.phase.weight > 0
 
 
 def test_non_joint_loss_flags_remain_config_driven():
@@ -413,6 +446,7 @@ def test_joint_configs_keep_fixed_training_cardinality():
         "batch": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
         "channel": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
     }
+    expected_workers = {"batch": 4, "channel": 8}
     for mode, config_name in config_names.items():
         config_path = (
             REPO_ROOT
@@ -422,7 +456,7 @@ def test_joint_configs_keep_fixed_training_cardinality():
         payload = json.loads(config_path.read_text())
         assert payload["batch_size"] == 8
         assert payload["num_samples_per_case"] == 8
-        assert payload["train_num_workers"] == 4
+        assert payload["train_num_workers"] == expected_workers[mode]
         assert payload["val_num_workers"] == 0
         assert payload["group_accelerations_by_target"] is True
         assert payload["reader_target_cache_entries"] == 1
@@ -448,6 +482,8 @@ def run_directly():
         test_joint_loss_empty_mask_is_zero_with_finite_gradients,
         test_joint_loss_zero_signal_has_finite_gradients,
         test_joint_configs_keep_global_flowvn_complex_loss_enabled,
+        test_joint_loss_gate_is_backward_compatible_and_independent,
+        test_augmented_joint_configs_disable_only_joint_loss,
         test_non_joint_loss_flags_remain_config_driven,
         test_flowvn_conv3d_kernels_use_adam_with_muon_optimizer,
         test_target_grouped_sampler_shuffles_groups_without_splitting_them,

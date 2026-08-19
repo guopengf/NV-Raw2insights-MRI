@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 import scipy.io
 import torch
-from monai.data.fft_utils import ifftn_centered
+from monai.data.fft_utils import fftn_centered, ifftn_centered
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +61,18 @@ def _args():
             hdf5_chunk_cache_bytes=16 << 20,
         ),
     )
+
+
+def _augmentation_args():
+    args = _args()
+    args.data_aug = True
+    args.four_dflow_augmentation = SimpleNamespace(
+        enabled=True,
+        flip=SimpleNamespace(prob=1.0, axes=["z", "y"]),
+        shift=SimpleNamespace(prob=1.0, max_pixels=[1, 2]),
+        contrast=SimpleNamespace(prob=1.0, gamma=[0.9, 1.1]),
+    )
+    return args
 
 
 def _write_synthetic_patient(root: Path):
@@ -142,19 +154,16 @@ def test_build_window_indices_wraps_time_and_clamps_slices():
 
 
 def test_windowed_backend_is_opt_in_for_joint_and_legacy_configs():
-    names = (
-        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_pg.json",
-        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_pg.json",
+    raw_config = SimpleNamespace(
+        four_dflow_storage=SimpleNamespace(backend="raw_mat")
     )
-    for name in names:
-        config = load_config(REPO_ROOT / "configs" / name)
-        assert not windowed_hdf5_enabled(config, "train")
-        assert not windowed_hdf5_enabled(config, "val")
+    assert not windowed_hdf5_enabled(raw_config, "train")
+    assert not windowed_hdf5_enabled(raw_config, "val")
 
     opt_in_names = (
         "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_windowed_h5_pg.json",
         "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
-        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_e4_pg.json",
+        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
     )
     for name in opt_in_names:
         config = load_config(REPO_ROOT / "configs" / name)
@@ -164,13 +173,13 @@ def test_windowed_backend_is_opt_in_for_joint_and_legacy_configs():
         assert config.num_samples_per_case == 8
     legacy = load_config(REPO_ROOT / "configs" / opt_in_names[0])
     joint = load_config(REPO_ROOT / "configs" / opt_in_names[1])
-    joint_e4 = load_config(REPO_ROOT / "configs" / opt_in_names[2])
+    joint_channel = load_config(REPO_ROOT / "configs" / opt_in_names[2])
     assert legacy.four_dflow_storage.storage_profile == ENCODING_CHUNK_1
     assert joint.four_dflow_storage.storage_profile == ENCODING_CHUNK_1
-    assert joint_e4.four_dflow_storage.storage_profile == ENCODING_CHUNK_ALL
+    assert joint_channel.four_dflow_storage.storage_profile == ENCODING_CHUNK_1
     assert "/windowed-e1-v2/" in legacy.four_dflow_storage.index_path
     assert "/windowed-e1-v2/" in joint.four_dflow_storage.index_path
-    assert "/windowed-e4-v2/" in joint_e4.four_dflow_storage.index_path
+    assert "/windowed-e1-v2/" in joint_channel.four_dflow_storage.index_path
 
 
 def test_converter_is_restart_safe_and_manifests_cover_both_modes(tmp_path):
@@ -377,3 +386,35 @@ def test_non_joint_windowed_dataset_matches_existing_full_volume_pipeline(tmp_pa
     torch.testing.assert_close(sample["mean"], expected_mean)
     torch.testing.assert_close(sample["std"], expected_std)
     torch.testing.assert_close(sample["sensitivity_maps"], expected_csm)
+
+
+def test_windowed_online_augmentation_regenerates_exact_masked_input(tmp_path):
+    _, _, _, manifests = _convert_and_manifest(tmp_path, joint=True)
+    centers = np.asarray([0, 17], dtype=np.int64)
+    torch.manual_seed(31)
+    sample = Windowed4DFlowDataset(
+        [{"kspace": manifests[0]}],
+        _augmentation_args(),
+        center_selector=lambda total, count: centers,
+    )[0]
+
+    input_image = sample["kspace_masked_ifft"] * sample["std"] + sample["mean"]
+    input_kspace = torch.view_as_complex(
+        fftn_centered(input_image, spatial_dims=2, is_complex=True).contiguous()
+    )
+    target_kspace = torch.view_as_complex(
+        fftn_centered(sample["kspace_ifft"], spatial_dims=2, is_complex=True).contiguous()
+    )
+    mask = sample["mask"][..., 0]
+    torch.testing.assert_close(input_kspace, target_kspace * mask, atol=2e-5, rtol=2e-5)
+
+    metadata = sample["kspace_meta_dict"]
+    assert set(metadata["four_dflow_augmentation"]) == {
+        "flip_z",
+        "flip_y",
+        "shift_z",
+        "shift_y",
+        "gamma",
+    }
+    assert metadata["worker_timing"]["input_read_skipped"] == 1.0
+    assert metadata["worker_timing"]["input_read_ms"] == 0.0

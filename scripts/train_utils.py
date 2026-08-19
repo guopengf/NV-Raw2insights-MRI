@@ -24,6 +24,7 @@ from monai.apps.reconstruction.complex_utils import convert_to_tensor_complex
 from monai.apps.reconstruction.transforms.dictionary import ExtractDataKeyFromMetaKeyd
 from monai.data.fft_utils import ifftn_centered
 from monai.transforms import Compose, EnsureTyped, Identityd, Lambdad, LoadImaged, RandFlipd, ResizeWithPadOrCropd
+from four_dflow_augmentation import FourDFlowOnlineAugmentd
 from mri_data.data_utils import get_reader
 from muon import MuonWithAuxAdam
 from transforms import *
@@ -62,6 +63,7 @@ WORKER_TIMING_FIELDS = (
     "to_tensor_complex_ms",
     "ensure_typed_ms",
     "ifft_ms",
+    "augmentation_ms",
     "rearrange_normalize_ms",
 )
 
@@ -765,6 +767,7 @@ def get_train_transforms(args):
     """
     Get the training transforms.
     """
+    generic_data_aug = bool(args.data_aug) and not bool(getattr(args, "is_4dflow_aorta", False))
     train_transforms = Compose(
         [
             _maybe_timed(
@@ -778,26 +781,26 @@ def get_train_transforms(args):
                 ),
                 initialize=True,
             ),
-            (RandFlipd(keys=["kspace"], spatial_axis=-2, prob=0.25) if args.data_aug else Identityd(keys=["kspace"])),
-            (RandFlipd(keys=["kspace"], spatial_axis=-1, prob=0.25) if args.data_aug else Identityd(keys=["kspace"])),
+            (RandFlipd(keys=["kspace"], spatial_axis=-2, prob=0.25) if generic_data_aug else Identityd(keys=["kspace"])),
+            (RandFlipd(keys=["kspace"], spatial_axis=-1, prob=0.25) if generic_data_aug else Identityd(keys=["kspace"])),
             (
                 RandShiftKspaced(keys=["kspace"], prob=0.25, shift=(16, 32))
-                if args.data_aug
+                if generic_data_aug
                 else Identityd(keys=["kspace"])
             ),
             (
                 RandPhaseShiftKspaced(keys=["kspace"], prob=0.25, angle=45)
-                if args.data_aug
+                if generic_data_aug
                 else Identityd(keys=["kspace"])
             ),
             (
                 RandAdjustContrastKspaced(keys=["kspace"], prob=0.25, gamma=(0.5, 2))
-                if args.data_aug
+                if generic_data_aug
                 else Identityd(keys=["kspace"])
             ),
             (
                 RandResizeWithPadOrCropd(keys=["kspace"], prob=0.25, spatial_size=(16, 32))
-                if args.data_aug
+                if generic_data_aug
                 else Identityd(keys=["kspace"])
             ),
             (
@@ -850,6 +853,15 @@ def get_train_transforms(args):
                     keys=["kspace", "kspace_masked"],
                     overwrite=["kspace_ifft", "kspace_masked_ifft"],
                     func=lambda x: ifftn_centered(x, spatial_dims=2, is_complex=True),
+                ),
+            ),
+            _maybe_timed(
+                args,
+                "augmentation_ms",
+                (
+                    FourDFlowOnlineAugmentd(args)
+                    if bool(getattr(args, "is_4dflow_aorta", False)) and bool(args.data_aug)
+                    else Identityd(keys=["kspace"])
                 ),
             ),
             _maybe_timed(

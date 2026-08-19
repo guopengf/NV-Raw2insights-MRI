@@ -104,6 +104,11 @@ def resolve_training_loss_flags(args, joint_spec):
     }
 
 
+def joint_encoding_loss_enabled(args, joint_spec):
+    """Keep joint reconstruction independent from its optional joint loss."""
+    return bool(joint_spec.enabled and cfg_get(args, "phase3.loss.joint.enabled", True))
+
+
 def group_4dflow_manifests_by_target(manifest_paths):
     """Group acceleration manifests that share one fully sampled target."""
     grouped = {}
@@ -661,25 +666,34 @@ def trainer(args):
         method=str(cfg_get(args, "phase3.loss.vascular.method", "mra_masked_phase_l1")),
     ).to(device)
     joint_loss_cfg = cfg_get(args, "phase3.loss.joint", None)
-    joint_loss_function = JointEncodingLoss(
-        complex_weight=float(cfg_get(joint_loss_cfg, "complex_weight", 1.0)),
-        magnitude_weight=float(cfg_get(joint_loss_cfg, "magnitude_weight", 0.1)),
-        circular_weight=float(cfg_get(joint_loss_cfg, "circular_weight", 0.5)),
-        speed_weight=float(cfg_get(joint_loss_cfg, "speed_weight", 0.25)),
-        direction_weight=float(cfg_get(joint_loss_cfg, "direction_weight", 0.05)),
-        encoding_count=joint_spec.count,
-        eps=float(cfg_get(joint_loss_cfg, "eps", 1e-8)),
-    ).to(device)
+    use_joint_loss = joint_encoding_loss_enabled(args, joint_spec)
+    joint_loss_function = None
+    if use_joint_loss:
+        joint_loss_function = JointEncodingLoss(
+            complex_weight=float(cfg_get(joint_loss_cfg, "complex_weight", 1.0)),
+            magnitude_weight=float(cfg_get(joint_loss_cfg, "magnitude_weight", 0.1)),
+            circular_weight=float(cfg_get(joint_loss_cfg, "circular_weight", 0.5)),
+            speed_weight=float(cfg_get(joint_loss_cfg, "speed_weight", 0.25)),
+            direction_weight=float(cfg_get(joint_loss_cfg, "direction_weight", 0.05)),
+            encoding_count=joint_spec.count,
+            eps=float(cfg_get(joint_loss_cfg, "eps", 1e-8)),
+        ).to(device)
     loss_flags = resolve_training_loss_flags(args, joint_spec)
     use_main_zy_loss = loss_flags["main_zy"]
     use_phase_loss = loss_flags["phase"]
     use_vascular_loss = loss_flags["vascular"]
     recon_slab = is_slab_recon(args)
     recon_num_slices = slab_num_slices(args)
-    if not (joint_spec.enabled or use_main_zy_loss or use_phase_loss or use_vascular_loss):
+    if not (use_joint_loss or use_main_zy_loss or use_phase_loss or use_vascular_loss):
         raise RuntimeError(
             "At least one training loss must be enabled: phase3.loss.use_ssim_zy, "
-            "phase3.loss.use_phase, or phase3.loss.use_vascular."
+            "phase3.loss.use_phase, phase3.loss.use_vascular, or phase3.loss.joint.enabled."
+        )
+    if rank == 0:
+        print(
+            "training_losses: "
+            f"joint={use_joint_loss}, main_zy={use_main_zy_loss}, "
+            f"phase={use_phase_loss}, vascular={use_vascular_loss}"
         )
     phase_loss_weight = float(cfg_get(args, "phase3.loss.phase.weight", cfg_get(args, "phase3.loss.weights.phase", 1.0)))
     vascular_loss_weight = float(
@@ -1195,7 +1209,7 @@ def trainer(args):
                             loss = loss + weighted_vascular_phase_loss
                             aux_loss_log["vascular_phase_loss"] = vascular_phase_loss.detach()
                             weighted_loss_log["vascular_phase_loss_weighted"] = weighted_vascular_phase_loss.detach()
-                if joint_spec.enabled:
+                if use_joint_loss:
                     with autocast("cuda", torch.bfloat16, enabled=False):
                         joint_output = restore_joint_model_batch(output_complex.float(), joint_spec.count)
                         joint_target = restore_joint_model_batch(target_complex.float(), joint_spec.count)
