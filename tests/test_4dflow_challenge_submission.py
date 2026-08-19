@@ -21,9 +21,22 @@ class ChallengeSubmissionTest(unittest.TestCase):
         text = launcher.read_text()
         self.assertIn("#SBATCH --array=0-5%6", text)
         self.assertIn("#SBATCH --partition=batch,batch_short,interactive", text)
+        self.assertIn("#SBATCH --exclusive", text)
         self.assertIn("#SBATCH --gpus-per-node=1", text)
         self.assertIn("    --nproc 1 \\", text)
-        self.assertIn("    --num-workers 4", text)
+        self.assertIn("    --batch-size 4 \\", text)
+        self.assertIn("    --num-workers 0", text)
+
+    def test_full_and_recovery_launchers_use_memory_safe_inference_settings(self):
+        root = Path(__file__).resolve().parents[1]
+        for name in (
+            "run_raw2ins_4dflow_joint_epoch100_challenge_full.slurm",
+            "run_raw2ins_4dflow_joint_epoch100_challenge_recover.slurm",
+        ):
+            text = (root / name).read_text()
+            self.assertIn("#SBATCH --exclusive", text)
+            self.assertIn("    --batch-size 4 \\", text)
+            self.assertIn("    --num-workers 0", text)
 
     def test_shard_inventory_matches_validation_contract(self):
         self.assertEqual(sum(spec["full_cases"] for spec in submission.SHARDS.values()), 112)
@@ -85,8 +98,10 @@ class ChallengeSubmissionTest(unittest.TestCase):
                 )
             )
             self.assertEqual(submission.joint_encoding_order(source), [0, 1, 2, 3])
-            submission.write_effective_config(source, effective, 4)
-            self.assertEqual(json.loads(effective.read_text())["num_workers"], 4)
+            submission.write_effective_config(source, effective, 0, 4)
+            payload = json.loads(effective.read_text())
+            self.assertEqual(payload["num_workers"], 0)
+            self.assertEqual(payload["batch_size"], 4)
 
     def test_package_shards_validates_and_writes_expected_archives(self):
         with tempfile.TemporaryDirectory() as temporary:

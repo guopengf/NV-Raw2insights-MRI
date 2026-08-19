@@ -4,6 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH -A healthcareeng_monai
 #SBATCH --partition=batch,batch_short,interactive
+#SBATCH --exclusive
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=16
@@ -49,5 +50,6 @@ python scripts/tools/run_4dflow_challenge_submission.py run-shard \
     --expected-global-step 17606 \
     --expected-wandb-run-id kqi05x9h \
     --nproc 1 \
-    --num-workers 4
+    --batch-size 4 \
+    --num-workers 0
 INNER

@@ -401,11 +401,19 @@ def build_inference_manifest(
     return inference_manifest, reconstruction_manifest
 
 
-def write_effective_config(source: Path, destination: Path, num_workers: int) -> None:
+def write_effective_config(
+    source: Path,
+    destination: Path,
+    num_workers: int,
+    batch_size: int,
+) -> None:
     if num_workers < 0:
         raise ValueError(f"num_workers must be nonnegative, got {num_workers}")
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
     payload = json.loads(source.read_text())
     payload["num_workers"] = num_workers
+    payload["batch_size"] = batch_size
     destination.write_text(json.dumps(payload, indent=2) + "\n")
 
 
@@ -587,8 +595,15 @@ def run_spec(
     (task_root / "reconstruction_manifest.json").write_text(
         json.dumps(reconstruction_manifest, indent=2) + "\n"
     )
-    effective_config = task_root / f"effective_config_num_workers{args.num_workers}.json"
-    write_effective_config(args.config.resolve(), effective_config, args.num_workers)
+    effective_config = task_root / (
+        f"effective_config_batch{args.batch_size}_num_workers{args.num_workers}.json"
+    )
+    write_effective_config(
+        args.config.resolve(),
+        effective_config,
+        args.num_workers,
+        args.batch_size,
+    )
 
     run_inference(effective_config, args.checkpoint.resolve(), json_root, temporary_root, args.nproc)
     reconstructions = organize_reconstructions(
@@ -628,6 +643,7 @@ def run_spec(
             for key in ("SLURM_JOB_ID", "SLURM_ARRAY_JOB_ID", "SLURM_ARRAY_TASK_ID", "SLURM_JOB_NODELIST")
         },
         "nproc": args.nproc,
+        "batch_size": args.batch_size,
         "num_workers": args.num_workers,
         "elapsed_seconds": time.time() - started,
     }
@@ -947,6 +963,7 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--checkpoint", type=Path, required=True)
     run_parser.add_argument("--output-root", type=Path, required=True)
     run_parser.add_argument("--nproc", type=int, required=True)
+    run_parser.add_argument("--batch-size", type=int, required=True)
     run_parser.add_argument("--num-workers", type=int, required=True)
     run_parser.set_defaults(handler=run_task)
 
@@ -961,6 +978,7 @@ def parse_args() -> argparse.Namespace:
     add_run_paths(shard_parser)
     add_expected_provenance_args(shard_parser)
     shard_parser.add_argument("--nproc", type=int, required=True)
+    shard_parser.add_argument("--batch-size", type=int, required=True)
     shard_parser.add_argument("--num-workers", type=int, required=True)
     shard_parser.set_defaults(handler=run_shard)
 

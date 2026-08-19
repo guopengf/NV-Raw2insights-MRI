@@ -4,6 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH -A healthcareeng_monai
 #SBATCH --partition=interactive
+#SBATCH --exclusive
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=16
@@ -37,7 +38,7 @@ cd "$GIT_WORK_TREE"
 python scripts/tools/recover_4dflow_challenge_shard.py \
     --shard-index "${SLURM_ARRAY_TASK_ID}" \
     --run-root "/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/challenge_submission_joint_epoch100_3d_flowvn_multiplane/runs/${RUN_NAME}" \
-    --batch-size 2 \
+    --batch-size 4 \
     --nproc 1 \
-    --num-workers 4
+    --num-workers 0
 INNER
