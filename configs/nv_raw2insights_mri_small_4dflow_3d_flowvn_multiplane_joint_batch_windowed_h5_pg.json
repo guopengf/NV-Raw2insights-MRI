@@ -122,7 +122,7 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 100,
+    "num_epochs": 300,
     "exp_dir": "outputs/4dflow/4dflow_joint_encoding/",
     "exp": "small_ft_4dflow_joint_batch_3d_flowvn_multiplane_windowed_h5",
     "lr": 2e-05,
