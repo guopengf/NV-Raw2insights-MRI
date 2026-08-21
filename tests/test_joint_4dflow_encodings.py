@@ -167,17 +167,25 @@ def test_joint_loss_gate_is_backward_compatible_and_independent():
     assert joint_encoding_loss_enabled(legacy_args, SimpleNamespace(enabled=False)) is False
 
 
-def test_augmented_joint_configs_disable_only_joint_loss():
+def test_joint_configs_enable_online_augmentation():
     config_names = (
-        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_aug_pg.json",
-        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_aug_pg.json",
+        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
+        "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
     )
     for config_name in config_names:
         config = load_config(REPO_ROOT / "configs" / config_name)
         spec = joint_encoding_spec(config)
+        augmentation = config.four_dflow_augmentation
 
         assert spec.enabled is True
-        assert joint_encoding_loss_enabled(config, spec) is False
+        assert config.data_aug is True
+        assert augmentation.enabled is True
+        assert augmentation.flip.prob == 0.25
+        assert list(augmentation.flip.axes) == ["z", "y"]
+        assert augmentation.shift.prob == 0.25
+        assert list(augmentation.shift.max_pixels) == [3, 8]
+        assert augmentation.contrast.prob == 0.2
+        assert list(augmentation.contrast.gamma) == [0.8, 1.2]
         assert resolve_training_loss_flags(config, spec) == {
             "main_zy": False,
             "phase": True,
@@ -446,7 +454,7 @@ def test_joint_configs_keep_fixed_training_cardinality():
         "batch": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
         "channel": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
     }
-    expected_workers = {"batch": 4, "channel": 8}
+    expected_workers = {"batch": (4, 0), "channel": (8, 4)}
     for mode, config_name in config_names.items():
         config_path = (
             REPO_ROOT
@@ -456,8 +464,9 @@ def test_joint_configs_keep_fixed_training_cardinality():
         payload = json.loads(config_path.read_text())
         assert payload["batch_size"] == 8
         assert payload["num_samples_per_case"] == 8
-        assert payload["train_num_workers"] == expected_workers[mode]
-        assert payload["val_num_workers"] == 0
+        train_workers, val_workers = expected_workers[mode]
+        assert payload["train_num_workers"] == train_workers
+        assert payload["val_num_workers"] == val_workers
         assert payload["group_accelerations_by_target"] is True
         assert payload["reader_target_cache_entries"] == 1
         assert payload["phase3"]["joint_encoding"]["mode"] == mode

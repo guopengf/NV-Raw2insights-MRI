@@ -27,10 +27,6 @@ from path_safety import assert_outputs_not_in_data
 
 ENCODINGS = [0, 1, 2, 3]
 ACCEL_RE = re.compile(r"^kdata_ktGaussian(?P<acc>\d+)\.mat$")
-EXPECTED_CHECKPOINT_SHA256 = "154ffdd3ea68512d699ce7d65448122fdc6fa7ecff8f050bcd7a6301359f3817"
-EXPECTED_CONFIG_SHA256 = "5d784d2d07f10da41c7b0465f034449c061a61b26446789cdf966d1ebab9280e"
-EXPECTED_INFERENCE_SHA256 = "aa6fbbf3a10dc8ec01123c7dd5414812126f67486dea787e93c4b2a3a345b210"
-EXPECTED_EXPORTER_SHA256 = "45b140e492f45a24dbf972b7f44d3bb15b89be883bcd133f5b481d5da8dec06b"
 
 TASKS = {
     0: {
@@ -152,13 +148,14 @@ def checkpoint_metadata(path: Path) -> dict:
 def verify_provenance(
     config: Path,
     checkpoint: Path,
-    expected_checkpoint_sha256: str = EXPECTED_CHECKPOINT_SHA256,
-    expected_config_sha256: str = EXPECTED_CONFIG_SHA256,
-    expected_inference_sha256: str = EXPECTED_INFERENCE_SHA256,
-    expected_exporter_sha256: str = EXPECTED_EXPORTER_SHA256,
-    expected_epoch: int = 85,
-    expected_global_step: int = 14720,
-    expected_wandb_run_id: str = "99f9z029",
+    *,
+    expected_checkpoint_sha256: str,
+    expected_config_sha256: str,
+    expected_inference_sha256: str,
+    expected_exporter_sha256: str,
+    expected_epoch: int,
+    expected_global_step: int,
+    expected_wandb_run_id: str,
 ) -> dict:
     paths = {
         "checkpoint": checkpoint,
@@ -226,21 +223,13 @@ def provenance_from_args(args: argparse.Namespace) -> dict:
     return verify_provenance(
         config=args.config.resolve(),
         checkpoint=args.checkpoint.resolve(),
-        expected_checkpoint_sha256=getattr(
-            args, "expected_checkpoint_sha256", EXPECTED_CHECKPOINT_SHA256
-        ),
-        expected_config_sha256=getattr(
-            args, "expected_config_sha256", EXPECTED_CONFIG_SHA256
-        ),
-        expected_inference_sha256=getattr(
-            args, "expected_inference_sha256", EXPECTED_INFERENCE_SHA256
-        ),
-        expected_exporter_sha256=getattr(
-            args, "expected_exporter_sha256", EXPECTED_EXPORTER_SHA256
-        ),
-        expected_epoch=getattr(args, "expected_epoch", 85),
-        expected_global_step=getattr(args, "expected_global_step", 14720),
-        expected_wandb_run_id=getattr(args, "expected_wandb_run_id", "99f9z029"),
+        expected_checkpoint_sha256=args.expected_checkpoint_sha256,
+        expected_config_sha256=args.expected_config_sha256,
+        expected_inference_sha256=args.expected_inference_sha256,
+        expected_exporter_sha256=args.expected_exporter_sha256,
+        expected_epoch=args.expected_epoch,
+        expected_global_step=args.expected_global_step,
+        expected_wandb_run_id=args.expected_wandb_run_id,
     )
 
 

@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=raw2ins_joint_ch260_package
+#SBATCH --job-name=raw2ins_joint_ep100_package
 #SBATCH --nodes=1
 #SBATCH -A healthcareeng_monai
 #SBATCH --partition=cpu_short
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --time=04:00:00
-#SBATCH --output=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork/logs/%j-raw2ins-joint-ch260-package.out
+#SBATCH --output=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork/logs/%j-raw2ins-joint-ep100-package.out
 
 set -euo pipefail
 : "${RUN_NAME:?Submit with --export=ALL,RUN_NAME=<completed-full-run-name>}"
@@ -29,8 +29,7 @@ conda activate nv-raw2insights-mri
 cd /workspace/code/NV-Raw2insights-MRI-fork
 
 python scripts/tools/run_4dflow_challenge_submission.py package-shards \
-    --run-root "/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/challenge_submission_joint_channel_epoch260_3d_flowvn_multiplane/runs/${RUN_NAME}" \
-    --artifact-tag small_joint_channel_epoch260 \
-    --skip-preflight \
+    --run-root "/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/challenge_submission_joint_epoch100_3d_flowvn_multiplane/runs/${RUN_NAME}" \
+    --artifact-tag small_joint_epoch100 \
     --skip-combined-zip
 INNER

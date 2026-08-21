@@ -29,9 +29,7 @@ set +u
 source ~/.bashrc
 set -u
 conda activate nv-raw2insights-mri
-export GIT_DIR=/workspace/code/NV-Raw2insights-MRI-fork/.git/worktrees/NV-Raw2insights-MRI-fork-joint-channel-epoch260-inference
-export GIT_WORK_TREE=/workspace/code/NV-Raw2insights-MRI-fork-joint-channel-epoch260-inference
-cd "$GIT_WORK_TREE"
+cd /workspace/code/NV-Raw2insights-MRI-fork
 
 python scripts/tools/run_4dflow_challenge_submission.py run-shard \
     --shard-index "${SLURM_ARRAY_TASK_ID}" \
