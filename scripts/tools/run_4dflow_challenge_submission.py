@@ -27,9 +27,9 @@ from path_safety import assert_outputs_not_in_data
 
 ENCODINGS = [0, 1, 2, 3]
 ACCEL_RE = re.compile(r"^kdata_ktGaussian(?P<acc>\d+)\.mat$")
-EXPECTED_CHECKPOINT_SHA256 = "e1604419858be0592059458e2cdb186e101f02baf362457d847e6fd642a8dec8"
-EXPECTED_CONFIG_SHA256 = "2f7936aac4e2d43a4b86795ad0cf22099fc38ef70bfc55ddf728de475aa22df2"
-EXPECTED_INFERENCE_SHA256 = "3f5d291abcbea649de8b4f5fa6b7b850424738b7cd19d29f7aad0bf4410e67f7"
+EXPECTED_CHECKPOINT_SHA256 = "154ffdd3ea68512d699ce7d65448122fdc6fa7ecff8f050bcd7a6301359f3817"
+EXPECTED_CONFIG_SHA256 = "5d784d2d07f10da41c7b0465f034449c061a61b26446789cdf966d1ebab9280e"
+EXPECTED_INFERENCE_SHA256 = "aa6fbbf3a10dc8ec01123c7dd5414812126f67486dea787e93c4b2a3a345b210"
 EXPECTED_EXPORTER_SHA256 = "45b140e492f45a24dbf972b7f44d3bb15b89be883bcd133f5b481d5da8dec06b"
 
 TASKS = {
@@ -60,6 +60,7 @@ SHARDS = {
         "anatomies": ["Aorta"],
         "full_cases": 32,
         "work_name": "TaskR1R2__Aorta",
+        "smoke_acceleration": 10,
     },
     1: {
         "family": "S1",
@@ -67,6 +68,7 @@ SHARDS = {
         "anatomies": ["Aorta"],
         "full_cases": 40,
         "work_name": "TaskS1__Aorta",
+        "smoke_acceleration": 20,
     },
     2: {
         "family": "S2",
@@ -74,6 +76,7 @@ SHARDS = {
         "anatomies": ["Cerebrovascular"],
         "full_cases": 10,
         "work_name": "TaskS2__Cerebrovascular",
+        "smoke_acceleration": 10,
     },
     3: {
         "family": "S2",
@@ -81,6 +84,7 @@ SHARDS = {
         "anatomies": ["Carotid"],
         "full_cases": 10,
         "work_name": "TaskS2__Carotid",
+        "smoke_acceleration": 40,
     },
     4: {
         "family": "S2",
@@ -88,6 +92,7 @@ SHARDS = {
         "anatomies": ["PortalVein"],
         "full_cases": 10,
         "work_name": "TaskS2__PortalVein",
+        "smoke_acceleration": 30,
     },
     5: {
         "family": "S2",
@@ -95,6 +100,7 @@ SHARDS = {
         "anatomies": ["RenalArtery"],
         "full_cases": 10,
         "work_name": "TaskS2__RenalArtery",
+        "smoke_acceleration": 50,
     },
 }
 
@@ -147,6 +153,9 @@ def verify_provenance(
     config: Path,
     checkpoint: Path,
     expected_checkpoint_sha256: str = EXPECTED_CHECKPOINT_SHA256,
+    expected_config_sha256: str = EXPECTED_CONFIG_SHA256,
+    expected_inference_sha256: str = EXPECTED_INFERENCE_SHA256,
+    expected_exporter_sha256: str = EXPECTED_EXPORTER_SHA256,
     expected_epoch: int = 85,
     expected_global_step: int = 14720,
     expected_wandb_run_id: str = "99f9z029",
@@ -161,9 +170,9 @@ def verify_provenance(
     hashes = {name: sha256_file(path) for name, path in paths.items()}
     expected = {
         "checkpoint": expected_checkpoint_sha256,
-        "config": EXPECTED_CONFIG_SHA256,
-        "inference": EXPECTED_INFERENCE_SHA256,
-        "exporter": EXPECTED_EXPORTER_SHA256,
+        "config": expected_config_sha256,
+        "inference": expected_inference_sha256,
+        "exporter": expected_exporter_sha256,
     }
     mismatches = {
         name: {"expected": expected[name], "actual": hashes[name]}
@@ -185,12 +194,17 @@ def verify_provenance(
             f"Checkpoint metadata mismatch: expected={required_metadata}, actual={metadata}"
         )
 
+    git_head = git_output("rev-parse", "HEAD")
+    git_status = git_output("status", "--short")
+    if git_status:
+        raise RuntimeError(f"Inference worktree must be clean, found:\n{git_status}")
+
     return {
         "paths": {name: str(path) for name, path in paths.items()},
         "sha256": hashes,
         "checkpoint_metadata": metadata,
-        "git_head": git_output("rev-parse", "HEAD"),
-        "git_status": git_output("status", "--short"),
+        "git_head": git_head,
+        "git_status": git_status,
     }
 
 
@@ -210,16 +224,32 @@ def verify_checkpoint_zip(path: Path) -> dict:
 
 def provenance_from_args(args: argparse.Namespace) -> dict:
     return verify_provenance(
-        args.config.resolve(),
-        args.checkpoint.resolve(),
-        getattr(args, "expected_checkpoint_sha256", EXPECTED_CHECKPOINT_SHA256),
-        getattr(args, "expected_epoch", 85),
-        getattr(args, "expected_global_step", 14720),
-        getattr(args, "expected_wandb_run_id", "99f9z029"),
+        config=args.config.resolve(),
+        checkpoint=args.checkpoint.resolve(),
+        expected_checkpoint_sha256=getattr(
+            args, "expected_checkpoint_sha256", EXPECTED_CHECKPOINT_SHA256
+        ),
+        expected_config_sha256=getattr(
+            args, "expected_config_sha256", EXPECTED_CONFIG_SHA256
+        ),
+        expected_inference_sha256=getattr(
+            args, "expected_inference_sha256", EXPECTED_INFERENCE_SHA256
+        ),
+        expected_exporter_sha256=getattr(
+            args, "expected_exporter_sha256", EXPECTED_EXPORTER_SHA256
+        ),
+        expected_epoch=getattr(args, "expected_epoch", 85),
+        expected_global_step=getattr(args, "expected_global_step", 14720),
+        expected_wandb_run_id=getattr(args, "expected_wandb_run_id", "99f9z029"),
     )
 
 
-def discover_cases(split_root: Path, anatomies: list[str], mode: str) -> list[dict]:
+def discover_cases(
+    split_root: Path,
+    anatomies: list[str],
+    mode: str,
+    smoke_acceleration=None,
+) -> list[dict]:
     records = []
     for anatomy in anatomies:
         anatomy_root = split_root / anatomy
@@ -264,6 +294,16 @@ def discover_cases(split_root: Path, anatomies: list[str], mode: str) -> list[di
         if not anatomy_records:
             raise RuntimeError(f"No challenge inputs found under {anatomy_root}")
         if mode == "smoke":
+            if smoke_acceleration is not None:
+                anatomy_records = [
+                    record
+                    for record in anatomy_records
+                    if record["acceleration"] == smoke_acceleration
+                ]
+                if not anatomy_records:
+                    raise RuntimeError(
+                        f"No acceleration-{smoke_acceleration} smoke case under {anatomy_root}"
+                    )
             anatomy_records = anatomy_records[:1]
         records.extend(anatomy_records)
 
@@ -276,22 +316,51 @@ def discover_cases(split_root: Path, anatomies: list[str], mode: str) -> list[di
     return records
 
 
-def build_inference_manifest(records: list[dict], json_root: Path, task: str) -> list[dict]:
+def joint_encoding_order(config: Path) -> list[int] | None:
+    payload = json.loads(config.read_text())
+    joint = payload.get("phase3", {}).get("joint_encoding", {})
+    if not bool(joint.get("enabled", False)):
+        return None
+    mode = str(joint.get("mode", "batch")).lower()
+    if mode not in {"batch", "channel"}:
+        raise ValueError(f"Challenge inference requires joint batch or channel mode, got {mode!r}")
+    count = int(joint.get("count", len(ENCODINGS)))
+    order = [int(value) for value in joint.get("order", ENCODINGS)]
+    if count != len(ENCODINGS) or order != ENCODINGS:
+        raise ValueError(
+            f"Challenge inference requires four ordered encodings {ENCODINGS}, "
+            f"got count={count}, order={order}"
+        )
+    return order
+
+
+def build_inference_manifest(
+    records: list[dict],
+    json_root: Path,
+    task: str,
+    joint_order: list[int] | None,
+) -> tuple[list[dict], list[dict]]:
     json_root.mkdir(parents=True)
-    manifest = []
+    inference_manifest = []
+    reconstruction_manifest = []
     for record in records:
-        for encoding in ENCODINGS:
-            stem = "__".join(
-                [
-                    task,
-                    record["anatomy"],
-                    record["center"],
-                    record["scanner"],
-                    record["patient"],
-                    f"ktGaussian{record['acceleration']}",
-                    f"enc{encoding}",
-                ]
-            )
+        base_parts = [
+            task,
+            record["anatomy"],
+            record["center"],
+            record["scanner"],
+            record["patient"],
+            f"ktGaussian{record['acceleration']}",
+        ]
+        encoding_groups = (
+            [joint_order]
+            if joint_order is not None
+            else [[encoding] for encoding in ENCODINGS]
+        )
+        for encoding_group in encoding_groups:
+            joint = len(encoding_group) > 1
+            suffix = "joint4" if joint else f"enc{encoding_group[0]}"
+            stem = "__".join(base_parts + [suffix])
             json_path = json_root / f"{stem}.json"
             payload = {
                 "kspace": record["kspace"],
@@ -299,20 +368,52 @@ def build_inference_manifest(records: list[dict], json_root: Path, task: str) ->
                 "mask": [record["mask"]],
                 "mask_type": f"ktGaussian{record['acceleration']}",
                 "acquisition": "Flow4d",
-                "encoding_idx": encoding,
                 "is_4dflow": True,
                 "targetless": True,
                 "coilmap": record["coilmap"],
                 "segmask": record["segmask"],
             }
+            if joint:
+                payload["joint_encodings"] = True
+                payload["encoding_indices"] = encoding_group
+            else:
+                payload["encoding_idx"] = encoding_group[0]
             json_path.write_text(json.dumps(payload, indent=2) + "\n")
-            manifest.append({**record, "encoding": encoding, "stem": stem, "json": str(json_path)})
-    return manifest
+            inference_manifest.append(
+                {
+                    **record,
+                    "stem": stem,
+                    "json": str(json_path),
+                    "joint_encodings": joint,
+                }
+            )
+            for encoding in encoding_group:
+                reconstruction_manifest.append(
+                    {
+                        **record,
+                        "encoding": encoding,
+                        "stem": f"{stem}__enc{encoding}" if joint else stem,
+                        "input_stem": stem,
+                        "json": str(json_path),
+                        "joint_encodings": joint,
+                    }
+                )
+    return inference_manifest, reconstruction_manifest
 
 
-def write_effective_config(source: Path, destination: Path) -> None:
+def write_effective_config(
+    source: Path,
+    destination: Path,
+    num_workers: int,
+    batch_size: int,
+) -> None:
+    if num_workers < 0:
+        raise ValueError(f"num_workers must be nonnegative, got {num_workers}")
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
     payload = json.loads(source.read_text())
-    payload["num_workers"] = 0
+    payload["num_workers"] = num_workers
+    payload["batch_size"] = batch_size
     destination.write_text(json.dumps(payload, indent=2) + "\n")
 
 
@@ -452,8 +553,14 @@ def run_spec(
         raise FileExistsError(f"Task output already exists: {task_root}")
     task_root.mkdir(parents=True)
 
+    encoding_order = joint_encoding_order(args.config.resolve())
     provenance = provenance_from_args(args)
-    records = discover_cases(split_root, spec["anatomies"], args.mode)
+    records = discover_cases(
+        split_root,
+        spec["anatomies"],
+        args.mode,
+        spec.get("smoke_acceleration"),
+    )
     expected_cases = len(spec["anatomies"]) if args.mode == "smoke" else spec["full_cases"]
     if len(records) != expected_cases:
         raise RuntimeError(
@@ -464,20 +571,44 @@ def run_spec(
     temporary_root = task_root / "temporary"
     final_root = task_root / "reconstructions"
     submission_root = output_root / "submission"
-    manifest = build_inference_manifest(records, json_root, spec["task"])
+    inference_manifest, reconstruction_manifest = build_inference_manifest(
+        records, json_root, spec["task"], encoding_order
+    )
+    expected_inputs = (
+        expected_cases if encoding_order is not None else expected_cases * len(ENCODINGS)
+    )
     expected_reconstructions = expected_cases * len(ENCODINGS)
-    if len(manifest) != expected_reconstructions:
+    if (
+        len(inference_manifest) != expected_inputs
+        or len(reconstruction_manifest) != expected_reconstructions
+    ):
         raise RuntimeError(
-            f"Inference manifest count mismatch: {len(manifest)} vs {expected_reconstructions}"
+            "Manifest count mismatch: "
+            f"inputs={len(inference_manifest)}/{expected_inputs}, "
+            f"reconstructions={len(reconstruction_manifest)}/{expected_reconstructions}"
         )
 
     (task_root / "case_inventory.json").write_text(json.dumps(records, indent=2) + "\n")
-    (task_root / "inference_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    effective_config = task_root / "effective_config_num_workers0.json"
-    write_effective_config(args.config.resolve(), effective_config)
+    (task_root / "inference_manifest.json").write_text(
+        json.dumps(inference_manifest, indent=2) + "\n"
+    )
+    (task_root / "reconstruction_manifest.json").write_text(
+        json.dumps(reconstruction_manifest, indent=2) + "\n"
+    )
+    effective_config = task_root / (
+        f"effective_config_batch{args.batch_size}_num_workers{args.num_workers}.json"
+    )
+    write_effective_config(
+        args.config.resolve(),
+        effective_config,
+        args.num_workers,
+        args.batch_size,
+    )
 
     run_inference(effective_config, args.checkpoint.resolve(), json_root, temporary_root, args.nproc)
-    reconstructions = organize_reconstructions(manifest, temporary_root, final_root)
+    reconstructions = organize_reconstructions(
+        reconstruction_manifest, temporary_root, final_root
+    )
     submission_files = export_submission(
         records,
         final_root,
@@ -498,7 +629,9 @@ def run_spec(
         "data_root": str(split_root),
         "output_root": str(output_root),
         "case_count": len(records),
-        "inference_manifest_count": len(manifest),
+        "joint_encoding_order": encoding_order,
+        "inference_manifest_count": len(inference_manifest),
+        "reconstruction_manifest_count": len(reconstruction_manifest),
         "reconstruction_count": len(reconstructions),
         "submission_count": len(submission_files),
         "expected_submission_relpaths": [
@@ -510,6 +643,8 @@ def run_spec(
             for key in ("SLURM_JOB_ID", "SLURM_ARRAY_JOB_ID", "SLURM_ARRAY_TASK_ID", "SLURM_JOB_NODELIST")
         },
         "nproc": args.nproc,
+        "batch_size": args.batch_size,
+        "num_workers": args.num_workers,
         "elapsed_seconds": time.time() - started,
     }
     (task_root / summary_name).write_text(json.dumps(summary, indent=2) + "\n")
@@ -534,6 +669,7 @@ def preflight_shards(args: argparse.Namespace) -> None:
     if report_path.exists():
         raise FileExistsError(report_path)
 
+    encoding_order = joint_encoding_order(args.config.resolve())
     provenance = provenance_from_args(args)
     checkpoint_zip = verify_checkpoint_zip(args.checkpoint.resolve())
     shard_inventories = {}
@@ -552,7 +688,10 @@ def preflight_shards(args: argparse.Namespace) -> None:
             "task": spec["task"],
             "anatomies": spec["anatomies"],
             "case_count": len(records),
-            "inference_manifest_count": len(records) * len(ENCODINGS),
+            "inference_manifest_count": (
+                len(records) if encoding_order is not None else len(records) * len(ENCODINGS)
+            ),
+            "reconstruction_manifest_count": len(records) * len(ENCODINGS),
         }
         task_counts[spec["task"]] = task_counts.get(spec["task"], 0) + len(records)
         for record in records:
@@ -579,7 +718,11 @@ def preflight_shards(args: argparse.Namespace) -> None:
         "data_base": str(data_base),
         "output_root": str(output_root),
         "case_count": len(all_keys),
-        "inference_manifest_count": len(all_keys) * len(ENCODINGS),
+        "joint_encoding_order": encoding_order,
+        "inference_manifest_count": (
+            len(all_keys) if encoding_order is not None else len(all_keys) * len(ENCODINGS)
+        ),
+        "reconstruction_manifest_count": len(all_keys) * len(ENCODINGS),
         "task_counts": task_counts,
         "acceleration_counts": acceleration_counts,
         "shards": shard_inventories,
@@ -707,10 +850,12 @@ def package_shards(args: argparse.Namespace) -> None:
 
     run_root = args.run_root.resolve()
     submission_root = run_root / "submission"
-    preflight_path = run_root / "preflight.json"
-    preflight = json.loads(preflight_path.read_text())
-    if preflight.get("status") != "complete" or preflight.get("case_count") != 112:
-        raise RuntimeError(f"Invalid preflight report: {preflight_path}")
+    preflight = None
+    if not getattr(args, "skip_preflight", False):
+        preflight_path = run_root / "preflight.json"
+        preflight = json.loads(preflight_path.read_text())
+        if preflight.get("status") != "complete" or preflight.get("case_count") != 112:
+            raise RuntimeError(f"Invalid preflight report: {preflight_path}")
 
     expected_paths = set()
     summaries = {}
@@ -734,7 +879,7 @@ def package_shards(args: argparse.Namespace) -> None:
         task_counts[spec["task"]] = task_counts.get(spec["task"], 0) + summary["submission_count"]
         expected_paths.update(submission_root / path for path in summary["expected_submission_relpaths"])
 
-    if reference_provenance != preflight.get("provenance"):
+    if preflight is not None and reference_provenance != preflight.get("provenance"):
         raise RuntimeError("Shard provenance does not match preflight provenance")
     if task_counts != {"TaskR1R2": 32, "TaskS1": 40, "TaskS2": 40}:
         raise RuntimeError(f"Unexpected per-task submission counts: {task_counts}")
@@ -760,19 +905,22 @@ def package_shards(args: argparse.Namespace) -> None:
                 task_members,
             )
         )
-    zip_reports.append(
-        write_zip(
-            artifacts_root / "Submission.zip",
-            submission_root,
-            sorted(actual_paths),
+    combined_zip_included = not getattr(args, "skip_combined_zip", False)
+    if combined_zip_included:
+        zip_reports.append(
+            write_zip(
+                artifacts_root / "Submission.zip",
+                submission_root,
+                sorted(actual_paths),
+            )
         )
-    )
 
     report = {
         "status": "complete",
         "run_root": str(run_root),
         "submission_root": str(submission_root),
         "artifact_tag": args.artifact_tag,
+        "combined_zip_included": combined_zip_included,
         "submission_count": len(actual_paths),
         "task_counts": task_counts,
         "shards": summaries,
@@ -788,6 +936,9 @@ def package_shards(args: argparse.Namespace) -> None:
 
 def add_expected_provenance_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--expected-checkpoint-sha256", required=True)
+    parser.add_argument("--expected-config-sha256", required=True)
+    parser.add_argument("--expected-inference-sha256", required=True)
+    parser.add_argument("--expected-exporter-sha256", required=True)
     parser.add_argument("--expected-epoch", type=int, required=True)
     parser.add_argument("--expected-global-step", type=int, required=True)
     parser.add_argument("--expected-wandb-run-id", required=True)
@@ -814,6 +965,8 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--checkpoint", type=Path, required=True)
     run_parser.add_argument("--output-root", type=Path, required=True)
     run_parser.add_argument("--nproc", type=int, required=True)
+    run_parser.add_argument("--batch-size", type=int, required=True)
+    run_parser.add_argument("--num-workers", type=int, required=True)
     run_parser.set_defaults(handler=run_task)
 
     preflight_parser = subparsers.add_parser("preflight-shards")
@@ -827,6 +980,8 @@ def parse_args() -> argparse.Namespace:
     add_run_paths(shard_parser)
     add_expected_provenance_args(shard_parser)
     shard_parser.add_argument("--nproc", type=int, required=True)
+    shard_parser.add_argument("--batch-size", type=int, required=True)
+    shard_parser.add_argument("--num-workers", type=int, required=True)
     shard_parser.set_defaults(handler=run_shard)
 
     package_parser = subparsers.add_parser("package")
@@ -836,6 +991,8 @@ def parse_args() -> argparse.Namespace:
     shard_package_parser = subparsers.add_parser("package-shards")
     shard_package_parser.add_argument("--run-root", type=Path, required=True)
     shard_package_parser.add_argument("--artifact-tag", required=True)
+    shard_package_parser.add_argument("--skip-preflight", action="store_true")
+    shard_package_parser.add_argument("--skip-combined-zip", action="store_true")
     shard_package_parser.set_defaults(handler=package_shards)
     return parser.parse_args()
 
