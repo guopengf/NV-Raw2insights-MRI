@@ -15,6 +15,8 @@ import json
 import os
 import random
 import re
+import time
+from collections import OrderedDict
 from collections.abc import Sequence
 
 import numpy as np
@@ -25,7 +27,7 @@ from mra_utils import (
     load_roi_loss_mask,
     load_vessel_mask_prior,
     roi_loss_mask_needed,
-    vaa_prior_needed,
+    vascular_prior_needed,
 )
 from monai.config import PathLike
 from monai.data.image_reader import ImageReader
@@ -267,6 +269,10 @@ class CMRxReconReader(ImageReader):
         super().__init__()
         self.fixed_mask_types = fixed_mask_types if isinstance(fixed_mask_types, list) else [fixed_mask_types]
         self.args = args
+        self._mat_array_caches = {
+            "target": OrderedDict(),
+            "coilmap": OrderedDict(),
+        }
 
     def verify_suffix(self, filename: Sequence[PathLike] | PathLike) -> bool:
         suffixes: Sequence[str] = [".json"]
@@ -315,6 +321,45 @@ class CMRxReconReader(ImageReader):
             return value, shape
         return value
 
+    def _cache_capacity(self, cache_name: str) -> int:
+        return max(
+            0,
+            int(cfg_get(self.args, f"reader_{cache_name}_cache_entries", 0)) if self.args is not None else 0,
+        )
+
+    def read_cached_mat_array(
+        self,
+        cache_name: str,
+        mat_file: Sequence[PathLike],
+        preferred_keys: Sequence[str] = (),
+    ):
+        """Read a full MAT array through a bounded per-reader LRU cache."""
+        capacity = self._cache_capacity(cache_name)
+        if capacity <= 0:
+            value, shape = self.read_first_mat_array(
+                mat_file,
+                preferred_keys=preferred_keys,
+                return_shape=True,
+            )
+            return value, shape, False
+
+        cache = self._mat_array_caches[cache_name]
+        key = os.fspath(mat_file)
+        if key in cache:
+            value, shape = cache.pop(key)
+            cache[key] = (value, shape)
+            return value, shape, True
+
+        value, shape = self.read_first_mat_array(
+            mat_file,
+            preferred_keys=preferred_keys,
+            return_shape=True,
+        )
+        cache[key] = (value, shape)
+        while len(cache) > capacity:
+            cache.popitem(last=False)
+        return value, shape, False
+
     def filter_masks_by_types(self, masks, fixed_mask_types):
         result = []
         if not all(fixed_mask_types):
@@ -350,12 +395,31 @@ class CMRxReconReader(ImageReader):
                 return k
         return None
 
+    def _worker_timing_enabled(self) -> bool:
+        return self.args is not None and bool(
+            cfg_get(self.args, "performance_timing.worker_timing_enabled", False)
+        )
+
+    def _timed_call(self, timings: dict | None, name: str, func):
+        if timings is None:
+            return func()
+        started = time.perf_counter()
+        try:
+            return func()
+        finally:
+            timings[name] = (time.perf_counter() - started) * 1000.0
+
     def read(self, data: Sequence[PathLike] | PathLike) -> dict:  # type: ignore
         if isinstance(data, (tuple, list)):
             data = data[0]
 
-        with open(data, "r") as f:
-            json_data = json.load(f)
+        worker_timings = {} if self._worker_timing_enabled() else None
+
+        def load_json():
+            with open(data, "r") as f:
+                return json.load(f)
+
+        json_data = self._timed_call(worker_timings, "json_open_ms", load_json)
 
         if bool(json_data.get("is_4dflow", False)):
             kspace = json_data["kspace"]
@@ -370,20 +434,44 @@ class CMRxReconReader(ImageReader):
             mask = random.choice(masks) if len(masks) > 0 else ""
             mask_type = json_data.get("mask_type", self._infer_mask_type(mask) if mask else "fixed")
 
+            joint_encodings = bool(json_data.get("joint_encodings", False))
+            encoding_indices = tuple(int(value) for value in json_data.get("encoding_indices", (0, 1, 2, 3)))
             enc_idx = int(json_data.get("encoding_idx", 0))
-            encoding_selection = (slice(enc_idx, enc_idx + 1), Ellipsis)
-            kspace_input, input_shape = self.read_first_mat_array(
-                kspace,
-                preferred_keys=("kdata", "kdata_ktGaussian", "kus", "kspace", "kspace_full"),
-                selection=encoding_selection,
-                return_shape=True,
+            encoding_selection = None if joint_encodings else (slice(enc_idx, enc_idx + 1), Ellipsis)
+            kspace_input, input_shape = self._timed_call(
+                worker_timings,
+                "input_read_ms",
+                lambda: self.read_first_mat_array(
+                    kspace,
+                    preferred_keys=("kdata", "kdata_ktGaussian", "kus", "kspace", "kspace_full"),
+                    selection=encoding_selection,
+                    return_shape=True,
+                ),
             )
-            kspace_target, target_shape = self.read_first_mat_array(
-                target_kspace,
-                preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
-                selection=encoding_selection,
-                return_shape=True,
-            )
+            if joint_encodings:
+                kspace_target, target_shape, target_cache_hit = self._timed_call(
+                    worker_timings,
+                    "target_read_ms",
+                    lambda: self.read_cached_mat_array(
+                        "target",
+                        target_kspace,
+                        preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
+                    ),
+                )
+            else:
+                kspace_target, target_shape = self._timed_call(
+                    worker_timings,
+                    "target_read_ms",
+                    lambda: self.read_first_mat_array(
+                        target_kspace,
+                        preferred_keys=("kdata_full", "kdata", "kspace_full", "kspace"),
+                        selection=encoding_selection,
+                        return_shape=True,
+                    ),
+                )
+                target_cache_hit = False
+            if worker_timings is not None:
+                worker_timings["target_cache_hit"] = float(target_cache_hit)
 
             dat = {
                 CMRxReconKeys.FILENAME: os.path.basename(data),
@@ -391,23 +479,48 @@ class CMRxReconReader(ImageReader):
                 CMRxReconKeys.ACQUISITION: json_data.get("acquisition", "Flow4d"),
                 "is_4dflow": True,
                 "encoding_idx": enc_idx,
+                "joint_encodings": joint_encodings,
+                "encoding_indices": encoding_indices,
                 "num_encodings": int(target_shape[0]) if len(target_shape) > 0 else int(input_shape[0]),
                 "coilmap_axis_order": json_data.get("coilmap_axis_order", "auto"),
                 "normalize_coilmap": bool(json_data.get("normalize_coilmap", True)),
                 "kspace_4dflow_input": kspace_input,
                 "kspace_4dflow_target": kspace_target,
             }
+            if worker_timings is not None:
+                dat["worker_timing"] = worker_timings
             if mask:
-                dat[CMRxReconKeys.MASK] = self.read_first_mat_array(
-                    mask,
-                    preferred_keys=("mask", "usmask", "sampling_mask"),
+                dat[CMRxReconKeys.MASK] = self._timed_call(
+                    worker_timings,
+                    "mask_read_ms",
+                    lambda: self.read_first_mat_array(
+                        mask,
+                        preferred_keys=("mask", "usmask", "sampling_mask"),
+                    ),
                 )
             if "coilmap" in json_data and json_data["coilmap"]:
-                dat[CMRxReconKeys.SENSITIVITY_MAPS] = self.read_first_mat_array(
-                    json_data["coilmap"],
-                    preferred_keys=("coilmap", "csm", "sensitivity_maps", "sens_maps"),
+                coilmap_value, _, coilmap_cache_hit = self._timed_call(
+                    worker_timings,
+                    "coilmap_read_ms",
+                    lambda: self.read_cached_mat_array(
+                        "coilmap",
+                        json_data["coilmap"],
+                        preferred_keys=("coilmap", "csm", "sensitivity_maps", "sens_maps"),
+                    ),
                 )
-            if vaa_prior_needed(self.args) or bool(cfg_get(self.args, "phase3.loss.use_vascular", False)):
+                dat[CMRxReconKeys.SENSITIVITY_MAPS] = coilmap_value
+                if worker_timings is not None:
+                    worker_timings["coilmap_cache_hit"] = float(coilmap_cache_hit)
+            if joint_encodings:
+                roi_field = str(cfg_get(self.args, "phase3.loss.roi.field", "segmask"))
+                roi_path = json_data.get(roi_field, json_data.get("segmask"))
+                if roi_path and roi_loss_mask_needed(self.args):
+                    dat["joint_segmask"] = load_roi_loss_mask(roi_path, self.args)
+                elif json_data.get("segmask"):
+                    # Backward compatibility for pengfei_joint configs that predate
+                    # the independent phase3.loss.roi namespace.
+                    dat["joint_segmask"] = load_vessel_mask_prior(json_data["segmask"], self.args)
+            if vascular_prior_needed(self.args):
                 prior_source = str(cfg_get(self.args, "phase3.vaa.prior_source", "mra")).lower()
                 if prior_source == "mask":
                     field = str(cfg_get(self.args, "phase3.mask.field", "segmask"))
@@ -417,22 +530,6 @@ class CMRxReconReader(ImageReader):
                     dat["mra_prior"] = load_vessel_mask_prior(mask_path, self.args)
                 else:
                     dat["mra_prior"] = generate_or_load_mra_prior(self.args, json_data)
-            if roi_loss_mask_needed(self.args):
-                field = str(cfg_get(self.args, "phase3.loss.roi.field", "segmask"))
-                roi_path = json_data.get(field)
-                if not roi_path:
-                    raise ValueError(
-                        "phase3.loss.roi.enabled=true with source='segmask' requires "
-                        f"JSON field {field!r}: {data}"
-                    )
-                roi_mask = load_roi_loss_mask(roi_path, self.args)
-                expected_roi_shape = (int(target_shape[-1]), int(target_shape[-3]), int(target_shape[-2]))
-                if tuple(roi_mask.shape) != expected_roi_shape:
-                    raise ValueError(
-                        f"ROI mask shape mismatch after [x,z,y] orientation: got {tuple(roi_mask.shape)}, "
-                        f"expected {expected_roi_shape} from k-space {tuple(target_shape)}: {roi_path}"
-                    )
-                dat["roi_mask"] = roi_mask
             return dat
 
         kspace = json_data["kspace"]
@@ -446,7 +543,7 @@ class CMRxReconReader(ImageReader):
         acquisition_type = json_data.get("acquisition", None)
         if acquisition_type is None:
             m = re.search(r"(?:^|[/\\])MultiCoil[/\\]([^/\\]+)", kspace, flags=re.I)
-            acquisition_type = m.group(1) if m else "Flow2d"
+            acquisition_type = m.group(1) if m else "Flow4d"
 
         kspace_kv = self.read_mat(kspace)
         mask_kv = self.read_mat(mask) if mask else [(None, None)]
@@ -481,9 +578,18 @@ class CMRxReconReader(ImageReader):
         #   do NOT merge enc*t here
         # ----------------------------------------------------------
         if dat.get("is_4dflow", False):
+            worker_timings = dat.get("worker_timing")
             if "kspace_4dflow_input" in dat and "kspace_4dflow_target" in dat:
-                raw_input = self._to_complex_array(dat["kspace_4dflow_input"])
-                raw_target = self._to_complex_array(dat["kspace_4dflow_target"])
+                raw_input = self._timed_call(
+                    worker_timings,
+                    "input_complex_ms",
+                    lambda: self._to_complex_array(dat["kspace_4dflow_input"]),
+                )
+                raw_target = self._timed_call(
+                    worker_timings,
+                    "target_complex_ms",
+                    lambda: self._to_complex_array(dat["kspace_4dflow_target"]),
+                )
             else:
                 kspace_key = self._find_first_existing_key(
                     dat,
@@ -491,8 +597,14 @@ class CMRxReconReader(ImageReader):
                 )
                 if kspace_key is None:
                     raise ValueError("Could not find 4D flow k-space key in .mat file.")
-                raw_input = self._to_complex_array(dat[kspace_key])
+                raw_input = self._timed_call(
+                    worker_timings,
+                    "input_complex_ms",
+                    lambda: self._to_complex_array(dat[kspace_key]),
+                )
                 raw_target = raw_input
+                if worker_timings is not None:
+                    worker_timings["target_complex_ms"] = 0.0
 
             if raw_input.ndim != 6 or raw_target.ndim != 6:
                 raise ValueError(
@@ -509,25 +621,32 @@ class CMRxReconReader(ImageReader):
                     f"got input={raw_input.shape}, target={raw_target.shape}"
                 )
             
-            if "encoding_idx" not in dat:
-                raise ValueError("encoding_idx is required for 4D flow when enc is split into batch.")
-            
-            enc_idx = int(dat["encoding_idx"])
-            if not (0 <= enc_idx < n_enc_all):
-                raise ValueError(f"encoding_idx={enc_idx} out of range for raw shape {raw_target.shape}")
-
-            # keep singleton enc dim so transforms.py still sees a 6D tensor
-            if n_enc_loaded == n_enc_all and n_enc_all > 1:
-                raw_input = raw_input[enc_idx : enc_idx + 1]    # shape: (1, t, coil, kz, ky, kx)
-                raw_target = raw_target[enc_idx : enc_idx + 1]  # shape: (1, t, coil, kz, ky, kx)
-            elif n_enc_loaded == 1:
-                raw_input = raw_input[:1]
-                raw_target = raw_target[:1]
+            joint_encodings = bool(dat.get("joint_encodings", False))
+            if joint_encodings:
+                encoding_indices = tuple(int(value) for value in dat.get("encoding_indices", range(n_enc_all)))
+                if len(encoding_indices) != n_enc_all or sorted(encoding_indices) != list(range(n_enc_all)):
+                    raise ValueError(
+                        f"Joint encoding order must be a permutation of 0..{n_enc_all - 1}, got {encoding_indices}"
+                    )
+                raw_input = raw_input[list(encoding_indices)]
+                raw_target = raw_target[list(encoding_indices)]
             else:
-                raise ValueError(
-                    "Unexpected loaded encoding dimension for 4D flow: "
-                    f"loaded={n_enc_loaded}, total={n_enc_all}, encoding_idx={enc_idx}"
-                )
+                if "encoding_idx" not in dat:
+                    raise ValueError("encoding_idx is required for 4D flow when enc is split into batch.")
+                enc_idx = int(dat["encoding_idx"])
+                if not (0 <= enc_idx < n_enc_all):
+                    raise ValueError(f"encoding_idx={enc_idx} out of range for raw shape {raw_target.shape}")
+                if n_enc_loaded == n_enc_all and n_enc_all > 1:
+                    raw_input = raw_input[enc_idx : enc_idx + 1]
+                    raw_target = raw_target[enc_idx : enc_idx + 1]
+                elif n_enc_loaded == 1:
+                    raw_input = raw_input[:1]
+                    raw_target = raw_target[:1]
+                else:
+                    raise ValueError(
+                        "Unexpected loaded encoding dimension for 4D flow: "
+                        f"loaded={n_enc_loaded}, total={n_enc_all}, encoding_idx={enc_idx}"
+                    )
             data = raw_target
             
             header[CMRxReconKeys.PID] = os.path.splitext(dat[CMRxReconKeys.FILENAME])[0]
@@ -541,7 +660,13 @@ class CMRxReconReader(ImageReader):
             header[CMRxReconKeys.NUM_COILS] = nc
             header[CMRxReconKeys.SHAPE] = np.array([nt, nkx, nc, nkz, nky], dtype=np.int32)
             header["num_encodings"] = n_enc_all
-            header["encoding_idx"] = enc_idx
+            header["joint_encodings"] = joint_encodings
+            if joint_encodings:
+                header["encoding_indices"] = np.asarray(dat["encoding_indices"], dtype=np.int32)
+                if "joint_segmask" in dat:
+                    header["joint_segmask"] = np.asarray(dat["joint_segmask"], dtype=np.float32)
+            else:
+                header["encoding_idx"] = enc_idx
             header["coilmap_axis_order"] = dat.get("coilmap_axis_order", "auto")
             header["normalize_coilmap"] = bool(dat.get("normalize_coilmap", True))
 
@@ -567,11 +692,27 @@ class CMRxReconReader(ImageReader):
 
             header["kspace_4dflow_input"] = raw_input
             if CMRxReconKeys.SENSITIVITY_MAPS in dat:
-                header[CMRxReconKeys.SENSITIVITY_MAPS] = self._to_complex_array(dat[CMRxReconKeys.SENSITIVITY_MAPS])
+                header[CMRxReconKeys.SENSITIVITY_MAPS] = self._timed_call(
+                    worker_timings,
+                    "coilmap_complex_ms",
+                    lambda: self._to_complex_array(dat[CMRxReconKeys.SENSITIVITY_MAPS]),
+                )
             if "mra_prior" in dat and dat["mra_prior"] is not None:
                 header["mra_prior"] = np.asarray(dat["mra_prior"], dtype=np.float32)
-            if "roi_mask" in dat and dat["roi_mask"] is not None:
-                header["roi_mask"] = np.asarray(dat["roi_mask"], dtype=np.float32)
+
+            if worker_timings is not None:
+                for timing_name in (
+                    "json_open_ms",
+                    "input_read_ms",
+                    "target_read_ms",
+                    "mask_read_ms",
+                    "coilmap_read_ms",
+                    "input_complex_ms",
+                    "target_complex_ms",
+                    "coilmap_complex_ms",
+                ):
+                    worker_timings.setdefault(timing_name, 0.0)
+                header["worker_timing"] = worker_timings
 
             return data, header
 

@@ -1,6 +1,6 @@
 # NV-Raw2Insights-MRI 4D Flow Handoff
 
-更新时间：2026-06-29  
+更新时间：2026-06-29
 项目路径：`/localhome/zhanghs/NV-Raw2insights-MRI`
 
 这个文档用于把当前 4D Flow MRI 任务交接给其他模型。读完此文件后，应该能立即理解当前代码的核心约定、已经做过的 Phase3/VAA/MRA/loss/export/evaluation 改动，以及后续修改时不能破坏的地方。
@@ -189,7 +189,7 @@ deltaF = VAA(F, MRA)
 ### 3.4 Official submission / evaluation
 
 - `scripts/tools/fix_4dflow_recon_coil_dim.py`
-  - 修复 inference `.mat` 里还残留 coil dimension 的情况。
+  - legacy repair tool，修复旧 inference `.mat` 或 `--preserve-multicoil-output` 输出里残留的 coil dimension。
   - 输入常见 shape：
 
 ```text
@@ -202,8 +202,8 @@ deltaF = VAA(F, MRA)
 (PE,SPE,FE,Nt,2) = (y,z,x,t,real/imag)
 ```
 
-- `scripts/export_4dflow_submission.py`
-  - 把 fixed per-enc `.mat` 转换成官方 sparse `.npz`。
+- `scripts/tools/export_4dflow_submission.py`
+  - 把 coil-combined per-enc `.mat` 转换成官方 sparse `.npz`。
   - 输入 per-encoding recon layout 默认 `yzxt`。
   - 输出官方 dense 逻辑 shape：
 
@@ -597,15 +597,16 @@ scripts/train_utils.py
 (PE,SPE,FE,Nt,2) = (y,z,x,t,real/imag)
 ```
 
-如果还没 coil combine，可能是：
+`scripts/run_4dflow_inference.py` 默认在保存前使用 sensitivity maps 做 coil combine，因此新输出通常可以直接 export。
+如果使用 `--preserve-multicoil-output`，或处理旧 inference 结果，shape 可能是：
 
 ```text
 (PE,SPE,FE,Nt,Nc,2)
 ```
 
-此时要用 `fix_4dflow_recon_coil_dim.py`。
+此时要先用 `scripts/tools/fix_4dflow_recon_coil_dim.py`。
 
-### 9.2 fixed -> official submission
+### 9.2 coil-combined -> official submission
 
 官方需要：
 
@@ -613,9 +614,9 @@ scripts/train_utils.py
 (Nv,Nt,SPE,PE,FE) = (enc,t,z,y,x)
 ```
 
-`export_4dflow_submission.py` 会：
+`scripts/tools/export_4dflow_submission.py` 会：
 
-1. 读取 fixed per-enc `.mat`。
+1. 读取 coil-combined per-enc `.mat`。
 2. `yzxt -> tzyx`。
 3. stack enc0..enc3。
 4. 乘 `segmask`。
@@ -643,7 +644,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 WANDB_MODE=offline torchrun --nproc_per_node=4 scri
 
 如果遇到 NCCL timeout，并且同代码别人机器没问题，优先考虑本机 GPU/driver/NCCL/IO/进程状态，而不是直接改代码。
 
-### 10.3 修复 coil dim：R1R2/Aorta 示例
+### 10.3 修复 legacy coil dim：R1R2/Aorta 示例
 
 ```bash
 conda run -n 4dflow python scripts/tools/fix_4dflow_recon_coil_dim.py \
@@ -653,7 +654,7 @@ conda run -n 4dflow python scripts/tools/fix_4dflow_recon_coil_dim.py \
   --overwrite
 ```
 
-### 10.4 修复 coil dim：S2 多 anatomy
+### 10.4 修复 legacy coil dim：S2 多 anatomy
 
 ```bash
 conda run -n 4dflow python scripts/tools/fix_4dflow_recon_coil_dim.py \
@@ -669,7 +670,7 @@ conda run -n 4dflow python scripts/tools/fix_4dflow_recon_coil_dim.py \
 BASE=/SSDHome/share/haosen/4dflow/output/validation0609/raw_complex_infer_val3splits_epoch120_no_vaa_allenc_20260609
 
 for ANAT in Carotid Cerebrovascular PortalVein RenalArtery; do
-  conda run -n 4dflow python scripts/export_4dflow_submission.py \
+  conda run -n 4dflow python scripts/tools/export_4dflow_submission.py \
     --recon-root ${BASE}/S2/fixed/${ANAT} \
     --data-root /mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData/TaskS2/ValidationSet/${ANAT} \
     --out-root ${BASE}/S2/submission \
@@ -772,7 +773,8 @@ ChallengeData
 
 ### 12.3 inference 后还是多 coil
 
-模型训练时可以使用 coil map，但 inference 保存可能仍是 coil-wise image。需要用：
+新 wrapper 默认保存 coil-combined complex image。只有旧结果或显式使用
+`--preserve-multicoil-output` 时才会保存 coil-wise image，此时需要用：
 
 ```text
 scripts/tools/fix_4dflow_recon_coil_dim.py
@@ -832,22 +834,7 @@ config 里可能有：
 
 ## 13. 当前工作区状态提示
 
-截至写本文档时，`git status --short` 显示：
-
-```text
- M scripts/inference.py
- M scripts/train.py
- M scripts/utils.py
-?? scripts/export_4dflow_submission.py
-?? scripts/tools/evaluate_4dflow_submission.py
-?? scripts/tools/fix_4dflow_recon_coil_dim.py
-```
-
-也就是说：
-
-- 当前工作区不是 clean。
-- 不要随意 `git reset --hard`。
-- 如果要和原始分支对比，先保存/commit 当前改动或明确用户意图。
+修改前先检查 `git status --short`，不要随意覆盖尚未提交的训练或 inference 改动。
 
 ## 14. 后续修改原则
 

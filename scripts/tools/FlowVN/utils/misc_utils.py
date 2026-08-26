@@ -40,24 +40,24 @@ class modReLU(nn.Module):
         self.bias = torch.nn.Parameter(data=torch.zeros((1,hidden_size,1,1)), requires_grad=True)
 
     def forward(self, x):
-        return x * self.relu(torch.abs(x) + self.bias) / (torch.abs(x) + 1e-6)    
+        return x * self.relu(torch.abs(x) + self.bias) / (torch.abs(x) + 1e-6)
 
 def mriAdjointOp(rawdata, sens, mask):
     """ Adjoint operation that convert kspace to coil-combined under-sampled image """
     coil_sens = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(rawdata * mask), norm="ortho"))
     img = np.sum(coil_sens*np.conj(sens), axis=1)
     return img
-    
+
 
 def mri_adjoint_op(f, coil_sens):
     """ Adjoint operation that convert kspace to coil-combined under-sampled image """
     Finv = ifftc2d(f)  # NxVxCxTxDxHxW
     coil_sens = coil_sens.unsqueeze(1).unsqueeze(3)  # Nx1xCx1xDxHxW
-    img = torch.sum(Finv * torch.conj(coil_sens), 2)  # NxVx1xTxDxHxW 
+    img = torch.sum(Finv * torch.conj(coil_sens), 2)  # NxVx1xTxDxHxW
     return img
 
 
-def mri_forward_op(u, coil_sens, sampling_mask): 
+def mri_forward_op(u, coil_sens, sampling_mask):
     """ Forward pass with kspace """
     coil_imgs = u.unsqueeze(2) * coil_sens.unsqueeze(1).unsqueeze(3)  # NxVxCxTxDxHxW
     Fu = fftc2d(coil_imgs)  # NxVxCxTxDxHxW
@@ -66,14 +66,14 @@ def mri_forward_op(u, coil_sens, sampling_mask):
 
 def fftc2d(x):
     x = torch.fft.ifftshift(x, dim=(-2,-1))
-    x = torch.fft.fft2(x, dim=(-2, -1), norm="ortho") 
+    x = torch.fft.fft2(x, dim=(-2, -1), norm="ortho")
     x = torch.fft.fftshift(x, dim=[-1,-2])
     return x
 
 
 def ifftc2d(x):
     x = torch.fft.ifftshift(x, dim=(-2,-1))
-    x = torch.fft.ifft2(x, dim=(-2, -1), norm="ortho") 
+    x = torch.fft.ifft2(x, dim=(-2, -1), norm="ortho")
     x = torch.fft.fftshift(x, dim=[-1,-2])
     return x
 
@@ -107,7 +107,7 @@ def pad_array(img,pad_width,value=0):
                 pad_width = 6 --> pads array symmetrically along all directions with 2 x 6 elements with value
                 pad_width = -6 --> crops array symmetrically along all directions by 2 x 6 elements
                 pad_width = ((3,5),(7,7)) where len(pad_width) must be = img.ndim --> pads by 3 + 5 elements
-                    along axis 1 and 7 + 7 elements along axis 2  
+                    along axis 1 and 7 + 7 elements along axis 2
 
     Returns:
         out (ndarray): Padded or cropped matrix.
@@ -142,4 +142,3 @@ def pad_array(img,pad_width,value=0):
             return img[reversed_padding]
         else:
             raise Exception('All value element must be >0 OR <0')
-        

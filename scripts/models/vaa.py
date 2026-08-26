@@ -10,10 +10,11 @@ import torch.nn.functional as F
 class VascularAttentionAdapter(nn.Module):
     """Mask-guided vascular adapter.
 
-    ``attention="gate"`` keeps the lightweight gate adapter used by earlier
-    experiments. ``attention="qkv"`` uses true spatial QKV attention: Q/K/V are
-    generated from feature maps and the vessel prior is injected as attention
-    bias over spatial keys.
+    ``attention="legacy"`` reproduces the original residual adapter so existing
+    VAA checkpoints remain compatible. ``attention="gate"`` adds a learned
+    mask gate to that residual branch. ``attention="qkv"`` uses true spatial
+    QKV attention: Q/K/V are generated from feature maps and the vessel prior is
+    injected as attention bias over spatial keys.
     """
 
     def __init__(
@@ -23,7 +24,7 @@ class VascularAttentionAdapter(nn.Module):
         gamma_init: float = 0.0,
         gamma_mode: str = "shifted_sigmoid",
         prior_channels: int = 1,
-        attention: str = "gate",
+        attention: str = "legacy",
         num_heads: int = 4,
         attention_stride: int = 1,
         use_mask_bias: bool = True,
@@ -38,10 +39,10 @@ class VascularAttentionAdapter(nn.Module):
         self.prior_channels = int(prior_channels)
         self.spatial_dims = int(spatial_dims)
         self.attention = str(attention).lower()
-        if self.attention not in {"gate", "qkv"}:
-            raise ValueError(f"Unsupported VAA attention type: {attention}. Use 'gate' or 'qkv'.")
+        if self.attention not in {"legacy", "gate", "qkv"}:
+            raise ValueError(f"Unsupported VAA attention type: {attention}. Use 'legacy', 'gate', or 'qkv'.")
 
-        if self.attention == "gate":
+        if self.attention in {"legacy", "gate"}:
             self.net = nn.Sequential(
                 conv(channels + self.prior_channels, hidden, kernel_size=1, bias=True),
                 nn.GELU(),
@@ -49,12 +50,13 @@ class VascularAttentionAdapter(nn.Module):
                 nn.GELU(),
                 conv(hidden, channels, kernel_size=1, bias=True),
             )
-            self.gate = nn.Sequential(
-                conv(self.prior_channels, hidden, kernel_size=1, bias=True),
-                nn.GELU(),
-                conv(hidden, 1, kernel_size=3, padding=1, bias=True),
-                nn.Sigmoid(),
-            )
+            if self.attention == "gate":
+                self.gate = nn.Sequential(
+                    conv(self.prior_channels, hidden, kernel_size=1, bias=True),
+                    nn.GELU(),
+                    conv(hidden, 1, kernel_size=3, padding=1, bias=True),
+                    nn.Sigmoid(),
+                )
         else:
             num_heads = max(int(num_heads), 1)
             if hidden % num_heads != 0:
@@ -112,8 +114,10 @@ class VascularAttentionAdapter(nn.Module):
     def forward(self, feature: torch.Tensor, vessel_map: torch.Tensor) -> torch.Tensor:
         prior = self._prepare_prior(vessel_map, feature)
         gamma = self.gamma().to(dtype=feature.dtype)
-        if self.attention == "gate":
+        if self.attention in {"legacy", "gate"}:
             delta = self.net(torch.cat([feature, prior], dim=1))
+            if self.attention == "legacy":
+                return feature + gamma * delta
             gate = self.gate(prior)
             return feature + gamma * gate * delta
 

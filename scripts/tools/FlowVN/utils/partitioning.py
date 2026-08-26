@@ -1,5 +1,5 @@
 """
-Adapted from 
+Adapted from
 https://github.com/byaman14/SSDU
 """
 

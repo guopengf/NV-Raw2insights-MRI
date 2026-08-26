@@ -11,4 +11,6 @@ onelogger*
 cache/
 dataset/
 outputs/
+*.slurm
 .docx
+logs/

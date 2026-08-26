@@ -118,7 +118,7 @@ MRA is case-level and shared by all slice reconstructions from the same case.
 
 Added cache in `scripts/mra_utils.py`.
 
-- Cache path defaults to `/SSDHome/share/haosen/4dflow/mra_cache`.
+- Cache path defaults to `outputs/4dflow/mra_cache`.
 - Cache key includes patient path, source, mask type, vessel map parameters, projection axis, and SENSE parameters.
 - Cache is used only when `phase3.enable_vaa=true`.
 

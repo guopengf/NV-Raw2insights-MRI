@@ -303,7 +303,11 @@ Each generated JSON contains:
 
 ## Submission Export and Evaluation
 
-After inference, export the per-encoding complex `.mat` reconstructions to the official sparse NPZ submission tree with:
+`scripts/run_4dflow_inference.py` sensitivity-combines multi-coil complex output by default, so its organized
+`final` tree is directly exportable. Use `--preserve-multicoil-output` only when coil-resolved output is needed for
+debugging. Existing coil-resolved runs must first be converted with `scripts/tools/fix_4dflow_recon_coil_dim.py`.
+
+Export the per-encoding complex `.mat` reconstructions to the official sparse NPZ submission tree with:
 
 ```bash
 python scripts/tools/export_4dflow_submission.py \
@@ -458,7 +462,14 @@ Aorta
 
 Utility script for running inference over 4D Flow Aorta cases and organizing results.
 
-It creates temporary JSON inputs, runs `scripts/inference.py`, then copies outputs into an organized output folder.
+It creates temporary JSON inputs, runs `scripts/inference.py`, sensitivity-combines multi-coil output, then copies
+exporter-ready complex reconstructions into an organized output folder. Pass `--preserve-multicoil-output` to retain
+the legacy coil-resolved output instead.
+
+### `scripts/tools/fix_4dflow_recon_coil_dim.py`
+
+Legacy utility for sensitivity-combining coil-resolved complex `.mat` files created by older inference runs or by
+`run_4dflow_inference.py --preserve-multicoil-output`.
 
 ### `scripts/reorganize_4dflow_outputs.py`
 

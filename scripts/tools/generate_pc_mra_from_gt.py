@@ -228,7 +228,7 @@ def main() -> None:
     parser.add_argument(
         "--case-dir",
         type=Path,
-        default=Path("/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P088"),
+        default=Path("/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P088"),
     )
     parser.add_argument("--gt-kspace", type=Path)
     parser.add_argument("--us-kspace", type=Path)
@@ -238,7 +238,7 @@ def main() -> None:
     parser.add_argument("--sense-niter", type=int, default=5)
     parser.add_argument("--sense-lam", type=float, default=1e-4)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--out-dir", type=Path, default=Path("/SSDHome/share/haosen/4dflow/MRAtest"))
+    parser.add_argument("--out-dir", type=Path, default=Path("outputs/4dflow/MRAtest"))
     parser.add_argument("--vessel-lower-percentile", type=float, default=1.0)
     parser.add_argument("--vessel-upper-percentile", type=float, default=99.5)
     parser.add_argument("--vessel-smooth-sigma", type=float, default=0.75)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,7 +16,7 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 from models.flowvn_mixer import FLOWVN_BRANCHES, FlowVNMultiPlaneMixer
 from models.restormer.restormer import Restormer, restormer_mri
 from models.vaa import VascularAttentionAdapter
-from utils import load_config, load_shape_compatible_state_dict
+from utils import load_config, load_net, load_shape_compatible_state_dict
 
 
 def test_flowvn_mixer_zero_scale_is_exact_bypass():
@@ -38,6 +39,45 @@ def test_flowvn_mixer_zero_scale_is_exact_bypass():
     assert mixer.scale.grad is not None
     assert torch.isfinite(mixer.scale.grad)
     assert mixer.scale.grad.abs().item() > 0
+
+
+def test_flowvn_regularizer_parameters_receive_gradients_after_scale_moves():
+    torch.manual_seed(7)
+    mixer = FlowVNMultiPlaneMixer(
+        in_channels=1,
+        features=2,
+        kernel_size=3,
+        num_knots=5,
+        branches=FLOWVN_BRANCHES,
+        scale_init=0.0,
+        acceleration_modulation=True,
+    )
+    optimizer = torch.optim.AdamW(mixer.parameters(), lr=1e-2, weight_decay=0.0)
+    x = torch.randn(1, 3, 5, 1, 4, 6, 2)
+    target = torch.randn_like(x)
+
+    first_loss = (x - mixer(x, acceleration=20) - target).square().mean()
+    first_loss.backward()
+    assert mixer.scale.grad is not None
+    assert mixer.scale.grad.abs().item() > 0
+    optimizer.step()
+    assert mixer.scale.detach().abs().item() > 0
+
+    optimizer.zero_grad(set_to_none=True)
+    second_loss = (x - mixer(x, acceleration=20) - target).square().mean()
+    second_loss.backward()
+    kernel_grad = sum(
+        regularizer.weight.grad.detach().abs().sum()
+        for regularizer in mixer.regularizers.values()
+    )
+    knot_grad = sum(
+        regularizer.activation.knots.grad.detach().abs().sum()
+        for regularizer in mixer.regularizers.values()
+    )
+    assert torch.isfinite(kernel_grad)
+    assert torch.isfinite(knot_grad)
+    assert kernel_grad.item() > 0
+    assert knot_grad.item() > 0
 
 
 def test_each_flowvn_plane_restores_the_input_axis_order():
@@ -101,6 +141,44 @@ def test_existing_2d_restormer_path_remains_available():
     assert output.shape == x.shape
 
 
+def test_center_inflated_3d_restormer_bootstrap_is_shape_complete_and_bounded():
+    torch.manual_seed(11)
+    phase3_2d = SimpleNamespace(enable_vaa=False, recon_mode="slice", num_slices=1)
+    phase3_3d = SimpleNamespace(enable_vaa=False, recon_mode="slab", num_slices=3)
+    kwargs = {
+        "in_channel": 10,
+        "out_channel": 10,
+        "num_blocks": [1, 1],
+        "num_heads": [1, 2],
+        "channels": [8, 16],
+        "num_refinement": 1,
+        "expansion_factor": 2,
+        "norm_type": "ln",
+    }
+    model_2d = Restormer(**kwargs, phase3=phase3_2d, spatial_dims=2).eval()
+    model_3d = Restormer(**kwargs, phase3=phase3_3d, spatial_dims=3).eval()
+    loaded, _unchanged, skipped, unexpected, inflated = load_shape_compatible_state_dict(
+        model_3d,
+        model_2d.state_dict(),
+    )
+
+    assert loaded
+    assert inflated
+    assert not skipped
+    assert not unexpected
+
+    x = torch.randn(1, 10, 3, 7, 9)
+    with torch.no_grad():
+        expected = torch.stack([model_2d(x[:, :, depth])[0] for depth in range(x.shape[2])], dim=2)
+        actual = model_3d(x)[0]
+    difference = (actual - expected).abs()
+    # 3D MDTA intentionally computes channel statistics jointly across depth,
+    # so convolution inflation is exact while the complete network has bounded drift.
+    assert torch.isfinite(actual).all()
+    assert difference.max().item() < 0.05
+    assert difference.mean().item() < 0.01
+
+
 def test_3d_vaa_accepts_raw_x_mask_as_depth():
     adapter = VascularAttentionAdapter(
         channels=8,
@@ -142,6 +220,54 @@ def test_conv2d_checkpoint_weight_is_center_inflated_into_conv3d():
     )
     actual = module(x)
     assert torch.allclose(actual, expected)
+
+
+def test_weights_only_bootstrap_resets_state_but_rolling_resume_restores_it():
+    source = nn.Linear(3, 2)
+    checkpoint = {
+        "net_state_dict": source.state_dict(),
+        "epoch": 7,
+        "epoch_finished": True,
+        "global_step": 123,
+        "optimizer_state_dict": {"state": "optimizer"},
+        "scheduler_state_dict": {"state": "scheduler"},
+        "scaler_state_dict": {"state": "scaler"},
+        "best_metric": 0.91,
+        "best_metric_epoch": 6,
+        "wandb_run_id": "phase4-run",
+    }
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        checkpoint_path = Path(tmp_dir) / "checkpoint.pt"
+        torch.save(checkpoint, checkpoint_path)
+
+        weights_only = load_net(
+            nn.Linear(3, 2),
+            checkpoint_path,
+            "cpu",
+            resume_training_state=False,
+        )
+        assert weights_only[1] is None
+        assert weights_only[2] is None
+        assert weights_only[3] is None
+        assert weights_only[4] == 0
+        assert weights_only[5] == 0
+        assert weights_only[8] is None
+
+        rolling = load_net(
+            nn.Linear(3, 2),
+            checkpoint_path,
+            "cpu",
+            resume_training_state=True,
+        )
+        assert rolling[1] == checkpoint["optimizer_state_dict"]
+        assert rolling[2] == checkpoint["scheduler_state_dict"]
+        assert rolling[3] == checkpoint["scaler_state_dict"]
+        assert rolling[4] == checkpoint["epoch"]
+        assert rolling[5] == checkpoint["global_step"]
+        assert rolling[6] == checkpoint["best_metric"]
+        assert rolling[7] == checkpoint["best_metric_epoch"]
+        assert rolling[8] == checkpoint["wandb_run_id"]
 
 
 def test_3d_flowvn_config_validates():

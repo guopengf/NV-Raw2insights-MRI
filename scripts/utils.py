@@ -14,7 +14,9 @@ import math
 import os
 import random
 import socket
+import time
 import warnings
+from collections.abc import Mapping, Sequence as SequenceABC
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -98,6 +100,8 @@ __all__ = [
     "reshape_channel_complex_to_last_dim",
     "complex_normalize",
     "MultiEpochsDataLoader",
+    "TargetGroupedSampler",
+    "TimedDefaultCollate",
     "load_net",
     "load_shape_compatible_state_dict",
     "save_checkpoint",
@@ -220,39 +224,40 @@ def save_args_to_file_json(args, filename):
 
 
 class Config:
-    def __init__(self, d):
+    def __init__(self, d, *, _apply_defaults: bool = True):
         setattr(self, "_explicit_keys", set(d.keys()))
-        setattr(self, "data_path_train", None)
-        setattr(self, "data_path_val", None)
-        setattr(self, "pretrained_csm", None)
-        setattr(self, "pretrained_recon", None)
-        setattr(self, "pp_z_score_norm", False)
-        setattr(self, "fixed_mask_types", None)
-        setattr(self, "uniform_input_kspace", False)
-        setattr(self, "val_interval", 4)
-        setattr(self, "num_samples_per_case", 16)
-        setattr(self, "data_aug", True)
-        setattr(self, "use_multi_epochs_train_loader", False)
-        setattr(self, "resume_rng_state", False)
-        setattr(self, "do_mapping_shuffle", False)
-        setattr(self, "do_center_crop", True)
-        setattr(self, "seed", None)
-        setattr(self, "lookahead", False)
-        setattr(self, "muon", False)
-        setattr(self, "muon_scale", 5)
-        setattr(self, "enable_onelogger", False)
-        setattr(self, "flow", False)
-        setattr(self, "balance_data", False)
-        setattr(self, "enable_cas_skips", True)
-        setattr(self, "finetune_ms", False)
-        setattr(self, "adaptive_batch_size", False)
-        setattr(self, "constant_input_flow", False)
-        setattr(self, "amp", True)
-        setattr(self, "acs_lines", 20)
-        setattr(self, "pp_norm", True)
+        if _apply_defaults:
+            setattr(self, "data_path_train", None)
+            setattr(self, "data_path_val", None)
+            setattr(self, "pretrained_csm", None)
+            setattr(self, "pretrained_recon", None)
+            setattr(self, "pp_z_score_norm", False)
+            setattr(self, "fixed_mask_types", None)
+            setattr(self, "uniform_input_kspace", False)
+            setattr(self, "val_interval", 4)
+            setattr(self, "num_samples_per_case", 16)
+            setattr(self, "data_aug", True)
+            setattr(self, "use_multi_epochs_train_loader", False)
+            setattr(self, "resume_rng_state", False)
+            setattr(self, "do_mapping_shuffle", False)
+            setattr(self, "do_center_crop", True)
+            setattr(self, "seed", None)
+            setattr(self, "lookahead", False)
+            setattr(self, "muon", False)
+            setattr(self, "muon_scale", 5)
+            setattr(self, "enable_onelogger", False)
+            setattr(self, "flow", False)
+            setattr(self, "balance_data", False)
+            setattr(self, "enable_cas_skips", True)
+            setattr(self, "finetune_ms", False)
+            setattr(self, "adaptive_batch_size", False)
+            setattr(self, "constant_input_flow", False)
+            setattr(self, "amp", True)
+            setattr(self, "acs_lines", 20)
+            setattr(self, "pp_norm", True)
         for k, v in d.items():
             if isinstance(v, dict):
-                setattr(self, k, Config(v))
+                setattr(self, k, Config(v, _apply_defaults=False))
             else:
                 setattr(self, k, v)
 
@@ -379,6 +384,7 @@ def validate_phase3_config(config) -> None:
             "num_slices",
             "backbone",
             "flowvn_mixer",
+            "joint_encoding",
             "mra",
             "vaa",
             "mask",
@@ -387,7 +393,6 @@ def validate_phase3_config(config) -> None:
             "loss",
             "validation",
             "checkpoint_selection",
-            "augmentation",
             "inference",
         },
     )
@@ -407,6 +412,26 @@ def validate_phase3_config(config) -> None:
             raise ValueError(f"phase3.num_slices must be a positive odd integer for slab mode, got {num_slices}")
     else:
         num_slices = 1
+
+    joint_encoding = _get_attr(phase3, "joint_encoding", None)
+    if joint_encoding is not None:
+        _warn_unknown_config_keys(
+            joint_encoding,
+            "phase3.joint_encoding",
+            {"enabled", "mode", "count", "order"},
+        )
+        joint_enabled = bool(_get_attr(joint_encoding, "enabled", False))
+        joint_mode = str(_get_attr(joint_encoding, "mode", "batch")).lower()
+        joint_count = int(_get_attr(joint_encoding, "count", 4))
+        joint_order = [int(value) for value in _get_attr(joint_encoding, "order", list(range(joint_count)))]
+        if joint_mode not in {"batch", "channel"}:
+            raise ValueError("phase3.joint_encoding.mode must be 'batch' or 'channel'")
+        if joint_count < 2 or len(joint_order) != joint_count or len(set(joint_order)) != joint_count:
+            raise ValueError("phase3.joint_encoding count/order must describe unique encodings")
+        if joint_enabled and recon_mode != "slab":
+            raise ValueError("Joint encoding reconstruction requires phase3.recon_mode='slab'")
+        _set_attr(joint_encoding, "mode", joint_mode)
+        _set_attr(joint_encoding, "order", joint_order)
 
     backbone = _get_attr(phase3, "backbone", None)
     spatial_dims = 2
@@ -517,9 +542,9 @@ def validate_phase3_config(config) -> None:
             "phase3.vaa",
             {"prior_source", "attention", "locations", "reduction", "num_heads", "attention_stride", "use_mask_bias"},
         )
-        attention = str(_get_attr(vaa, "attention", "gate")).lower()
-        if attention not in {"gate", "qkv"}:
-            raise ValueError("phase3.vaa.attention must be 'gate' or 'qkv'")
+        attention = str(_get_attr(vaa, "attention", "legacy")).lower()
+        if attention not in {"legacy", "gate", "qkv"}:
+            raise ValueError("phase3.vaa.attention must be 'legacy', 'gate', or 'qkv'")
         _set_attr(vaa, "attention", attention)
         prior_source = str(_get_attr(vaa, "prior_source", "mra")).lower()
         if prior_source not in {"mra", "mask"}:
@@ -579,10 +604,11 @@ def validate_phase3_config(config) -> None:
                 "ssim_win_size",
                 "phase",
                 "vascular",
+                "joint",
                 "weights",
+                "profile",
                 "roi",
                 "complex_roi",
-                "joint_venc",
                 "cross_venc_phase",
                 "velocity",
                 "relerr",
@@ -591,12 +617,82 @@ def validate_phase3_config(config) -> None:
                 "loss_normalization",
             },
         )
+        profile = str(_get_attr(loss, "profile", "pengfei_joint")).lower()
+        if profile not in {"pengfei_joint", "official_aligned"}:
+            raise ValueError("phase3.loss.profile must be 'pengfei_joint' or 'official_aligned'")
+        _set_attr(loss, "profile", profile)
         spatial_dims = normalize_ssim_spatial_dims(_get_attr(loss, "ssim_spatial_dims", "auto"), recon_mode)
         _set_attr(loss, "ssim_spatial_dims", spatial_dims)
         phase_loss = _get_attr(loss, "phase", None)
         vascular_loss = _get_attr(loss, "vascular", None)
+        joint_loss = _get_attr(loss, "joint", None)
+        roi_loss = _get_attr(loss, "roi", None)
         _warn_unknown_config_keys(phase_loss, "phase3.loss.phase", {"method", "weight", "eps"})
         _warn_unknown_config_keys(vascular_loss, "phase3.loss.vascular", {"method", "weight", "normalize_by_mask"})
+        _warn_unknown_config_keys(
+            joint_loss,
+            "phase3.loss.joint",
+            {
+                "enabled",
+                "complex_weight",
+                "magnitude_weight",
+                "circular_weight",
+                "speed_weight",
+                "direction_weight",
+                "reference_encoding",
+                "eps",
+            },
+        )
+        _warn_unknown_config_keys(
+            roi_loss,
+            "phase3.loss.roi",
+            {
+                "enabled",
+                "source",
+                "field",
+                "keys",
+                "axis_order",
+                "binary",
+                "threshold",
+                "normalize_by_mask",
+                "outside_weight",
+            },
+        )
+        if roi_loss is not None:
+            roi_source = str(_get_attr(roi_loss, "source", "segmask")).lower()
+            if roi_source != "segmask":
+                raise ValueError("phase3.loss.roi.source currently supports only 'segmask'")
+            roi_axis_order = str(_get_attr(roi_loss, "axis_order", "zyx")).lower()
+            if sorted(roi_axis_order) != ["x", "y", "z"]:
+                raise ValueError("phase3.loss.roi.axis_order must be a permutation of 'zyx'")
+            _set_attr(roi_loss, "source", roi_source)
+            _set_attr(roi_loss, "axis_order", roi_axis_order)
+        for name in ("complex_roi", "cross_venc_phase", "relerr"):
+            _warn_unknown_config_keys(
+                _get_attr(loss, name, None),
+                f"phase3.loss.{name}",
+                {"enabled", "weight"},
+            )
+        _warn_unknown_config_keys(
+            _get_attr(loss, "velocity", None),
+            "phase3.loss.velocity",
+            {"enabled", "weight", "type"},
+        )
+        _warn_unknown_config_keys(
+            _get_attr(loss, "angular", None),
+            "phase3.loss.angular",
+            {"enabled", "weight", "min_speed"},
+        )
+        _warn_unknown_config_keys(
+            _get_attr(loss, "flow_loss_ramp", None),
+            "phase3.loss.flow_loss_ramp",
+            {"enabled", "start_epoch", "end_epoch"},
+        )
+        _warn_unknown_config_keys(
+            _get_attr(loss, "loss_normalization", None),
+            "phase3.loss.loss_normalization",
+            {"enabled", "momentum", "eps"},
+        )
         _warn_unknown_config_keys(
             _get_attr(loss, "weights", None),
             "phase3.loss.weights",
@@ -624,115 +720,31 @@ def validate_phase3_config(config) -> None:
                 raise ValueError(f"Unsupported phase3.loss.vascular.method={vascular_method!r}")
             _set_attr(vascular_loss, "method", vascular_method)
 
-        roi = _get_attr(loss, "roi", None)
-        _warn_unknown_config_keys(
-            roi,
-            "phase3.loss.roi",
-            {"enabled", "source", "field", "keys", "axis_order", "binary", "threshold", "normalize_by_mask", "outside_weight"},
-        )
-        if roi is not None:
-            source = str(_get_attr(roi, "source", "segmask")).lower()
-            if source != "segmask":
-                raise ValueError("phase3.loss.roi.source currently supports only 'segmask'")
-            axis_order = str(_get_attr(roi, "axis_order", "zyx")).lower()
-            if sorted(axis_order) != ["x", "y", "z"]:
-                raise ValueError(f"phase3.loss.roi.axis_order must be a permutation of zyx, got {axis_order!r}")
-            if float(_get_attr(roi, "outside_weight", 0.0)) < 0:
-                raise ValueError("phase3.loss.roi.outside_weight must be non-negative")
-            _set_attr(roi, "source", source)
-            _set_attr(roi, "axis_order", axis_order)
-
-        component_configs = {
-            "complex_roi": {"enabled", "weight"},
-            "cross_venc_phase": {"enabled", "weight"},
-            "velocity": {"enabled", "weight", "type"},
-            "relerr": {"enabled", "weight"},
-            "angular": {"enabled", "weight", "min_speed"},
-        }
-        for name, allowed in component_configs.items():
-            component = _get_attr(loss, name, None)
-            _warn_unknown_config_keys(component, f"phase3.loss.{name}", allowed)
-            if component is not None and float(_get_attr(component, "weight", 0.1)) < 0:
-                raise ValueError(f"phase3.loss.{name}.weight must be non-negative")
-        velocity = _get_attr(loss, "velocity", None)
-        if velocity is not None:
-            velocity_type = str(_get_attr(velocity, "type", "smooth_l1")).lower()
-            if velocity_type not in {"smooth_l1", "l1", "l2", "mse"}:
-                raise ValueError("phase3.loss.velocity.type must be smooth_l1, l1, l2, or mse")
-            _set_attr(velocity, "type", velocity_type)
-        angular = _get_attr(loss, "angular", None)
-        if angular is not None and float(_get_attr(angular, "min_speed", 0.0)) < 0:
-            raise ValueError("phase3.loss.angular.min_speed must be non-negative")
-
-        joint_venc = _get_attr(loss, "joint_venc", None)
-        _warn_unknown_config_keys(joint_venc, "phase3.loss.joint_venc", {"enabled", "encodings", "reference_encoding"})
-        joint_enabled = bool(_get_attr(joint_venc, "enabled", False))
-        encodings = [int(value) for value in _get_attr(joint_venc, "encodings", [0, 1, 2, 3])]
-        reference_encoding = int(_get_attr(joint_venc, "reference_encoding", 0))
-        if joint_enabled and encodings != [0, 1, 2, 3]:
-            raise ValueError("Current 4D Flow joint loss requires encodings=[0,1,2,3] in official order")
-        if joint_enabled and reference_encoding != 0:
-            raise ValueError("Official 4D Flow conversion requires joint_venc.reference_encoding=0")
-        if reference_encoding not in encodings:
-            raise ValueError("phase3.loss.joint_venc.reference_encoding must be present in encodings")
-
-        new_loss_names = ("complex_roi", "cross_venc_phase", "velocity", "relerr", "angular")
-        enabled_new_losses = {
-            name for name in new_loss_names if bool(_get_attr(_get_attr(loss, name, None), "enabled", False))
-        }
-        if enabled_new_losses and not bool(_get_attr(roi, "enabled", False)):
-            raise ValueError(f"Enabled ROI/flow losses {sorted(enabled_new_losses)} require phase3.loss.roi.enabled=true")
-        joint_only = enabled_new_losses & {"cross_venc_phase", "velocity", "relerr", "angular"}
-        if joint_only and not joint_enabled:
-            raise ValueError(f"Losses {sorted(joint_only)} require phase3.loss.joint_venc.enabled=true")
-
-        ramp = _get_attr(loss, "flow_loss_ramp", None)
-        _warn_unknown_config_keys(ramp, "phase3.loss.flow_loss_ramp", {"enabled", "start_epoch", "end_epoch"})
-        if ramp is not None and int(_get_attr(ramp, "end_epoch", 20)) < int(_get_attr(ramp, "start_epoch", 5)):
-            raise ValueError("phase3.loss.flow_loss_ramp.end_epoch must be >= start_epoch")
-        normalization = _get_attr(loss, "loss_normalization", None)
-        _warn_unknown_config_keys(normalization, "phase3.loss.loss_normalization", {"enabled", "momentum", "eps"})
-        if normalization is not None:
-            momentum = float(_get_attr(normalization, "momentum", 0.99))
-            if not 0 <= momentum < 1:
-                raise ValueError("phase3.loss.loss_normalization.momentum must be in [0,1)")
-            if float(_get_attr(normalization, "eps", 1e-8)) <= 0:
-                raise ValueError("phase3.loss.loss_normalization.eps must be positive")
-
     validation = _get_attr(phase3, "validation", None)
-    _warn_unknown_config_keys(validation, "phase3.validation", {"flow_metrics"})
-    flow_metrics = _get_attr(validation, "flow_metrics", None)
-    _warn_unknown_config_keys(flow_metrics, "phase3.validation.flow_metrics", {"enabled", "eval_code_dir"})
-    if bool(_get_attr(flow_metrics, "enabled", False)):
-        if loss is None or not bool(_get_attr(_get_attr(loss, "roi", None), "enabled", False)):
-            raise ValueError("Official flow validation requires phase3.loss.roi.enabled=true")
-        if recon_mode != "slab":
-            raise ValueError("Official flow validation in this branch requires phase3.recon_mode='slab'")
+    if validation is not None:
+        _warn_unknown_config_keys(validation, "phase3.validation", {"flow_metrics"})
+        _warn_unknown_config_keys(
+            _get_attr(validation, "flow_metrics", None),
+            "phase3.validation.flow_metrics",
+            {"enabled", "eval_code_dir"},
+        )
 
     checkpoint_selection = _get_attr(phase3, "checkpoint_selection", None)
-    _warn_unknown_config_keys(checkpoint_selection, "phase3.checkpoint_selection", {"primary", "flow_score"})
     if checkpoint_selection is not None:
+        _warn_unknown_config_keys(
+            checkpoint_selection,
+            "phase3.checkpoint_selection",
+            {"primary", "flow_score"},
+        )
         primary = str(_get_attr(checkpoint_selection, "primary", "flow")).lower()
         if primary not in {"flow", "relerr", "angerr", "ssim"}:
             raise ValueError("phase3.checkpoint_selection.primary must be flow, relerr, angerr, or ssim")
-        flow_score_cfg = _get_attr(checkpoint_selection, "flow_score", None)
+        _set_attr(checkpoint_selection, "primary", primary)
         _warn_unknown_config_keys(
-            flow_score_cfg,
+            _get_attr(checkpoint_selection, "flow_score", None),
             "phase3.checkpoint_selection.flow_score",
             {"relerr_weight", "angerr_weight", "angerr_scale"},
         )
-        if float(_get_attr(flow_score_cfg, "angerr_scale", 100.0)) <= 0:
-            raise ValueError("phase3.checkpoint_selection.flow_score.angerr_scale must be positive")
-
-    augmentation = _get_attr(phase3, "augmentation", None)
-    _warn_unknown_config_keys(augmentation, "phase3.augmentation", {"paired_roll"})
-    paired_roll = _get_attr(augmentation, "paired_roll", None)
-    _warn_unknown_config_keys(paired_roll, "phase3.augmentation.paired_roll", {"enabled", "probability", "max_shift_zy"})
-    if paired_roll is not None:
-        probability = float(_get_attr(paired_roll, "probability", 0.0))
-        shifts = list(_get_attr(paired_roll, "max_shift_zy", [0, 0]))
-        if not 0 <= probability <= 1 or len(shifts) != 2 or any(int(value) < 0 for value in shifts):
-            raise ValueError("paired_roll requires probability in [0,1] and two non-negative max_shift_zy values")
 
     inference = _get_attr(phase3, "inference", None)
     if inference is not None:
@@ -965,6 +977,111 @@ def complex_zscore(real_imag: torch.Tensor, dim=None, unbiased: bool = False):
 
 
 # https://discuss.pytorch.org/t/enumerate-dataloader-slow/87778
+def _tensor_payload_summary(value):
+    if isinstance(value, torch.Tensor):
+        return value.numel() * value.element_size(), 1
+    if isinstance(value, np.ndarray):
+        return value.nbytes, 1
+    if isinstance(value, Mapping):
+        total_bytes = 0
+        tensor_count = 0
+        for item in value.values():
+            item_bytes, item_count = _tensor_payload_summary(item)
+            total_bytes += item_bytes
+            tensor_count += item_count
+        return total_bytes, tensor_count
+    if isinstance(value, SequenceABC) and not isinstance(value, (str, bytes, bytearray)):
+        total_bytes = 0
+        tensor_count = 0
+        for item in value:
+            item_bytes, item_count = _tensor_payload_summary(item)
+            total_bytes += item_bytes
+            tensor_count += item_count
+        return total_bytes, tensor_count
+    return 0, 0
+
+
+def _shared_memory_snapshot():
+    try:
+        stat = os.statvfs("/dev/shm")
+    except OSError:
+        return {"shm_total_bytes": -1, "shm_free_bytes": -1, "shm_used_bytes": -1}
+    total_bytes = int(stat.f_blocks * stat.f_frsize)
+    free_bytes = int(stat.f_bavail * stat.f_frsize)
+    return {
+        "shm_total_bytes": total_bytes,
+        "shm_free_bytes": free_bytes,
+        "shm_used_bytes": total_bytes - free_bytes,
+    }
+
+
+def _singleton_view_collate(value):
+    if isinstance(value, torch.Tensor):
+        return value.unsqueeze(0)
+    if isinstance(value, np.ndarray):
+        return torch.as_tensor(value).unsqueeze(0)
+    if isinstance(value, np.generic):
+        return torch.as_tensor(value).reshape(1)
+    if isinstance(value, Mapping):
+        return {name: _singleton_view_collate(item) for name, item in value.items()}
+    if isinstance(value, SequenceABC) and not isinstance(value, (str, bytes, bytearray)):
+        return [_singleton_view_collate(item) for item in value]
+    if isinstance(value, (int, float, bool)):
+        return torch.tensor([value])
+    if isinstance(value, (str, bytes, bytearray)):
+        return [value]
+    return [value]
+
+
+class TimedDefaultCollate:
+    """Measure default collation and the worker-to-consumer handoff boundary."""
+
+    def __init__(self, enabled=True, track_shared_memory=True, singleton_view=False):
+        self.enabled = enabled
+        self.track_shared_memory = track_shared_memory
+        self.singleton_view = singleton_view
+
+    def __call__(self, batch):
+        if not self.enabled:
+            if self.singleton_view:
+                if len(batch) != 1:
+                    raise ValueError("singleton_view collate requires DataLoader batch_size=1")
+                return _singleton_view_collate(batch[0])
+            return torch.utils.data.default_collate(batch)
+
+        collate_start_ns = time.monotonic_ns()
+        input_payload_bytes, input_tensor_count = _tensor_payload_summary(batch)
+        shm_before = _shared_memory_snapshot() if self.track_shared_memory else {}
+        if self.singleton_view:
+            if len(batch) != 1:
+                raise ValueError("singleton_view collate requires DataLoader batch_size=1")
+            collated = _singleton_view_collate(batch[0])
+        else:
+            collated = torch.utils.data.default_collate(batch)
+        default_collate_end_ns = time.monotonic_ns()
+        output_payload_bytes, output_tensor_count = _tensor_payload_summary(collated)
+        shm_after = _shared_memory_snapshot() if self.track_shared_memory else {}
+        collate_end_ns = time.monotonic_ns()
+
+        meta = collated.get("kspace_meta_dict") if isinstance(collated, Mapping) else None
+        if isinstance(meta, dict):
+            meta["post_worker_timing"] = {
+                "collate_start_ns": collate_start_ns,
+                "default_collate_end_ns": default_collate_end_ns,
+                "collate_end_ns": collate_end_ns,
+                "default_collate_ms": (default_collate_end_ns - collate_start_ns) / 1.0e6,
+                "collate_ms": (collate_end_ns - collate_start_ns) / 1.0e6,
+                "input_payload_bytes": int(input_payload_bytes),
+                "output_payload_bytes": int(output_payload_bytes),
+                "input_tensor_count": int(input_tensor_count),
+                "output_tensor_count": int(output_tensor_count),
+                "collate_mode": "singleton_view" if self.singleton_view else "default",
+                **{f"{name}_before": value for name, value in shm_before.items()},
+                **{f"{name}_after": value for name, value in shm_after.items()},
+            }
+        return collated
+
+
 class MultiEpochsDataLoader(torch.utils.data.DataLoader):
 
     def __init__(self, *args, **kwargs):
@@ -985,6 +1102,37 @@ class MultiEpochsDataLoader(torch.utils.data.DataLoader):
             yield next(self.iterator)
 
 
+class TargetGroupedSampler(torch.utils.data.Sampler):
+    """Shuffle target groups while keeping each target's accelerations adjacent."""
+
+    def __init__(self, group_lengths, seed=0, shuffle=True):
+        self.group_lengths = [int(length) for length in group_lengths]
+        if not self.group_lengths or any(length <= 0 for length in self.group_lengths):
+            raise ValueError("group_lengths must contain positive integers")
+        self.seed = int(seed)
+        self.shuffle = bool(shuffle)
+        self.epoch = 0
+        start = 0
+        self.groups = []
+        for length in self.group_lengths:
+            self.groups.append(list(range(start, start + length)))
+            start += length
+        self.num_samples = start
+
+    def __len__(self):
+        return self.num_samples
+
+    def set_epoch(self, epoch):
+        self.epoch = int(epoch)
+
+    def __iter__(self):
+        group_order = list(range(len(self.groups)))
+        if self.shuffle:
+            random.Random(self.seed + self.epoch).shuffle(group_order)
+        for group_index in group_order:
+            yield from self.groups[group_index]
+
+
 class _RepeatSampler(object):
     """Sampler that repeats forever.
 
@@ -1001,7 +1149,7 @@ class _RepeatSampler(object):
 
 
 def load_shape_compatible_state_dict(module: torch.nn.Module, checkpoint_state_dict: dict):
-    """Load matching tensors and center-inflate compatible Conv2d weights."""
+    """Load matching tensors and inflate supported spatial or joint-channel boundaries."""
     current_state = module.state_dict()
     current_keys = set(current_state.keys())
     new_state = dict(current_state)
@@ -1023,6 +1171,32 @@ def load_shape_compatible_state_dict(module: torch.nn.Module, checkpoint_state_d
         if tuple(ckpt_value.shape) == tuple(current_state[key].shape):
             new_state[key] = ckpt_value
             loaded_keys.append(key)
+        elif (
+            key.endswith("embed_conv.weight")
+            and ckpt_value.ndim == current_state[key].ndim
+            and current_state[key].shape[0] == ckpt_value.shape[0]
+            and current_state[key].shape[1] % ckpt_value.shape[1] == 0
+            and tuple(current_state[key].shape[2:]) == tuple(ckpt_value.shape[2:])
+        ):
+            factor = current_state[key].shape[1] // ckpt_value.shape[1]
+            repeats = [1, factor] + [1] * (ckpt_value.ndim - 2)
+            inflated = ckpt_value.repeat(*repeats) / factor
+            new_state[key] = inflated.to(device=current_state[key].device, dtype=current_state[key].dtype)
+            loaded_keys.append(key)
+            inflated_keys.append(key)
+        elif (
+            key.endswith("output.weight")
+            and ckpt_value.ndim == current_state[key].ndim
+            and current_state[key].shape[0] % ckpt_value.shape[0] == 0
+            and current_state[key].shape[1] == ckpt_value.shape[1]
+            and tuple(current_state[key].shape[2:]) == tuple(ckpt_value.shape[2:])
+        ):
+            factor = current_state[key].shape[0] // ckpt_value.shape[0]
+            repeats = [factor, 1] + [1] * (ckpt_value.ndim - 2)
+            inflated = ckpt_value.repeat(*repeats)
+            new_state[key] = inflated.to(device=current_state[key].device, dtype=current_state[key].dtype)
+            loaded_keys.append(key)
+            inflated_keys.append(key)
         elif (
             ckpt_value.ndim == 4
             and current_state[key].ndim == 5
@@ -1106,7 +1280,7 @@ def load_net(
         if inflated_keys:
             preview = ", ".join(inflated_keys[:8])
             suffix = "..." if len(inflated_keys) > 8 else ""
-            print(f"net center-inflated Conv2d weights: {len(inflated_keys)} ({preview}{suffix})")
+            print(f"net shape-inflated compatible weights: {len(inflated_keys)} ({preview}{suffix})")
         if skipped_shape_keys:
             preview = ", ".join(
                 f"{key}: ckpt{ckpt_shape}->model{model_shape}"
@@ -1223,7 +1397,7 @@ def save_checkpoint(
     cuda_rng_state=None,
     best_flow_metrics=None,
     loss_normalization_ema=None,
-) -> None:
+) -> dict:
     """
     Save checkpoint.
 
@@ -1234,7 +1408,9 @@ def save_checkpoint(
         model_filename (str): model filename.
         epoch_finished (bool): epoch finished
     """
+    checkpoint_started = time.perf_counter()
     ckpt_path = assert_not_in_known_raw_data_path(f"{ckpt_folder}/{model_filename}", what="checkpoint output file")
+    state_prepare_started = time.perf_counter()
     net_state_dict = net.module.state_dict() if is_ddp else net.state_dict()
     optimizer_state_dict = optimizer.state_dict()
     scaler_state_dict = scaler.state_dict()
@@ -1242,6 +1418,8 @@ def save_checkpoint(
         scheduler_state_dict = lr_scheduler.state_dict()
     else:
         scheduler_state_dict = None
+    state_prepare_s = time.perf_counter() - state_prepare_started
+    torch_save_started = time.perf_counter()
     torch.save(
         {
             "epoch": epoch + 1,
@@ -1263,7 +1441,21 @@ def save_checkpoint(
         },
         ckpt_path,
     )
-    print(f"Save ckpt to {ckpt_path}.")
+    torch_save_s = time.perf_counter() - torch_save_started
+    total_s = time.perf_counter() - checkpoint_started
+    size_bytes = os.path.getsize(ckpt_path)
+    print(
+        f"Save ckpt to {ckpt_path}. state_prepare={state_prepare_s:.2f}s "
+        f"torch_save={torch_save_s:.2f}s total={total_s:.2f}s "
+        f"size={size_bytes / (1024**3):.2f}GiB"
+    )
+    return {
+        "path": str(ckpt_path),
+        "state_prepare_s": state_prepare_s,
+        "torch_save_s": torch_save_s,
+        "total_s": total_s,
+        "size_bytes": size_bytes,
+    }
 
 
 def get_acs_region(mask: torch.Tensor) -> tuple[int, int, int, int]:

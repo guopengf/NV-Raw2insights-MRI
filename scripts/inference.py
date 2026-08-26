@@ -29,18 +29,79 @@ from monai.data import Dataset, partition_dataset
 from monai.data.fft_utils import fftn_centered, ifftn_centered
 from monai.transforms import Compose, EnsureTyped, Identityd, Lambdad, LoadImaged, ResizeWithPadOrCropd
 from monai.utils import set_determinism
+from mri_data.coil_combine import combine_tschw_ri_to_tshw_ri
 from mri_data.data_utils import crop_k_space, get_reader, postprocess_mri_recon, rearrange_mri_data
 from path_safety import assert_outputs_not_in_data
 from torch.amp import autocast
 from torch.distributed.elastic.multiprocessing.errors import record
 from transforms import *
 from utils import *
+from joint_encoding import (
+    flatten_joint_model_batch,
+    gather_joint_window,
+    joint_encoding_spec,
+    joint_group_batch_size,
+    joint_windowed_input_x_slab,
+    restore_joint_model_batch,
+)
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.enabled = True
 
 warnings.filterwarnings("ignore")
+
+
+def prepare_inference_output_for_save(
+    outputs_complex,
+    *,
+    sensitivity_maps,
+    args,
+    final_shape,
+    temporal_shuffle,
+):
+    outputs_complex = np.asarray(outputs_complex, dtype=np.float32)
+    if outputs_complex.ndim == 6 and outputs_complex.shape[2] == 1:
+        output_tshw_ri = outputs_complex[:, :, 0]
+    elif outputs_complex.ndim == 6 and getattr(args, "save_coil_combined_output", False):
+        if sensitivity_maps is None:
+            raise ValueError("Coil-combined output requested, but sensitivity maps were not loaded")
+        if torch.is_tensor(sensitivity_maps):
+            sensitivity_maps = sensitivity_maps.detach().cpu().numpy()
+        sensitivity_full = rearrange_mri_data(
+            [np.asarray(sensitivity_maps)],
+            args,
+            is_complex=True,
+            reverse=True,
+            num_slices=final_shape[-4],
+            num_coils=final_shape[-3],
+            temporal_shuffle=temporal_shuffle,
+        )[0]
+        output_tshw_ri = combine_tschw_ri_to_tshw_ri(outputs_complex, sensitivity_full)
+    elif outputs_complex.ndim == 6:
+        return np.transpose(outputs_complex, (4, 3, 1, 0, 2, 5)).astype(np.float32)
+    elif outputs_complex.ndim == 5:
+        output_tshw_ri = outputs_complex
+    else:
+        return outputs_complex.astype(np.float32)
+
+    return np.transpose(output_tshw_ri, (3, 2, 1, 0, 4)).astype(np.float32)
+
+
+def prepare_joint_encoding_output_for_save(outputs_complex, sensitivity_maps, args):
+    """Prepare one encoding already restored as [T,X,C,H,W,2]."""
+    outputs_complex = np.asarray(outputs_complex, dtype=np.float32)
+    if outputs_complex.ndim != 6:
+        raise ValueError(f"Expected [T,X,C,H,W,2], got {outputs_complex.shape}")
+    if outputs_complex.shape[2] == 1:
+        output_tshw_ri = outputs_complex[:, :, 0]
+    elif getattr(args, "save_coil_combined_output", False):
+        if sensitivity_maps is None:
+            raise ValueError("Coil-combined output requested, but sensitivity maps were not loaded")
+        output_tshw_ri = combine_tschw_ri_to_tshw_ri(outputs_complex, np.asarray(sensitivity_maps))
+    else:
+        return np.transpose(outputs_complex, (4, 3, 1, 0, 2, 5)).astype(np.float32)
+    return np.transpose(output_tshw_ri, (3, 2, 1, 0, 4)).astype(np.float32)
 
 
 @record
@@ -80,6 +141,7 @@ def infer(args):
         set_determinism(seed=0)
     recon_slab = is_slab_recon(args)
     recon_num_slices = slab_num_slices(args)
+    joint_spec = joint_encoding_spec(args)
 
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     if rank != 0:
@@ -230,33 +292,55 @@ def infer(args):
 
             # iterate through all samples:
             num_samples = input.shape[0]
+            max_inference_samples = int(getattr(args, "max_inference_samples", 0) or 0)
+            if max_inference_samples > 0:
+                num_samples = min(num_samples, max_inference_samples)
             outputs = []
             for micro_b, _ in mini_dataloader(
                 list(range(num_samples)),
-                args.batch_size,
+                joint_group_batch_size(args),
                 shuffle=False,
                 drop_last=False,
                 pad_last=False,
             ):
                 # forward pass
-                if recon_slab:
+                if joint_spec.enabled:
+                    inp_joint, window_idx = joint_windowed_input_x_slab(
+                        input, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
+                    )
+                    mas_joint = gather_joint_window(mask, window_idx)
+                    mean_joint = gather_joint_window(mean, window_idx)
+                    std_joint = gather_joint_window(std, window_idx)
+                    sens_joint = (
+                        gather_joint_window(sensitivity_maps, window_idx) if sensitivity_maps is not None else None
+                    )
+                    inp = flatten_joint_model_batch(inp_joint)
+                    mas = flatten_joint_model_batch(mas_joint)
+                    mean_window = flatten_joint_model_batch(mean_joint)
+                    std_window = flatten_joint_model_batch(std_joint)
+                    sens = flatten_joint_model_batch(sens_joint)
+                    mra_prior = None
+                elif recon_slab:
                     inp, window_idx = windowed_input_x_slab(
                         input, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
                     )
                 else:
                     inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
-                mas = torch.Tensor(mask[window_idx])
-                sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                mra_prior = (
-                    select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
-                    if recon_slab
-                    else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
-                )
-                inp, mas, mean, std = (
+                if not joint_spec.enabled:
+                    mas = torch.Tensor(mask[window_idx])
+                    sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
+                    mean_window = mean[window_idx]
+                    std_window = std[window_idx]
+                    mra_prior = (
+                        select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
+                        if recon_slab
+                        else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
+                    )
+                inp, mas, mean_window, std_window = (
                     inp.to(device),
                     mas.to(device),
-                    mean.to(device),
-                    std.to(device),
+                    mean_window.to(device),
+                    std_window.to(device),
                 )
                 sens = sens.to(device) if sens is not None else None
                 mra_prior = mra_prior.to(device) if mra_prior is not None else None
@@ -264,17 +348,53 @@ def infer(args):
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
                     output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
-                if recon_slab:
+                if joint_spec.enabled:
+                    output = restore_joint_model_batch(output, joint_spec.count)
+                    mean_grouped = restore_joint_model_batch(mean_window, joint_spec.count)
+                    std_grouped = restore_joint_model_batch(std_window, joint_spec.count)
+                    center_s = recon_num_slices // 2
+                    center_t = args.num_frames // 2
+                    output = output[:, :, center_s, center_t]
+                    output = output * std_grouped[:, :, center_s, center_t] + mean_grouped[:, :, center_s, center_t]
+                elif recon_slab:
                     center_s = recon_num_slices // 2
                     center_t = args.num_frames // 2
                     output = output[:, center_s, center_t]
                     center_idx = window_idx[:, center_s, center_t]
-                    output = output * std[center_idx] + mean[center_idx]
+                    output = output * std_window[:, center_s, center_t] + mean_window[:, center_s, center_t]
                 else:
                     output = output[:, args.num_frames // 2]
-                    output = output * std[micro_b] + mean[micro_b]
+                    output = output * std_window[:, args.num_frames // 2] + mean_window[:, args.num_frames // 2]
                 output = crop_k_space(output, (final_shape[-2], final_shape[-1]))
                 outputs.append(output.data.cpu().numpy())
+
+            if joint_spec.enabled:
+                outputs = np.concatenate(outputs, axis=0)
+                expected_samples = final_shape[-5] * final_shape[-4]
+                if outputs.shape[0] != expected_samples:
+                    print(
+                        f"INFERENCE_PARTIAL_OK file={file_name} samples={outputs.shape[0]}/{expected_samples} "
+                        f"encodings={outputs.shape[1]} output_shape={outputs.shape} saved=False"
+                    )
+                    continue
+                outputs = outputs.reshape(final_shape[-5], final_shape[-4], joint_spec.count, *outputs.shape[2:])
+                sensitivity_joint = None
+                if sensitivity_maps is not None:
+                    sensitivity_joint = np.asarray(sensitivity_maps).reshape(
+                        final_shape[-5], final_shape[-4], joint_spec.count, *np.asarray(sensitivity_maps).shape[2:]
+                    )
+                for encoding_position, encoding_idx in enumerate(joint_spec.order):
+                    outputs_to_save = prepare_joint_encoding_output_for_save(
+                        outputs[:, :, encoding_position],
+                        None if sensitivity_joint is None else sensitivity_joint[:, :, encoding_position],
+                        args,
+                    )
+                    save_img4ranking(
+                        outputs_to_save,
+                        os.path.join(args.output_path, "val_img4ranking"),
+                        file_name.replace(".json", f"__enc{encoding_idx}.mat"),
+                    )
+                continue
 
             outputs = rearrange_mri_data(
                 [np.vstack(outputs)],
@@ -286,19 +406,14 @@ def infer(args):
                 temporal_shuffle=temporal_shuffle,
             )  # (time), slice, coil, h, w
 
-            outputs_complex = outputs[0].astype(np.float32)
+            outputs_to_save = prepare_inference_output_for_save(
+                outputs[0],
+                sensitivity_maps=sensitivity_maps,
+                args=args,
+                final_shape=final_shape,
+                temporal_shuffle=temporal_shuffle,
+            )
 
-            # keep full spatial size, all slices, all time frames
-            if outputs_complex.ndim == 6 and outputs_complex.shape[2] == 1:
-                outputs_to_save = np.transpose(outputs_complex[:, :, 0], (3, 2, 1, 0, 4)).astype(np.float32)
-            elif outputs_complex.ndim == 6:
-                outputs_to_save = np.transpose(outputs_complex, (4, 3, 1, 0, 2, 5)).astype(np.float32)
-            elif outputs_complex.ndim == 5:
-                outputs_to_save = np.transpose(outputs_complex, (3, 2, 1, 0, 4)).astype(np.float32)
-            else:
-                outputs_to_save = outputs_complex.astype(np.float32)
-            
-            
             output_path = os.path.join(
                 args.output_path,
                 "val_img4ranking",
@@ -365,6 +480,17 @@ if __name__ == "__main__":
         default=False,
         help="Debug mode",
     )
+    parser.add_argument(
+        "--save-coil-combined-output",
+        action="store_true",
+        help="Sensitivity-combine multi-coil complex output before saving.",
+    )
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=0,
+        help="Process at most this many center samples per case and do not save partial outputs; intended for smoke tests.",
+    )
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -374,6 +500,10 @@ if __name__ == "__main__":
     config.output_path = args.output_path
     config.data_path_test = args.input_path
     config.debug = args.debug
+    config.save_coil_combined_output = args.save_coil_combined_output or getattr(
+        config, "save_coil_combined_output", False
+    )
+    config.max_inference_samples = args.max_samples
     if config.ddp and ("MASTER_PORT" not in os.environ.keys()):
         port = str(find_free_network_port())
         print(f"using port {port}")

@@ -17,7 +17,23 @@
     "uniform_input_kspace": false,
     "val_interval": 40,
     "num_samples_per_case": 8,
-    "data_aug": false,
+    "data_aug": true,
+    "four_dflow_augmentation": {
+        "enabled": true,
+        "flip": {
+            "prob": 0.25,
+            "axes": ["z", "y"]
+        },
+        "shift": {
+            "prob": 0.25,
+            "max_pixels": [3, 8]
+        },
+        "contrast": {
+            "prob": 0.2,
+            "gamma": [0.8, 1.2]
+        }
+    },
+    "use_multi_epochs_train_loader": true,
     "resume_rng_state": false,
     "do_mapping_shuffle": false,
     "do_center_crop": false,
@@ -35,10 +51,28 @@
     "amp": true,
     "acs_lines": 20,
     "pp_norm": false,
-    "batch_size": 1,
-    "num_workers": 0,
-    "pin_memory": false,
+    "batch_size": 8,
+    "num_workers": 8,
+    "train_num_workers": 4,
+    "val_num_workers": 0,
+    "train_prefetch_factor": 1,
+    "val_prefetch_factor": 1,
+    "train_pin_memory": true,
     "val_pin_memory": false,
+    "lazy_val_loader": true,
+    "group_accelerations_by_target": true,
+    "reader_target_cache_entries": 1,
+    "reader_coilmap_cache_entries": 1,
+    "four_dflow_storage": {
+        "backend": "raw_mat",
+        "train_backend": "windowed_hdf5",
+        "val_backend": "raw_mat",
+        "index_path": "/SSDHome/share/haosen/4dflow/windowed-e1-v2/index.json",
+        "storage_profile": "encoding_chunk_1",
+        "handle_cache_entries": 1,
+        "hdf5_chunk_cache_bytes": 268435456
+    },
+    "train_singleton_view_collate": true,
     "cache_rate": 0.0,
     "sample_rate": 1.0,
     "accelerations": [
@@ -133,6 +167,12 @@
         "recon_mode": "slab",
         "num_slices": 3,
         "enable_vaa": false,
+        "joint_encoding": {
+            "enabled": true,
+            "mode": "batch",
+            "count": 4,
+            "order": [0, 1, 2, 3]
+        },
         "backbone": {
             "spatial_dims": 3,
             "downsample_axes": "zy"
@@ -198,22 +238,7 @@
             "mode": "shifted_sigmoid"
         },
         "loss": {
-            "use_phase": false,
-            "use_vascular": false,
-            "use_ssim_zy": true,
-            "use_ssim_xy": false,
-            "ssim_spatial_dims": "auto",
-            "ssim_win_size": "auto",
-            "phase": {
-                "method": "flowvn_complex_l1",
-                "weight": 1.0,
-                "eps": 1e-08
-            },
-            "vascular": {
-                "method": "mra_masked_phase_l1",
-                "weight": 1.0,
-                "normalize_by_mask": true
-            },
+            "profile": "official_aligned",
             "roi": {
                 "enabled": true,
                 "source": "segmask",
@@ -231,19 +256,32 @@
                 "normalize_by_mask": true,
                 "outside_weight": 0.0
             },
+            "use_ssim_xy": false,
+            "ssim_spatial_dims": "auto",
+            "ssim_win_size": "auto",
+            "phase": {
+                "method": "flowvn_complex_l1",
+                "weight": 1.0,
+                "eps": 1e-08
+            },
+            "vascular": {
+                "method": "mra_masked_phase_l1",
+                "weight": 1.0,
+                "normalize_by_mask": true
+            },
+            "joint": {
+                "enabled": true,
+                "reference_encoding": 0,
+                "complex_weight": 1.0,
+                "magnitude_weight": 0.1,
+                "circular_weight": 0.5,
+                "speed_weight": 0.25,
+                "direction_weight": 0.05,
+                "eps": 1e-08
+            },
             "complex_roi": {
                 "enabled": true,
                 "weight": 0.1
-            },
-            "joint_venc": {
-                "enabled": true,
-                "encodings": [
-                    0,
-                    1,
-                    2,
-                    3
-                ],
-                "reference_encoding": 0
             },
             "cross_venc_phase": {
                 "enabled": true,
@@ -286,16 +324,6 @@
                 "relerr_weight": 1.0,
                 "angerr_weight": 1.0,
                 "angerr_scale": 100.0
-            }
-        },
-        "augmentation": {
-            "paired_roll": {
-                "enabled": false,
-                "probability": 0.0,
-                "max_shift_zy": [
-                    0,
-                    0
-                ]
             }
         },
         "inference": {

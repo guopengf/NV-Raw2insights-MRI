@@ -269,7 +269,7 @@ def _sanitize(text: str) -> str:
 
 
 def mra_cache_path(args: Any, json_data: dict[str, Any], source: str) -> Path:
-    cache_dir = Path(cfg_get(args, "phase3.mra.cache_dir", "/SSDHome/share/haosen/4dflow/mra_cache"))
+    cache_dir = Path(cfg_get(args, "phase3.mra.cache_dir", "outputs/4dflow/mra_cache"))
     full_kspace = json_data.get("target_kspace", json_data.get("full_kspace", json_data.get("gt_kspace", "")))
     kspace = json_data.get("kspace", "")
     acc = json_data.get("mask_type", "")

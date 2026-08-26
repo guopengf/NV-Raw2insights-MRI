@@ -78,8 +78,8 @@ usmask_ktGaussian50.mat
 Typical roots:
 
 ```text
-/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/
-/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TestSet/Aorta/
+/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/
+/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TestSet/Aorta/
 ```
 
 If `TrainSet/Aorta` does not contain undersampled `kdata_ktGaussian*.mat`, the generated train manifest will be empty and training will fail with `ZeroDivisionError: division by zero`.
@@ -89,7 +89,7 @@ If `TrainSet/Aorta` does not contain undersampled `kdata_ktGaussian*.mat`, the g
 Do not write anything under:
 
 ```text
-/SSDHome/share/4dFlow
+/data/CMRx4DFlow2026-ChallengeData
 ```
 
 Treat raw challenge data as read-only.
@@ -97,7 +97,7 @@ Treat raw challenge data as read-only.
 Safe output locations are repo-local `outputs/` or a separate checkpoint/output folder such as:
 
 ```text
-/SSDHome/share/haosen/4dflow/4dflow_finetune_ckpts/
+outputs/4dflow/4dflow_finetune_ckpts/
 ```
 
 Never save PNGs, metrics, generated JSONs, or recon outputs into patient data folders.
@@ -200,8 +200,8 @@ Important values:
 ```json
 {
   "model_variant": "nv_raw2insights_mri_base",
-  "data_path_train": ["/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/"],
-  "data_path_val": ["/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TestSet/Aorta/"],
+  "data_path_train": ["/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/"],
+  "data_path_val": ["/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TestSet/Aorta/"],
   "fixed_mask_types": ["ktGaussian"],
   "train_mask_types": ["fixed"],
   "val_mask_types": ["fixed"],
@@ -335,12 +335,12 @@ Use the wrapper:
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 WANDB_DISABLED=true python scripts/run_4dflow_inference.py \
-  --case-root "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TestSet/Aorta/Center007/GE_30T_Architect" \
+  --case-root "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TestSet/Aorta/Center007/GE_30T_Architect" \
   --json-dir "outputs/infer/jsons" \
   --tmp-out "outputs/infer/tmp" \
   --final-out "outputs/infer/final" \
   --config configs/nv_raw2insights_mri_base_4dflow.json \
-  --ckpt "/SSDHome/share/haosen/4dflow/4dflow_finetune_ckpts/base_ft_4dflow_encbatch_v2/nv_raw2insights_mri_base_ft_4dflow_encbatch.pt" \
+  --ckpt "outputs/4dflow/4dflow_finetune_ckpts/base_ft_4dflow_encbatch/nv_raw2insights_mri_base_ft_4dflow_encbatch.pt" \
   --encoding-idx 0 \
   --accelerations 10,20,30,40,50
 ```
@@ -357,7 +357,9 @@ The wrapper creates final organized outputs like:
 final/Center007/GE_30T_Architect/P076/kdata_ktGaussian10_enc0_recon.mat
 ```
 
-Inference output currently saves magnitude `img4ranking`, not complex recon. True phase-based PCMRA cannot be computed from magnitude-only outputs.
+Run the wrapper once for each encoding index `0,1,2,3`. It saves coil-combined complex real/imag output by default,
+which preserves phase and is directly compatible with `scripts/tools/export_4dflow_submission.py`. Pass
+`--preserve-multicoil-output` only for legacy/debug coil-resolved output.
 
 ## Evaluation: 2D XY/ZY SSIM
 
@@ -371,7 +373,7 @@ For an organized `final/` folder:
 
 ```bash
 python scripts/vis_tools/evaluate_4dflow_recon_planes.py \
-  --data-root "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TestSet/Aorta" \
+  --data-root "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TestSet/Aorta" \
   --recon-root "/path/to/final" \
   --enc-idx 0 \
   --recon-layout xyzt \
@@ -382,7 +384,7 @@ Metrics only:
 
 ```bash
 python scripts/vis_tools/evaluate_4dflow_recon_planes.py \
-  --data-root "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TestSet/Aorta" \
+  --data-root "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TestSet/Aorta" \
   --recon-root "/path/to/final" \
   --enc-idx 0 \
   --recon-layout xyzt \
@@ -410,7 +412,7 @@ Command:
 ```bash
 python scripts/vis_tools/evaluate_4dflow_pcmra_folder.py \
   --recon-root "/path/to/final" \
-  --data-root "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TestSet/Aorta" \
+  --data-root "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TestSet/Aorta" \
   --out-csv "outputs/4dflow_pcmra_metrics.csv" \
   --recon-layout xyzt
 ```
@@ -534,17 +536,10 @@ Wrong shape: expected 7 dims. Received 6-dim tensor.
 Likely cause: external coilmap was passed without the expected batch dimension during rearrange.
 Wrap sensitivity maps as a list/with batch dimension before `rearrange_mri_data`.
 
-### True PCMRA Not Available
+### Complex Output and PCMRA
 
-Current inference saves magnitude after:
-
-```python
-complex_abs(...)
-```
-
-So phase is gone.
-
-True PCMRA requires saving complex recon before magnitude conversion.
+The 4D Flow wrapper saves coil-combined complex real/imag output. Do not replace this save path with
+`complex_abs(...)`; phase is required for PCMRA and the official flow metrics.
 
 ## Key Files
 

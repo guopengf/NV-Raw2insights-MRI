@@ -120,7 +120,7 @@ def main() -> None:
     parser.add_argument(
         "--patient-dir",
         type=Path,
-        default=Path("/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P076/"),
+        default=Path("/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/Center007/GE_30T_Architect/P076/"),
     )
     parser.add_argument("--enc", type=int, default=0)
     parser.add_argument("--frame", type=int, default=0)

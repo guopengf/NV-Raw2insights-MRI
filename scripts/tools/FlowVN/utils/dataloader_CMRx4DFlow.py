@@ -21,12 +21,12 @@ REQUIRED_FILES = ("kdata_full.mat", "coilmap.mat", "segmask.mat", "params.csv")
 
 DEFAULT_OPTS = {
     "train_roots": [
-        "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TrainSet/",
-        # "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center012/Philips_30T_Ingenia"
+        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/TrainSet/",
+        # "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/Center012/Philips_30T_Ingenia"
     ],
     "val_roots": [
-        "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/"
-        # "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center012/Philips_30T_Ingenia"
+        "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/"
+        # "/data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/Center012/Philips_30T_Ingenia"
     ],
 }
 

@@ -42,10 +42,14 @@ class OfficialFlowMetricEvaluator:
         case_id: str,
         pred: np.ndarray,
         target: np.ndarray,
-        roi_mask_zyx: np.ndarray,
+        roi_mask_zyx: np.ndarray | None,
         *,
         corr_cache_id: str | None = None,
     ) -> dict[str, float]:
+        if roi_mask_zyx is None:
+            roi_mask_zyx = np.ones(target.shape[-3:], dtype=np.float32)
+        else:
+            roi_mask_zyx = np.asarray(roi_mask_zyx, dtype=np.float32)
         cache_id = case_id if corr_cache_id is None else corr_cache_id
         if cache_id not in self._corr_cache:
             self._corr_cache[cache_id] = compute_corrmap(self.funcs, target, roi_mask_zyx)

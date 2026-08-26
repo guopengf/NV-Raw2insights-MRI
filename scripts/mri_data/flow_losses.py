@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import combinations
 
 import torch
 import torch.distributed as dist
@@ -60,11 +61,39 @@ def relative_phase(x: torch.Tensor, *, encoding_dim: int = 1, reference_index: i
     )[1]
 
 
-def _masked_mean(values: torch.Tensor, mask: torch.Tensor, *, eps: float = 1e-8) -> torch.Tensor:
-    mask = mask.to(dtype=values.dtype, device=values.device)
-    while mask.ndim < values.ndim:
-        mask = mask.unsqueeze(1)
-    mask = torch.broadcast_to(mask, values.shape)
+def _broadcast_mask(mask: torch.Tensor | None, values: torch.Tensor) -> torch.Tensor | None:
+    """Align [B,(S),Z,Y] ROI tensors with joint component/coil dimensions."""
+
+    if mask is None:
+        return None
+    mask = torch.as_tensor(mask, dtype=values.dtype, device=values.device)
+    if mask.ndim > values.ndim:
+        raise ValueError(f"Cannot align ROI mask {tuple(mask.shape)} with values {tuple(values.shape)}")
+    if mask.shape == values.shape:
+        return mask
+
+    candidates = []
+    for positions in combinations(range(values.ndim), mask.ndim):
+        if mask.ndim > 0 and mask.shape[0] == values.shape[0] and positions[0] != 0:
+            continue
+        if all(mask.shape[index] in (1, values.shape[position]) for index, position in enumerate(positions)):
+            candidates.append(positions)
+    if not candidates:
+        raise ValueError(f"Cannot align ROI mask {tuple(mask.shape)} with values {tuple(values.shape)}")
+
+    # Prefer later non-batch dimensions. This maps [B,S,Z,Y] to
+    # [B,1,S,1,Z,Y], rather than accidentally treating S as VENC.
+    positions = max(candidates)
+    shape = [1] * values.ndim
+    for source_dim, target_dim in enumerate(positions):
+        shape[target_dim] = mask.shape[source_dim]
+    return torch.broadcast_to(mask.reshape(shape), values.shape)
+
+
+def _masked_mean(values: torch.Tensor, mask: torch.Tensor | None, *, eps: float = 1e-8) -> torch.Tensor:
+    mask = _broadcast_mask(mask, values)
+    if mask is None:
+        return values.mean()
     denominator = mask.sum()
     return torch.where(
         denominator > 0,
@@ -76,7 +105,7 @@ def _masked_mean(values: torch.Tensor, mask: torch.Tensor, *, eps: float = 1e-8)
 def complex_roi_l1_loss(
     pred: torch.Tensor,
     target: torch.Tensor,
-    roi_mask: torch.Tensor,
+    roi_mask: torch.Tensor | None,
     *,
     normalize_by_mask: bool = True,
     outside_weight: float = 0.0,
@@ -87,21 +116,21 @@ def complex_roi_l1_loss(
     values = torch.abs(pred - target).mean(dim=-1)
     if normalize_by_mask:
         inside = _masked_mean(values, roi_mask, eps=eps)
+    elif roi_mask is None:
+        inside = values.mean()
     else:
-        mask = roi_mask.to(dtype=values.dtype, device=values.device)
-        while mask.ndim < values.ndim:
-            mask = mask.unsqueeze(1)
+        mask = _broadcast_mask(roi_mask, values)
         inside = (values * mask).mean()
-    if outside_weight <= 0:
+    if outside_weight <= 0 or roi_mask is None:
         return inside
-    outside = _masked_mean(values, 1.0 - roi_mask, eps=eps)
+    outside = _masked_mean(values, 1.0 - torch.as_tensor(roi_mask), eps=eps)
     return inside + float(outside_weight) * outside
 
 
 def circular_phase_loss(
     pred: torch.Tensor,
     target: torch.Tensor,
-    roi_mask: torch.Tensor,
+    roi_mask: torch.Tensor | None,
     *,
     encoding_dim: int = 1,
     reference_index: int = 0,
@@ -115,7 +144,7 @@ def circular_phase_loss(
 def velocity_component_loss(
     pred_flow: torch.Tensor,
     target_flow: torch.Tensor,
-    roi_mask: torch.Tensor,
+    roi_mask: torch.Tensor | None,
     *,
     loss_type: str = "smooth_l1",
     eps: float = 1e-8,
@@ -150,7 +179,7 @@ class _SafeSqrt(torch.autograd.Function):
 def relerr_loss(
     pred_flow: torch.Tensor,
     target_flow: torch.Tensor,
-    roi_mask: torch.Tensor,
+    roi_mask: torch.Tensor | None,
     *,
     component_dim: int = 1,
     eps: float = 1e-12,
@@ -159,17 +188,20 @@ def relerr_loss(
 
     pred_speed = torch.linalg.vector_norm(pred_flow, dim=component_dim)
     target_speed = torch.linalg.vector_norm(target_flow, dim=component_dim)
-    mask = roi_mask.to(dtype=pred_speed.dtype, device=pred_speed.device)
-    mask = torch.broadcast_to(mask, pred_speed.shape)
-    numerator = (mask * (target_speed - pred_speed).square()).sum()
-    denominator = (mask * target_speed.square()).sum() + eps
+    mask = _broadcast_mask(roi_mask, pred_speed)
+    if mask is None:
+        numerator = (target_speed - pred_speed).square().sum()
+        denominator = target_speed.square().sum() + eps
+    else:
+        numerator = (mask * (target_speed - pred_speed).square()).sum()
+        denominator = (mask * target_speed.square()).sum() + eps
     return _SafeSqrt.apply(numerator / denominator)
 
 
 def angular_cosine_loss(
     pred_flow: torch.Tensor,
     target_flow: torch.Tensor,
-    roi_mask: torch.Tensor,
+    roi_mask: torch.Tensor | None,
     *,
     component_dim: int = 1,
     min_speed: float = 0.0,
@@ -181,9 +213,10 @@ def angular_cosine_loss(
     pred_speed = torch.linalg.vector_norm(pred_flow, dim=component_dim)
     target_speed = torch.linalg.vector_norm(target_flow, dim=component_dim)
     cosine = (dot / (pred_speed * target_speed + eps)).clamp(-1.0, 1.0)
-    angular_mask = roi_mask.to(dtype=cosine.dtype, device=cosine.device)
+    angular_mask = None if roi_mask is None else torch.as_tensor(roi_mask, dtype=cosine.dtype, device=cosine.device)
     if min_speed > 0:
-        angular_mask = angular_mask * (target_speed >= float(min_speed)).to(cosine.dtype)
+        speed_mask = (target_speed >= float(min_speed)).to(cosine.dtype)
+        angular_mask = speed_mask if angular_mask is None else _broadcast_mask(angular_mask, cosine) * speed_mask
     return _masked_mean(1.0 - cosine, angular_mask, eps=eps)
 
 

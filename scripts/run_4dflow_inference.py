@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -22,12 +24,13 @@ def build_jsons(
     acquisition: str,
     encoding_idx: int,
     accelerations: list[int],
+    joint_encodings: bool = False,
     targetless: bool = False,
     max_cases: int | None = None,
 ):
     """
     case_root:
-      /SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/ValidationSet/Aorta/Center007/GE_30T_Architect
+      /data/CMRx4DFlow2026-ChallengeData/R1R2/TaskR1R2/ValidationSet/Aorta/Center007/GE_30T_Architect
 
     Creates one json per (case, accel) for a single velocity encoding. Challenge validation/test
     folders usually do not contain kdata_full.mat; pass targetless=True to use the undersampled
@@ -65,7 +68,7 @@ def build_jsons(
             segmask = case_dir / "segmask.mat"
             target_kspace = kspace_full if kspace_full.exists() else us_kspace
 
-            stem = f"{center}__{scanner}__{case_id}__ktGaussian{acc}__enc{encoding_idx}"
+            stem = f"{center}__{scanner}__{case_id}__ktGaussian{acc}__{'joint4' if joint_encodings else f'enc{encoding_idx}'}"
             json_path = json_dir / f"{stem}.json"
 
             payload = {
@@ -74,10 +77,14 @@ def build_jsons(
                 "mask": [str(mask_path)],
                 "mask_type": f"ktGaussian{acc}",
                 "acquisition": acquisition,
-                "encoding_idx": encoding_idx,
                 "is_4dflow": True,
                 "targetless": not kspace_full.exists(),
             }
+            if joint_encodings:
+                payload["joint_encodings"] = True
+                payload["encoding_indices"] = [0, 1, 2, 3]
+            else:
+                payload["encoding_idx"] = encoding_idx
             if coilmap.exists():
                 payload["coilmap"] = str(coilmap)
             if segmask.exists():
@@ -86,17 +93,17 @@ def build_jsons(
             with open(json_path, "w") as f:
                 json.dump(payload, f, indent=2)
 
-            manifest.append(
-                {
+            for output_encoding_idx in ([0, 1, 2, 3] if joint_encodings else [encoding_idx]):
+                manifest.append({
                     "stem": stem,
                     "center": center,
                     "scanner": scanner,
                     "case_id": case_id,
                     "acc": acc,
-                    "encoding_idx": encoding_idx,
+                    "encoding_idx": output_encoding_idx,
+                    "joint_encodings": joint_encodings,
                     "json_path": str(json_path),
-                }
-            )
+                })
             case_written = True
 
         if case_written:
@@ -107,7 +114,15 @@ def build_jsons(
     return manifest
 
 
-def run_inference(repo_root: Path, config_path: str, input_json_dir: Path, tmp_out_dir: Path, ckpt: str | None):
+def run_inference(
+    repo_root: Path,
+    config_path: str,
+    input_json_dir: Path,
+    tmp_out_dir: Path,
+    ckpt: str | None,
+    *,
+    save_coil_combined_output: bool,
+):
     cmd = [
         sys.executable,
         str(repo_root / "scripts" / "inference.py"),
@@ -120,6 +135,8 @@ def run_inference(repo_root: Path, config_path: str, input_json_dir: Path, tmp_o
     ]
     if ckpt:
         cmd.extend(["-m", ckpt])
+    if save_coil_combined_output:
+        cmd.append("--save-coil-combined-output")
 
     print("[RUN]", " ".join(cmd))
     subprocess.run(cmd, check=True)
@@ -137,7 +154,8 @@ def reorganize_outputs(tmp_out_dir: Path, final_out_dir: Path, manifest):
         raise FileNotFoundError(f"Expected inference outputs in: {src_dir}")
 
     for item in manifest:
-        src_file = src_dir / f"{item['stem']}.mat"
+        suffix = f"__enc{item['encoding_idx']}" if item.get("joint_encodings", False) else ""
+        src_file = src_dir / f"{item['stem']}{suffix}.mat"
         if not src_file.exists():
             print(f"[WARN] Missing inference output: {src_file}")
             continue
@@ -201,6 +219,11 @@ def main():
         help="Which velocity encoding to use. Current baseline uses only one encoding.",
     )
     parser.add_argument(
+        "--joint-encodings",
+        action="store_true",
+        help="Reconstruct all four encodings together; requires a joint-encoding config.",
+    )
+    parser.add_argument(
         "--accelerations",
         type=parse_accelerations,
         default=ACCELS,
@@ -216,6 +239,11 @@ def main():
         "--targetless",
         action="store_true",
         help="Allow challenge validation/test folders without kdata_full.mat.",
+    )
+    parser.add_argument(
+        "--preserve-multicoil-output",
+        action="store_true",
+        help="Keep the legacy coil-resolved output instead of saving exporter-ready coil-combined output.",
     )
     args = parser.parse_args()
 
@@ -236,6 +264,7 @@ def main():
         acquisition=args.acquisition,
         encoding_idx=args.encoding_idx,
         accelerations=args.accelerations,
+        joint_encodings=args.joint_encodings,
         targetless=args.targetless,
         max_cases=args.max_cases,
     )
@@ -250,6 +279,7 @@ def main():
         input_json_dir=json_dir,
         tmp_out_dir=tmp_out_dir,
         ckpt=args.ckpt,
+        save_coil_combined_output=not args.preserve_multicoil_output,
     )
 
     reorganize_outputs(
