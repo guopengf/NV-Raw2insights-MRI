@@ -1486,5 +1486,7 @@ class RearrangeAndNormalizeMRI(MapTransform):
 
         if "mra_prior" in d["kspace_meta_dict"]:
             d["mra_prior"] = torch.as_tensor(d["kspace_meta_dict"]["mra_prior"], dtype=torch.float32).contiguous()
+        if "roi_mask" in d["kspace_meta_dict"]:
+            d["roi_mask"] = torch.as_tensor(d["kspace_meta_dict"]["roi_mask"], dtype=torch.float32).contiguous()
 
         return d

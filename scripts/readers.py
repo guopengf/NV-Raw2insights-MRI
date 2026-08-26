@@ -19,7 +19,14 @@ from collections.abc import Sequence
 
 import numpy as np
 import scipy
-from mra_utils import cfg_get, generate_or_load_mra_prior, load_vessel_mask_prior, vascular_prior_needed
+from mra_utils import (
+    cfg_get,
+    generate_or_load_mra_prior,
+    load_roi_loss_mask,
+    load_vessel_mask_prior,
+    roi_loss_mask_needed,
+    vaa_prior_needed,
+)
 from monai.config import PathLike
 from monai.data.image_reader import ImageReader
 from monai.data.utils import is_supported_format
@@ -400,7 +407,7 @@ class CMRxReconReader(ImageReader):
                     json_data["coilmap"],
                     preferred_keys=("coilmap", "csm", "sensitivity_maps", "sens_maps"),
                 )
-            if vascular_prior_needed(self.args):
+            if vaa_prior_needed(self.args) or bool(cfg_get(self.args, "phase3.loss.use_vascular", False)):
                 prior_source = str(cfg_get(self.args, "phase3.vaa.prior_source", "mra")).lower()
                 if prior_source == "mask":
                     field = str(cfg_get(self.args, "phase3.mask.field", "segmask"))
@@ -410,6 +417,22 @@ class CMRxReconReader(ImageReader):
                     dat["mra_prior"] = load_vessel_mask_prior(mask_path, self.args)
                 else:
                     dat["mra_prior"] = generate_or_load_mra_prior(self.args, json_data)
+            if roi_loss_mask_needed(self.args):
+                field = str(cfg_get(self.args, "phase3.loss.roi.field", "segmask"))
+                roi_path = json_data.get(field)
+                if not roi_path:
+                    raise ValueError(
+                        "phase3.loss.roi.enabled=true with source='segmask' requires "
+                        f"JSON field {field!r}: {data}"
+                    )
+                roi_mask = load_roi_loss_mask(roi_path, self.args)
+                expected_roi_shape = (int(target_shape[-1]), int(target_shape[-3]), int(target_shape[-2]))
+                if tuple(roi_mask.shape) != expected_roi_shape:
+                    raise ValueError(
+                        f"ROI mask shape mismatch after [x,z,y] orientation: got {tuple(roi_mask.shape)}, "
+                        f"expected {expected_roi_shape} from k-space {tuple(target_shape)}: {roi_path}"
+                    )
+                dat["roi_mask"] = roi_mask
             return dat
 
         kspace = json_data["kspace"]
@@ -547,6 +570,8 @@ class CMRxReconReader(ImageReader):
                 header[CMRxReconKeys.SENSITIVITY_MAPS] = self._to_complex_array(dat[CMRxReconKeys.SENSITIVITY_MAPS])
             if "mra_prior" in dat and dat["mra_prior"] is not None:
                 header["mra_prior"] = np.asarray(dat["mra_prior"], dtype=np.float32)
+            if "roi_mask" in dat and dat["roi_mask"] is not None:
+                header["roi_mask"] = np.asarray(dat["roi_mask"], dtype=np.float32)
 
             return data, header
 

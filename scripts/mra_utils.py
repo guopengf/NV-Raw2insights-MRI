@@ -31,7 +31,21 @@ def phase3_enabled(args: Any) -> bool:
     return bool(cfg_get(args, "phase3.enable_vaa", False))
 
 
+def vaa_prior_needed(args: Any) -> bool:
+    """Return whether the VAA path needs its own prior tensor."""
+
+    return phase3_enabled(args)
+
+
+def roi_loss_mask_needed(args: Any) -> bool:
+    """Return whether an independently configured ROI loss mask is required."""
+
+    return bool(cfg_get(args, "phase3.loss.roi.enabled", False))
+
+
 def vascular_prior_needed(args: Any) -> bool:
+    """Backward-compatible predicate for the legacy VAA/vascular-loss path."""
+
     return phase3_enabled(args) or bool(cfg_get(args, "phase3.loss.use_vascular", False))
 
 
@@ -88,24 +102,61 @@ def read_real_mat_array(path: str | Path, preferred_keys: tuple[str, ...]) -> np
     raise ValueError(f"No array found in {path}")
 
 
-def load_vessel_mask_prior(path: str | Path, args: Any) -> np.ndarray:
-    keys = cfg_get(args, "phase3.mask.keys", ("segmask", "vessel_mask", "mask", "seg", "label"))
+def load_oriented_spatial_mask(
+    path: str | Path,
+    *,
+    keys,
+    axis_order: str,
+    binary: bool,
+    threshold: float,
+    name: str,
+) -> np.ndarray:
+    """Load a 3D mask and orient it to the model's canonical [x,z,y] order."""
+
     if isinstance(keys, str):
         keys = tuple(k.strip() for k in keys.split(",") if k.strip())
     keys = tuple(keys)
     arr = np.asarray(read_real_mat_array(path, keys)).squeeze().astype(np.float32)
-    axis_order = str(cfg_get(args, "phase3.mask.axis_order", "zyx")).lower()
+    axis_order = str(axis_order).lower()
     if arr.ndim != len(axis_order):
-        raise ValueError(f"Vessel mask shape/order mismatch: shape={arr.shape}, axis_order={axis_order!r}")
+        raise ValueError(f"{name} shape/order mismatch: shape={arr.shape}, axis_order={axis_order!r}")
     if sorted(axis_order) != ["x", "y", "z"]:
-        raise ValueError(f"phase3.mask.axis_order must be a permutation of zyx, got {axis_order!r}")
+        raise ValueError(f"{name} axis_order must be a permutation of zyx, got {axis_order!r}")
     arr = np.transpose(arr, tuple(axis_order.index(axis) for axis in "xzy"))
-    if bool(cfg_get(args, "phase3.mask.binary", True)):
-        threshold = float(cfg_get(args, "phase3.mask.threshold", 0.5))
+    if binary:
         arr = (arr >= threshold).astype(np.float32)
     else:
         arr = np.clip(arr, 0.0, 1.0).astype(np.float32)
     return arr
+
+
+def load_vessel_mask_prior(path: str | Path, args: Any) -> np.ndarray:
+    return load_oriented_spatial_mask(
+        path,
+        keys=cfg_get(args, "phase3.mask.keys", ("segmask", "vessel_mask", "mask", "seg", "label")),
+        axis_order=str(cfg_get(args, "phase3.mask.axis_order", "zyx")),
+        binary=bool(cfg_get(args, "phase3.mask.binary", True)),
+        threshold=float(cfg_get(args, "phase3.mask.threshold", 0.5)),
+        name="VAA vessel mask",
+    )
+
+
+def load_roi_loss_mask(path: str | Path, args: Any) -> np.ndarray:
+    source = str(cfg_get(args, "phase3.loss.roi.source", "segmask")).lower()
+    if source != "segmask":
+        raise ValueError(f"Unsupported phase3.loss.roi.source={source!r}; only 'segmask' is supported")
+    return load_oriented_spatial_mask(
+        path,
+        keys=cfg_get(
+            args,
+            "phase3.loss.roi.keys",
+            ("segmask", "vessel_mask", "mask", "seg", "label"),
+        ),
+        axis_order=str(cfg_get(args, "phase3.loss.roi.axis_order", "zyx")),
+        binary=bool(cfg_get(args, "phase3.loss.roi.binary", True)),
+        threshold=float(cfg_get(args, "phase3.loss.roi.threshold", 0.5)),
+        name="ROI loss mask",
+    )
 
 
 def temporal_mean_kspace(path: str | Path, key: str, *, device: torch.device, nonzero: bool) -> tuple[torch.Tensor, torch.Tensor]:
@@ -242,7 +293,7 @@ def mra_cache_path(args: Any, json_data: dict[str, Any], source: str) -> Path:
 
 
 def generate_or_load_mra_prior(args: Any, json_data: dict[str, Any]) -> np.ndarray | None:
-    if not vascular_prior_needed(args):
+    if not vaa_prior_needed(args) and not bool(cfg_get(args, "phase3.loss.use_vascular", False)):
         return None
 
     source = str(cfg_get(args, "phase3.mra.source", "gt")).lower()

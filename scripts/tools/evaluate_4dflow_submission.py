@@ -145,6 +145,13 @@ def get_corrmap(funcs: dict, gt: np.ndarray, segmask: np.ndarray, gt_case_dir: P
     return corr
 
 
+def compute_corrmap(funcs: dict, gt: np.ndarray, segmask: np.ndarray) -> np.ndarray:
+    """Compute the same MSAC background correction used by the wrapper scorer."""
+
+    corr = funcs["execute_MSAC"](gt, corr_fit_order=3, th=0.1)
+    return np.asarray(corr, dtype=np.float32) * np.asarray(segmask, dtype=np.float32)
+
+
 def strip_submission_prefix(path: Path, submission_root: Path, task: str | None) -> Path:
     rel = path.relative_to(submission_root)
     parts = rel.parts
@@ -157,16 +164,32 @@ def strip_submission_prefix(path: Path, submission_root: Path, task: str | None)
     raise ValueError(f"Submission file must live under Task*/Set/Anatomy/Center/Vendor/Patient: {rel}")
 
 
-def evaluate_one(funcs: dict, pred_path: Path, gt_path: Path, seg_path: Path, cache_dir: Path | None, include_complex_diff: bool):
-    gt = load_dense(funcs["load_coo_npz"], gt_path)
-    pred = load_dense(funcs["load_coo_npz"], pred_path)
-    segmask = load_segmask(funcs["load_mat_array"], seg_path)
+def evaluate_arrays(
+    funcs: dict,
+    pred: np.ndarray,
+    gt: np.ndarray,
+    segmask: np.ndarray,
+    *,
+    corr_maps: np.ndarray | None = None,
+    include_complex_diff: bool = False,
+):
+    """Evaluate dense arrays with the same crop/conversion/metrics as submission evaluation."""
+
+    gt = np.asarray(gt)
+    pred = np.asarray(pred)
+    segmask = np.asarray(segmask, dtype=np.float32)
     if gt.shape != pred.shape:
         raise ValueError(f"shape mismatch: gt{gt.shape} vs pred{pred.shape}")
+    if gt.shape[0] != 4 or gt.ndim != 5:
+        raise ValueError(f"Expected dense complex [4,time,z,y,x], got {gt.shape}")
+    if segmask.shape != gt.shape[-3:]:
+        raise ValueError(f"Segmentation shape {segmask.shape} does not match complex volume {gt.shape[-3:]}")
+    if not np.any(segmask):
+        raise ValueError("Official flow metrics require a non-empty segmentation mask")
 
-    corr = get_corrmap(funcs, gt, segmask, gt_path.parent, cache_dir)
-    gt, pred, segmask, corr = crop_to_seg_bbox(gt, pred, segmask, corr)
-    gt_c, pred_c = phase_correct(gt, pred, corr)
+    corr_maps = compute_corrmap(funcs, gt, segmask) if corr_maps is None else np.asarray(corr_maps)
+    gt, pred, segmask, corr_maps = crop_to_seg_bbox(gt, pred, segmask, corr_maps)
+    gt_c, pred_c = phase_correct(gt, pred, corr_maps)
 
     mag_gt, flow_gt = funcs["complex2magflow"](gt_c)
     mag_pred, flow_pred = funcs["complex2magflow"](pred_c)
@@ -185,6 +208,21 @@ def evaluate_one(funcs: dict, pred_path: Path, gt_path: Path, seg_path: Path, ca
     if include_complex_diff:
         row["ComplexDiffErr"] = float(funcs["ComplexDiffErr"](pred_c, gt_c, segmask))
     return row
+
+
+def evaluate_one(funcs: dict, pred_path: Path, gt_path: Path, seg_path: Path, cache_dir: Path | None, include_complex_diff: bool):
+    gt = load_dense(funcs["load_coo_npz"], gt_path)
+    pred = load_dense(funcs["load_coo_npz"], pred_path)
+    segmask = load_segmask(funcs["load_mat_array"], seg_path)
+    corr = get_corrmap(funcs, gt, segmask, gt_path.parent, cache_dir)
+    return evaluate_arrays(
+        funcs,
+        pred,
+        gt,
+        segmask,
+        corr_maps=corr,
+        include_complex_diff=include_complex_diff,
+    )
 
 
 def mean_or_nan(values: list[float]) -> float:

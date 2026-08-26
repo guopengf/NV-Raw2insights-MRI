@@ -385,6 +385,9 @@ def validate_phase3_config(config) -> None:
             "freeze",
             "gamma",
             "loss",
+            "validation",
+            "checkpoint_selection",
+            "augmentation",
             "inference",
         },
     )
@@ -577,6 +580,15 @@ def validate_phase3_config(config) -> None:
                 "phase",
                 "vascular",
                 "weights",
+                "roi",
+                "complex_roi",
+                "joint_venc",
+                "cross_venc_phase",
+                "velocity",
+                "relerr",
+                "angular",
+                "flow_loss_ramp",
+                "loss_normalization",
             },
         )
         spatial_dims = normalize_ssim_spatial_dims(_get_attr(loss, "ssim_spatial_dims", "auto"), recon_mode)
@@ -611,6 +623,116 @@ def validate_phase3_config(config) -> None:
             if vascular_method not in flowvn_methods:
                 raise ValueError(f"Unsupported phase3.loss.vascular.method={vascular_method!r}")
             _set_attr(vascular_loss, "method", vascular_method)
+
+        roi = _get_attr(loss, "roi", None)
+        _warn_unknown_config_keys(
+            roi,
+            "phase3.loss.roi",
+            {"enabled", "source", "field", "keys", "axis_order", "binary", "threshold", "normalize_by_mask", "outside_weight"},
+        )
+        if roi is not None:
+            source = str(_get_attr(roi, "source", "segmask")).lower()
+            if source != "segmask":
+                raise ValueError("phase3.loss.roi.source currently supports only 'segmask'")
+            axis_order = str(_get_attr(roi, "axis_order", "zyx")).lower()
+            if sorted(axis_order) != ["x", "y", "z"]:
+                raise ValueError(f"phase3.loss.roi.axis_order must be a permutation of zyx, got {axis_order!r}")
+            if float(_get_attr(roi, "outside_weight", 0.0)) < 0:
+                raise ValueError("phase3.loss.roi.outside_weight must be non-negative")
+            _set_attr(roi, "source", source)
+            _set_attr(roi, "axis_order", axis_order)
+
+        component_configs = {
+            "complex_roi": {"enabled", "weight"},
+            "cross_venc_phase": {"enabled", "weight"},
+            "velocity": {"enabled", "weight", "type"},
+            "relerr": {"enabled", "weight"},
+            "angular": {"enabled", "weight", "min_speed"},
+        }
+        for name, allowed in component_configs.items():
+            component = _get_attr(loss, name, None)
+            _warn_unknown_config_keys(component, f"phase3.loss.{name}", allowed)
+            if component is not None and float(_get_attr(component, "weight", 0.1)) < 0:
+                raise ValueError(f"phase3.loss.{name}.weight must be non-negative")
+        velocity = _get_attr(loss, "velocity", None)
+        if velocity is not None:
+            velocity_type = str(_get_attr(velocity, "type", "smooth_l1")).lower()
+            if velocity_type not in {"smooth_l1", "l1", "l2", "mse"}:
+                raise ValueError("phase3.loss.velocity.type must be smooth_l1, l1, l2, or mse")
+            _set_attr(velocity, "type", velocity_type)
+        angular = _get_attr(loss, "angular", None)
+        if angular is not None and float(_get_attr(angular, "min_speed", 0.0)) < 0:
+            raise ValueError("phase3.loss.angular.min_speed must be non-negative")
+
+        joint_venc = _get_attr(loss, "joint_venc", None)
+        _warn_unknown_config_keys(joint_venc, "phase3.loss.joint_venc", {"enabled", "encodings", "reference_encoding"})
+        joint_enabled = bool(_get_attr(joint_venc, "enabled", False))
+        encodings = [int(value) for value in _get_attr(joint_venc, "encodings", [0, 1, 2, 3])]
+        reference_encoding = int(_get_attr(joint_venc, "reference_encoding", 0))
+        if joint_enabled and encodings != [0, 1, 2, 3]:
+            raise ValueError("Current 4D Flow joint loss requires encodings=[0,1,2,3] in official order")
+        if joint_enabled and reference_encoding != 0:
+            raise ValueError("Official 4D Flow conversion requires joint_venc.reference_encoding=0")
+        if reference_encoding not in encodings:
+            raise ValueError("phase3.loss.joint_venc.reference_encoding must be present in encodings")
+
+        new_loss_names = ("complex_roi", "cross_venc_phase", "velocity", "relerr", "angular")
+        enabled_new_losses = {
+            name for name in new_loss_names if bool(_get_attr(_get_attr(loss, name, None), "enabled", False))
+        }
+        if enabled_new_losses and not bool(_get_attr(roi, "enabled", False)):
+            raise ValueError(f"Enabled ROI/flow losses {sorted(enabled_new_losses)} require phase3.loss.roi.enabled=true")
+        joint_only = enabled_new_losses & {"cross_venc_phase", "velocity", "relerr", "angular"}
+        if joint_only and not joint_enabled:
+            raise ValueError(f"Losses {sorted(joint_only)} require phase3.loss.joint_venc.enabled=true")
+
+        ramp = _get_attr(loss, "flow_loss_ramp", None)
+        _warn_unknown_config_keys(ramp, "phase3.loss.flow_loss_ramp", {"enabled", "start_epoch", "end_epoch"})
+        if ramp is not None and int(_get_attr(ramp, "end_epoch", 20)) < int(_get_attr(ramp, "start_epoch", 5)):
+            raise ValueError("phase3.loss.flow_loss_ramp.end_epoch must be >= start_epoch")
+        normalization = _get_attr(loss, "loss_normalization", None)
+        _warn_unknown_config_keys(normalization, "phase3.loss.loss_normalization", {"enabled", "momentum", "eps"})
+        if normalization is not None:
+            momentum = float(_get_attr(normalization, "momentum", 0.99))
+            if not 0 <= momentum < 1:
+                raise ValueError("phase3.loss.loss_normalization.momentum must be in [0,1)")
+            if float(_get_attr(normalization, "eps", 1e-8)) <= 0:
+                raise ValueError("phase3.loss.loss_normalization.eps must be positive")
+
+    validation = _get_attr(phase3, "validation", None)
+    _warn_unknown_config_keys(validation, "phase3.validation", {"flow_metrics"})
+    flow_metrics = _get_attr(validation, "flow_metrics", None)
+    _warn_unknown_config_keys(flow_metrics, "phase3.validation.flow_metrics", {"enabled", "eval_code_dir"})
+    if bool(_get_attr(flow_metrics, "enabled", False)):
+        if loss is None or not bool(_get_attr(_get_attr(loss, "roi", None), "enabled", False)):
+            raise ValueError("Official flow validation requires phase3.loss.roi.enabled=true")
+        if recon_mode != "slab":
+            raise ValueError("Official flow validation in this branch requires phase3.recon_mode='slab'")
+
+    checkpoint_selection = _get_attr(phase3, "checkpoint_selection", None)
+    _warn_unknown_config_keys(checkpoint_selection, "phase3.checkpoint_selection", {"primary", "flow_score"})
+    if checkpoint_selection is not None:
+        primary = str(_get_attr(checkpoint_selection, "primary", "flow")).lower()
+        if primary not in {"flow", "relerr", "angerr", "ssim"}:
+            raise ValueError("phase3.checkpoint_selection.primary must be flow, relerr, angerr, or ssim")
+        flow_score_cfg = _get_attr(checkpoint_selection, "flow_score", None)
+        _warn_unknown_config_keys(
+            flow_score_cfg,
+            "phase3.checkpoint_selection.flow_score",
+            {"relerr_weight", "angerr_weight", "angerr_scale"},
+        )
+        if float(_get_attr(flow_score_cfg, "angerr_scale", 100.0)) <= 0:
+            raise ValueError("phase3.checkpoint_selection.flow_score.angerr_scale must be positive")
+
+    augmentation = _get_attr(phase3, "augmentation", None)
+    _warn_unknown_config_keys(augmentation, "phase3.augmentation", {"paired_roll"})
+    paired_roll = _get_attr(augmentation, "paired_roll", None)
+    _warn_unknown_config_keys(paired_roll, "phase3.augmentation.paired_roll", {"enabled", "probability", "max_shift_zy"})
+    if paired_roll is not None:
+        probability = float(_get_attr(paired_roll, "probability", 0.0))
+        shifts = list(_get_attr(paired_roll, "max_shift_zy", [0, 0]))
+        if not 0 <= probability <= 1 or len(shifts) != 2 or any(int(value) < 0 for value in shifts):
+            raise ValueError("paired_roll requires probability in [0,1] and two non-negative max_shift_zy values")
 
     inference = _get_attr(phase3, "inference", None)
     if inference is not None:
@@ -933,6 +1055,7 @@ def load_net(
     resume_rng_state=False,
     prepare_model_for_ddp=None,
     resume_training_state=True,
+    return_training_metadata=False,
 ):
     """
     Load the Net model.
@@ -958,6 +1081,7 @@ def load_net(
     best_metric = -1
     best_metric_epoch = -1
     wandb_run_id = None
+    training_metadata = {}
 
     if not os.path.exists(resume_training_ckpt):
         print("Training from scratch or pretrained model.")
@@ -1023,6 +1147,10 @@ def load_net(
                 best_metric_epoch = checkpoint_net["best_metric_epoch"]
             if "wandb_run_id" in checkpoint_net:
                 wandb_run_id = checkpoint_net["wandb_run_id"]
+            training_metadata = {
+                "best_flow_metrics": checkpoint_net.get("best_flow_metrics"),
+                "loss_normalization_ema": checkpoint_net.get("loss_normalization_ema"),
+            }
             if resume_rng_state:
                 if "python_rng_state" in checkpoint_net:
                     random.setstate(checkpoint_net["python_rng_state"])
@@ -1061,7 +1189,7 @@ def load_net(
     elif torch.cuda.is_available():
         net = net.to(device)
 
-    return (
+    result = (
         net,
         optimizer_state_dict,
         scheduler_state_dict,
@@ -1072,6 +1200,7 @@ def load_net(
         best_metric_epoch,
         wandb_run_id,
     )
+    return result + (training_metadata,) if return_training_metadata else result
 
 
 def save_checkpoint(
@@ -1092,6 +1221,8 @@ def save_checkpoint(
     numpy_rng_state=None,
     torch_rng_state=None,
     cuda_rng_state=None,
+    best_flow_metrics=None,
+    loss_normalization_ema=None,
 ) -> None:
     """
     Save checkpoint.
@@ -1127,6 +1258,8 @@ def save_checkpoint(
             "numpy_rng_state": numpy_rng_state,
             "torch_rng_state": torch_rng_state,
             "cuda_rng_state": cuda_rng_state,
+            "best_flow_metrics": best_flow_metrics,
+            "loss_normalization_ema": loss_normalization_ema,
         },
         ckpt_path,
     )

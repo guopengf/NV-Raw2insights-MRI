@@ -40,6 +40,30 @@ from mri_data.data_utils import (
     postprocess_mri_recon,
     rearrange_mri_data,
 )
+from mri_data.flow_losses import (
+    BestFlowMetrics,
+    EMALossNormalizer,
+    angular_cosine_loss,
+    circular_phase_loss,
+    complex2magflow_torch,
+    complex_roi_l1_loss,
+    flatten_joint_venc,
+    flow_loss_ramp,
+    flow_score,
+    regroup_joint_venc,
+    relerr_loss,
+    select_training_center_time,
+    velocity_component_loss,
+)
+from mri_data.flow_metrics import OfficialFlowMetricEvaluator, coil_combined_samples_to_official_volume
+from mri_data.four_dflow_data import (
+    JointVencDataset,
+    Paired4DFlowRoll,
+    PostTransformDataset,
+    gather_joint_window,
+    group_joint_venc_manifests,
+    select_spatial_mask_slab,
+)
 from torch.amp import GradScaler, autocast
 from torch.distributed.elastic.multiprocessing.errors import record
 from torch.utils.tensorboard import SummaryWriter
@@ -90,6 +114,118 @@ def short_train_log_name(name):
         "bottleneck": "gb",
         "intermediate": "gi",
     }.get(name, name)
+
+
+def validate_joint_flow_case(model, val_data, args, device, evaluator, recon_num_slices):
+    """Reconstruct one complete four-VENC case and run exact official metrics."""
+
+    input_tensor = val_data["kspace_masked_ifft"][0]
+    target_tensor = val_data["kspace_ifft"][0]
+    sampling_mask = val_data["mask"][0]
+    mean = val_data["mean"][0]
+    std = val_data["std"][0]
+    sensitivity_maps = val_data.get("sensitivity_maps")
+    if sensitivity_maps is None:
+        raise RuntimeError("Official 4D Flow validation requires sensitivity maps")
+    sensitivity_maps = sensitivity_maps[0]
+    roi_mask = val_data.get("roi_mask")
+    if roi_mask is None:
+        raise RuntimeError("Official 4D Flow validation requires roi_mask/segmask")
+    roi_mask = roi_mask[0]
+    final_shape = [int(value) for value in val_data["kspace_meta_dict"]["shape"][0]]
+    mask_type = val_data["mask_type"][0]
+    acc_factor = val_data["acc_factor"][0]
+    acq_type = val_data["acquisition"][0]
+    case_id = val_data["kspace_meta_dict"].get("joint_group_id", val_data["kspace_meta_dict"]["filename"])[0]
+    corr_cache_id = val_data["kspace_meta_dict"].get("flow_corr_cache_id", [case_id])[0]
+    case_mra_prior = val_data.get("mra_prior")
+    case_mra_prior = case_mra_prior[0] if case_mra_prior is not None else None
+
+    predictions = []
+    targets = []
+    num_samples = input_tensor.shape[1]
+    center_s = recon_num_slices // 2
+    center_t = args.num_frames // 2
+    for micro_b, _ in mini_dataloader(
+        list(range(num_samples)),
+        2 * args.batch_size,
+        shuffle=False,
+        drop_last=False,
+        pad_last=False,
+    ):
+        _reference, window_idx = windowed_input_x_slab(
+            input_tensor[0],
+            micro_b,
+            final_shape,
+            num_frames=args.num_frames,
+            num_slices=recon_num_slices,
+        )
+        inp_joint = gather_joint_window(input_tensor, window_idx)
+        tar_joint = gather_joint_window(target_tensor, window_idx)
+        mask_joint = gather_joint_window(sampling_mask, window_idx)
+        mean_joint = gather_joint_window(mean, window_idx)
+        std_joint = gather_joint_window(std, window_idx)
+        sens_joint = gather_joint_window(sensitivity_maps, window_idx)
+        inp, batch_shape = flatten_joint_venc(inp_joint)
+        tar, _ = flatten_joint_venc(tar_joint)
+        mas, _ = flatten_joint_venc(mask_joint)
+        norm_mean, _ = flatten_joint_venc(mean_joint)
+        norm_std, _ = flatten_joint_venc(std_joint)
+        sens, _ = flatten_joint_venc(sens_joint)
+        if case_mra_prior is not None:
+            base_prior = select_mra_prior_slab_for_microbatch(
+                case_mra_prior, micro_b, final_shape, recon_num_slices
+            )
+            expanded_prior = base_prior[:, None].expand(-1, batch_shape[1], *base_prior.shape[1:])
+            mra_prior, _ = flatten_joint_venc(expanded_prior)
+            mra_prior = mra_prior.to(device)
+        else:
+            mra_prior = None
+        inp = inp.to(device)
+        tar = tar.to(device)
+        mas = mas.to(device)
+        norm_mean = norm_mean.to(device)
+        norm_std = norm_std.to(device)
+        sens = sens.to(device)
+        with autocast("cuda", torch.bfloat16, enabled=args.amp):
+            output = model(
+                inp,
+                mas.bool(),
+                mask_type,
+                acc_factor,
+                acq_type,
+                sensitivity_maps=sens,
+                mra_prior=mra_prior,
+            )
+
+        output = output[:, center_s, center_t] * norm_std[:, center_s, center_t] + norm_mean[:, center_s, center_t]
+        target = tar[:, center_s, center_t]
+        sens_center = sens[:, center_s, center_t]
+        output = crop_k_space(output, (final_shape[-2], final_shape[-1]))
+        target = crop_k_space(target, (final_shape[-2], final_shape[-1]))
+        sens_center = crop_k_space(sens_center, (final_shape[-2], final_shape[-1]))
+        output = sensitivity_map_reduce(output.float(), sens_center.float()).squeeze(1)
+        target = sensitivity_map_reduce(target.float(), sens_center.float()).squeeze(1)
+        output = regroup_joint_venc(output, batch_shape).permute(1, 0, 2, 3, 4)
+        target = regroup_joint_venc(target, batch_shape).permute(1, 0, 2, 3, 4)
+        predictions.append(output.cpu())
+        targets.append(target.cpu())
+
+    prediction_volume = coil_combined_samples_to_official_volume(torch.cat(predictions, dim=1), final_shape)
+    target_volume = coil_combined_samples_to_official_volume(torch.cat(targets, dim=1), final_shape)
+    temporal_shuffle = val_data.get("temporal_shuffle")
+    if temporal_shuffle is not None and bool(getattr(args, "do_mapping_shuffle", False)):
+        order = torch.as_tensor(temporal_shuffle[0]).argsort().cpu().numpy()
+        prediction_volume = prediction_volume[:, order]
+        target_volume = target_volume[:, order]
+    roi_zyx = roi_mask.permute(1, 2, 0).cpu().numpy().astype(np.float32, copy=False)
+    return evaluator.evaluate(
+        str(case_id),
+        prediction_volume,
+        target_volume,
+        roi_zyx,
+        corr_cache_id=str(corr_cache_id),
+    )
 
 
 def build_4dflow_aorta_manifests(data_roots, out_dir, accelerations=None, encodings=None):
@@ -196,6 +332,18 @@ def trainer(args):
     assert_outputs_not_in_data([outpath], [*args.data_path_train, *args.data_path_val])
     Path(outpath).mkdir(parents=True, exist_ok=True)  # create output directory to store model checkpoints
     use_multi_epochs_train_loader = bool(cfg_get(args, "use_multi_epochs_train_loader", False))
+    joint_venc_enabled = bool(cfg_get(args, "phase3.loss.joint_venc.enabled", False))
+    flow_validation_enabled = bool(cfg_get(args, "phase3.validation.flow_metrics.enabled", False))
+    joint_encodings = tuple(int(value) for value in cfg_get(args, "phase3.loss.joint_venc.encodings", [0, 1, 2, 3]))
+    if joint_venc_enabled and bool(getattr(args, "do_mapping_shuffle", False)):
+        raise ValueError("Joint-VENC mode requires do_mapping_shuffle=false so all encodings share one temporal window")
+    if getattr(args, "is_4dflow_aorta", False) and args.data_aug:
+        warnings.warn(
+            "Disabling generic data_aug for 4D Flow because it does not transform the undersampled input, "
+            "CSM and ROI together. Use phase3.augmentation.paired_roll instead.",
+            RuntimeWarning,
+        )
+        args.data_aug = False
 
     # create training-validation data loaders
     if getattr(args, "is_4dflow_aorta", False):
@@ -239,10 +387,16 @@ def trainer(args):
         )
     elif args.dataset.lower() == "fastmri":
         train_files = train_files
+    if joint_venc_enabled:
+        train_files = group_joint_venc_manifests(train_files, encodings=joint_encodings)
+    if flow_validation_enabled:
+        val_files = group_joint_venc_manifests(val_files, encodings=joint_encodings)
+
     train_files = train_files[
         : int(args.sample_rate * len(train_files))
     ]  # select a subset of the data according to sample_rate
-    train_files = [dict([("kspace", train_files[i])]) for i in range(len(train_files))]
+    if not joint_venc_enabled:
+        train_files = [dict([("kspace", train_files[i])]) for i in range(len(train_files))]
     print(f"#training files: {len(train_files)}")
     if len(train_files) == 0:
         raise RuntimeError(
@@ -260,7 +414,8 @@ def trainer(args):
     val_files = val_files[
         : int(args.sample_rate * len(val_files))
     ]  # select a subset of the data according to sample_rate
-    val_files = [dict([("kspace", val_files[i])]) for i in range(len(val_files))]
+    if not flow_validation_enabled:
+        val_files = [dict([("kspace", val_files[i])]) for i in range(len(val_files))]
     print(f"#validation files: {len(val_files)}")
     if len(val_files) < world_size:
         raise RuntimeError(
@@ -317,6 +472,7 @@ def trainer(args):
         best_metric,
         best_metric_epoch,
         wandb_run_id,
+        training_metadata,
     ) = load_net(
         model,
         resume_path,
@@ -327,6 +483,7 @@ def trainer(args):
         resume_training_state=(
             resume_from_current_experiment or not bool(getattr(args, "resume_weights_only", False))
         ),
+        return_training_metadata=True,
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
     model_params = sum(p.numel() for p in model.parameters())
@@ -337,42 +494,77 @@ def trainer(args):
     train_transforms = get_train_transforms(args)
     val_transforms = get_val_transforms(args)
 
-    train_ds = (
-        Dataset(data=train_files, transform=train_transforms)
-        if args.cache_rate == 0
-        else CacheDataset(
-            data=train_files,
-            transform=train_transforms,
-            cache_rate=args.cache_rate,
-            num_workers=args.num_workers,
-        )
+    paired_roll = Paired4DFlowRoll(
+        enabled=bool(cfg_get(args, "phase3.augmentation.paired_roll.enabled", False)),
+        probability=float(cfg_get(args, "phase3.augmentation.paired_roll.probability", 0.0)),
+        max_shift_zy=cfg_get(args, "phase3.augmentation.paired_roll.max_shift_zy", [0, 0]),
     )
+    if joint_venc_enabled:
+        train_ds = JointVencDataset(
+            train_files,
+            train_transforms,
+            encodings=joint_encodings,
+            paired_transform=paired_roll,
+        )
+    else:
+        base_train_ds = (
+            Dataset(data=train_files, transform=train_transforms)
+            if args.cache_rate == 0
+            else CacheDataset(
+                data=train_files,
+                transform=train_transforms,
+                cache_rate=args.cache_rate,
+                num_workers=args.num_workers,
+            )
+        )
+        train_ds = PostTransformDataset(base_train_ds, paired_roll)
     if use_multi_epochs_train_loader:
         train_sampler = None
     else:
         train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True) if args.ddp else None
     train_loader_cls = MultiEpochsDataLoader if use_multi_epochs_train_loader else DataLoader
-    print(f"train_loader: {train_loader_cls.__name__}")
+    train_pin_memory = bool(cfg_get(args, "pin_memory", True))
+    val_pin_memory = bool(cfg_get(args, "val_pin_memory", False))
+    print(
+        f"train_loader: {train_loader_cls.__name__}, "
+        f"num_workers={args.num_workers}, pin_memory={train_pin_memory}"
+    )
     train_loader = train_loader_cls(
         train_ds,
         batch_size=1,
         shuffle=(train_sampler is None),  # Only shuffle if not using sampler
         sampler=train_sampler,
         num_workers=args.num_workers,
-        pin_memory=True,
+        pin_memory=train_pin_memory,
         persistent_workers=args.num_workers > 0,
         in_order=False,
     )
 
     # since there's no randomness in train_transforms, we use it for val_transforms as well
-    val_ds = Dataset(data=val_files, transform=val_transforms)
+    val_ds = (
+        JointVencDataset(val_files, val_transforms, encodings=joint_encodings)
+        if flow_validation_enabled
+        else Dataset(data=val_files, transform=val_transforms)
+    )
     val_loader = MultiEpochsDataLoader(
         val_ds,
         batch_size=1,
         shuffle=False,
         num_workers=args.num_workers,
+        pin_memory=val_pin_memory,
         persistent_workers=args.num_workers > 0,
         in_order=False,
+    )
+    flow_metric_evaluator = (
+        OfficialFlowMetricEvaluator(
+            cfg_get(
+                args,
+                "phase3.validation.flow_metrics.eval_code_dir",
+                "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData_GT/EvaluationCode",
+            )
+        )
+        if flow_validation_enabled
+        else None
     )
 
     # create the loss function
@@ -390,16 +582,43 @@ def trainer(args):
     use_main_zy_loss = bool(cfg_get(args, "phase3.loss.use_ssim_zy", True))
     use_phase_loss = bool(cfg_get(args, "phase3.loss.use_phase", False))
     use_vascular_loss = bool(cfg_get(args, "phase3.loss.use_vascular", False))
+    use_complex_roi_loss = bool(cfg_get(args, "phase3.loss.complex_roi.enabled", False))
+    use_cross_venc_phase_loss = bool(cfg_get(args, "phase3.loss.cross_venc_phase.enabled", False))
+    use_velocity_loss = bool(cfg_get(args, "phase3.loss.velocity.enabled", False))
+    use_relerr_loss = bool(cfg_get(args, "phase3.loss.relerr.enabled", False))
+    use_angular_loss = bool(cfg_get(args, "phase3.loss.angular.enabled", False))
+    use_new_flow_losses = any(
+        (use_complex_roi_loss, use_cross_venc_phase_loss, use_velocity_loss, use_relerr_loss, use_angular_loss)
+    )
     recon_slab = is_slab_recon(args)
     recon_num_slices = slab_num_slices(args)
-    if not (use_main_zy_loss or use_phase_loss or use_vascular_loss):
+    if not (use_main_zy_loss or use_phase_loss or use_vascular_loss or use_new_flow_losses):
         raise RuntimeError(
             "At least one training loss must be enabled: phase3.loss.use_ssim_zy, "
-            "phase3.loss.use_phase, or phase3.loss.use_vascular."
+            "legacy phase/vascular, or a phase3.loss ROI/flow term."
         )
     phase_loss_weight = float(cfg_get(args, "phase3.loss.phase.weight", cfg_get(args, "phase3.loss.weights.phase", 1.0)))
     vascular_loss_weight = float(
         cfg_get(args, "phase3.loss.vascular.weight", cfg_get(args, "phase3.loss.weights.vascular", 1.0))
+    )
+    auxiliary_loss_weights = {
+        "complex_roi": float(cfg_get(args, "phase3.loss.complex_roi.weight", 0.1)),
+        "cross_venc_phase": float(cfg_get(args, "phase3.loss.cross_venc_phase.weight", 0.1)),
+        "velocity": float(cfg_get(args, "phase3.loss.velocity.weight", 0.1)),
+        "relerr": float(cfg_get(args, "phase3.loss.relerr.weight", 0.1)),
+        "angular": float(cfg_get(args, "phase3.loss.angular.weight", 0.1)),
+    }
+    flow_reference_encoding = int(cfg_get(args, "phase3.loss.joint_venc.reference_encoding", 0))
+    flow_reference_index = joint_encodings.index(flow_reference_encoding) if flow_reference_encoding in joint_encodings else -1
+    loss_normalizer = EMALossNormalizer(
+        enabled=bool(cfg_get(args, "phase3.loss.loss_normalization.enabled", False)),
+        momentum=float(cfg_get(args, "phase3.loss.loss_normalization.momentum", 0.99)),
+        eps=float(cfg_get(args, "phase3.loss.loss_normalization.eps", 1e-8)),
+    )
+    loss_normalizer.load_state_dict(training_metadata.get("loss_normalization_ema"))
+    best_flow_metrics = BestFlowMetrics.from_dict(
+        training_metadata.get("best_flow_metrics"),
+        legacy_ssim=best_metric if best_metric >= 0 else None,
     )
 
     # create the optimizer and the learning rate scheduler
@@ -502,10 +721,13 @@ def trainer(args):
             sensitivity_maps = sensitivity_maps[0] if sensitivity_maps is not None else None
             case_mra_prior = batch_data.get("mra_prior")
             case_mra_prior = case_mra_prior[0] if case_mra_prior is not None else None
+            case_roi_mask = batch_data.get("roi_mask")
+            case_roi_mask = case_roi_mask[0] if case_roi_mask is not None else None
 
             # iterate through all slices
-            sample_list = list(range(input.shape[0]))
-            num_samples = min(input.shape[0], args.num_samples_per_case)
+            case_sample_count = input.shape[1] if joint_venc_enabled else input.shape[0]
+            sample_list = list(range(case_sample_count))
+            num_samples = min(case_sample_count, args.num_samples_per_case)
             micro_batch_size = args.batch_size
             compute_cost = input.shape[-2] * input.shape[-3]
             if compute_cost > max_compute_cost:
@@ -535,43 +757,78 @@ def trainer(args):
                 step += 1
                 optimizer.zero_grad()
 
-                # forward pass
+                # Generate one slab/time index tensor, then share it across all VENCs.
+                index_source = input[0] if joint_venc_enabled else input
                 if recon_slab:
-                    inp, window_idx = windowed_input_x_slab(
-                        input, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
+                    _inp_reference, window_idx = windowed_input_x_slab(
+                        index_source, micro_b, final_shape, num_frames=args.num_frames, num_slices=recon_num_slices
                     )
                 else:
-                    inp, window_idx = windowed_input(input, micro_b, final_shape, num_frames=args.num_frames)
-                tar = torch.Tensor(target[window_idx])
-                mas = torch.Tensor(mask[window_idx])
-                sens = torch.Tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
-                mra_prior = (
+                    _inp_reference, window_idx = windowed_input(
+                        index_source, micro_b, final_shape, num_frames=args.num_frames
+                    )
+                base_mra_prior = (
                     select_mra_prior_slab_for_microbatch(case_mra_prior, micro_b, final_shape, recon_num_slices)
                     if recon_slab
                     else select_mra_prior_for_microbatch(case_mra_prior, micro_b, final_shape)
                 )
-                inp, tar, mas, mean, std = (
+                roi_mask = (
+                    select_spatial_mask_slab(case_roi_mask, micro_b, final_shape, recon_num_slices)
+                    if recon_slab and case_roi_mask is not None
+                    else None
+                )
+                if joint_venc_enabled:
+                    inp_joint = gather_joint_window(input, window_idx)
+                    tar_joint = gather_joint_window(target, window_idx)
+                    mask_joint = gather_joint_window(mask, window_idx)
+                    mean_joint = gather_joint_window(mean, window_idx)
+                    std_joint = gather_joint_window(std, window_idx)
+                    sens_joint = gather_joint_window(sensitivity_maps, window_idx) if sensitivity_maps is not None else None
+                    inp, joint_batch_shape = flatten_joint_venc(inp_joint)
+                    tar, _ = flatten_joint_venc(tar_joint)
+                    mas, _ = flatten_joint_venc(mask_joint)
+                    norm_mean, _ = flatten_joint_venc(mean_joint)
+                    norm_std, _ = flatten_joint_venc(std_joint)
+                    sens = flatten_joint_venc(sens_joint)[0] if sens_joint is not None else None
+                    if base_mra_prior is not None:
+                        expanded_prior = base_mra_prior[:, None].expand(
+                            -1, len(joint_encodings), *base_mra_prior.shape[1:]
+                        )
+                        mra_prior, _ = flatten_joint_venc(expanded_prior)
+                    else:
+                        mra_prior = None
+                else:
+                    inp = _inp_reference
+                    tar = torch.as_tensor(target[window_idx])
+                    mas = torch.as_tensor(mask[window_idx])
+                    norm_mean = torch.as_tensor(mean[window_idx])
+                    norm_std = torch.as_tensor(std[window_idx])
+                    sens = torch.as_tensor(sensitivity_maps[window_idx]) if sensitivity_maps is not None else None
+                    mra_prior = base_mra_prior
+                    joint_batch_shape = None
+                inp, tar, mas, norm_mean, norm_std = (
                     inp.to(device),
                     tar.to(device),
                     mas.to(device),
-                    mean.to(device),
-                    std.to(device),
+                    norm_mean.to(device),
+                    norm_std.to(device),
                 )
                 sens = sens.to(device) if sens is not None else None
                 mra_prior = mra_prior.to(device) if mra_prior is not None else None
+                roi_mask = roi_mask.to(device) if roi_mask is not None else None
                 with autocast("cuda", torch.bfloat16, enabled=args.amp):
                     output = model(inp, mas.bool(), mask_type, acc_factor, acq_type, sensitivity_maps=sens, mra_prior=mra_prior)
 
                 if recon_slab:
-                    output_norm = output[:, :, args.num_frames // 2]
-                    target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, :, args.num_frames // 2]
+                    output_norm = select_training_center_time(output, args.num_frames)
+                    target_norm = select_training_center_time((tar - norm_mean) / norm_std, args.num_frames)
                 else:
                     output_norm = output[:, args.num_frames // 2]
-                    target_norm = ((tar - mean[window_idx]) / std[window_idx])[:, args.num_frames // 2]
-                output = output * std[window_idx] + mean[window_idx]  # [b, c/1, h, w, 2]
+                    target_norm = ((tar - norm_mean) / norm_std)[:, args.num_frames // 2]
+                output = output * norm_std + norm_mean
                 if recon_slab:
-                    output = output[:, :, args.num_frames // 2]
-                    tar = tar[:, :, args.num_frames // 2]
+                    output = select_training_center_time(output, args.num_frames)
+                    tar = select_training_center_time(tar, args.num_frames)
                 else:
                     output = output[:, args.num_frames // 2]
                     tar = tar[:, args.num_frames // 2]
@@ -675,6 +932,98 @@ def trainer(args):
                             aux_loss_log["vascular_phase_loss"] = vascular_phase_loss.detach()
                             weighted_loss_log["vascular_phase_loss_weighted"] = weighted_vascular_phase_loss.detach()
 
+                if use_new_flow_losses:
+                    if roi_mask is None:
+                        raise RuntimeError("Enabled ROI/flow losses require batch_data['roi_mask'].")
+                    if sens is None:
+                        raise RuntimeError("ROI/flow losses require sensitivity maps for coil-combined complex images.")
+                    with autocast("cuda", torch.bfloat16, enabled=False):
+                        sens_center = (
+                            select_training_center_time(sens, args.num_frames)
+                            if recon_slab
+                            else sens[:, args.num_frames // 2]
+                        )
+                        sens_center = crop_k_space(sens_center, (final_shape[-2], final_shape[-1]))
+                        flow_complex_pred = sensitivity_map_reduce(output_complex.float(), sens_center.float())
+                        flow_complex_target = sensitivity_map_reduce(target_complex.float(), sens_center.float())
+                        if recon_slab:
+                            flow_complex_pred = flow_complex_pred.squeeze(2)
+                            flow_complex_target = flow_complex_target.squeeze(2)
+                        if joint_venc_enabled:
+                            flow_complex_pred = regroup_joint_venc(flow_complex_pred, joint_batch_shape)
+                            flow_complex_target = regroup_joint_venc(flow_complex_target, joint_batch_shape)
+
+                        raw_auxiliary_losses = {}
+                        if use_complex_roi_loss:
+                            raw_auxiliary_losses["complex_roi"] = complex_roi_l1_loss(
+                                flow_complex_pred,
+                                flow_complex_target,
+                                roi_mask,
+                                normalize_by_mask=bool(
+                                    cfg_get(args, "phase3.loss.roi.normalize_by_mask", True)
+                                ),
+                                outside_weight=float(cfg_get(args, "phase3.loss.roi.outside_weight", 0.0)),
+                            )
+
+                        if any((use_cross_venc_phase_loss, use_velocity_loss, use_relerr_loss, use_angular_loss)):
+                            if not joint_venc_enabled:
+                                raise RuntimeError("Cross-VENC/velocity losses require phase3.loss.joint_venc.enabled=true")
+                            if use_cross_venc_phase_loss:
+                                raw_auxiliary_losses["cross_venc_phase"] = circular_phase_loss(
+                                    flow_complex_pred,
+                                    flow_complex_target,
+                                    roi_mask,
+                                    encoding_dim=1,
+                                    reference_index=flow_reference_index,
+                                )
+                            _magnitude_pred, velocity_pred = complex2magflow_torch(
+                                flow_complex_pred,
+                                encoding_dim=1,
+                                reference_index=flow_reference_index,
+                            )
+                            _magnitude_target, velocity_target = complex2magflow_torch(
+                                flow_complex_target,
+                                encoding_dim=1,
+                                reference_index=flow_reference_index,
+                            )
+                            if use_velocity_loss:
+                                raw_auxiliary_losses["velocity"] = velocity_component_loss(
+                                    velocity_pred,
+                                    velocity_target,
+                                    roi_mask,
+                                    loss_type=str(cfg_get(args, "phase3.loss.velocity.type", "smooth_l1")),
+                                )
+                            if use_relerr_loss:
+                                raw_auxiliary_losses["relerr"] = relerr_loss(
+                                    velocity_pred,
+                                    velocity_target,
+                                    roi_mask,
+                                    component_dim=1,
+                                )
+                            if use_angular_loss:
+                                raw_auxiliary_losses["angular"] = angular_cosine_loss(
+                                    velocity_pred,
+                                    velocity_target,
+                                    roi_mask,
+                                    component_dim=1,
+                                    min_speed=float(cfg_get(args, "phase3.loss.angular.min_speed", 0.0)),
+                                )
+
+                        ramp_value = flow_loss_ramp(
+                            epoch + 1,
+                            enabled=bool(cfg_get(args, "phase3.loss.flow_loss_ramp.enabled", False)),
+                            start_epoch=int(cfg_get(args, "phase3.loss.flow_loss_ramp.start_epoch", 5)),
+                            end_epoch=int(cfg_get(args, "phase3.loss.flow_loss_ramp.end_epoch", 20)),
+                        )
+                        aux_loss_log["flow_loss_ramp"] = torch.tensor(ramp_value, device=device)
+                        for loss_name, raw_loss in raw_auxiliary_losses.items():
+                            normalized_loss = loss_normalizer.normalize(loss_name, raw_loss)
+                            ramp_multiplier = 1.0 if loss_name == "complex_roi" else ramp_value
+                            weighted_loss = auxiliary_loss_weights[loss_name] * ramp_multiplier * normalized_loss
+                            loss = loss + weighted_loss
+                            aux_loss_log[f"{loss_name}_loss"] = raw_loss.detach()
+                            weighted_loss_log[f"{loss_name}_loss_weighted"] = weighted_loss.detach()
+
                 loss_tensor = loss.clone().detach()
                 report_nan_from_any_rank(loss_tensor, file_name, micro_b, is_ddp=args.ddp)
                 if not torch.isfinite(loss):
@@ -740,6 +1089,14 @@ def trainer(args):
                             writer.add_scalar(f"train_step_{k}", v, global_step + step)
                         for k, v in gamma_values.items():
                             writer.add_scalar(f"train_step_gamma_{k}", v, global_step + step)
+                        run.log(
+                            {
+                                "train/loss": step_loss,
+                                **{f"train/{k}": float(v) for k, v in step_loss_components.items()},
+                                **{f"train/{k}": float(v) for k, v in aux_loss_log.items()},
+                            },
+                            step=global_step + step,
+                        )
 
                     if step != 0 and step % 10000 == 0:
                         save_checkpoint(
@@ -756,6 +1113,8 @@ def trainer(args):
                             epoch_finished=False,
                             is_ddp=args.ddp,
                             wandb_run_id=run.id,
+                            best_flow_metrics=best_flow_metrics.state_dict(),
+                            loss_normalization_ema=loss_normalizer.state_dict(),
                         )
         global_step += step
         if scheduler is not None:
@@ -783,6 +1142,8 @@ def trainer(args):
                 epoch_finished=True,
                 is_ddp=args.ddp,
                 wandb_run_id=run.id,
+                best_flow_metrics=best_flow_metrics.state_dict(),
+                loss_normalization_ema=loss_normalizer.state_dict(),
             )
             if (epoch + 1) % 5 == 0:
                 save_checkpoint(
@@ -799,6 +1160,8 @@ def trainer(args):
                     epoch_finished=True,
                     is_ddp=args.ddp,
                     wandb_run_id=run.id,
+                    best_flow_metrics=best_flow_metrics.state_dict(),
+                    loss_normalization_ema=loss_normalizer.state_dict(),
                 )
 
             print(
@@ -812,8 +1175,23 @@ def trainer(args):
             model.eval()
             with torch.no_grad():
                 val_ssim, val_psnr, val_nmse = list(), list(), list()
+                val_relerr, val_angerr = list(), list()
                 tic_val = time.time()
                 for val_data in tqdm.tqdm(val_loader):
+                    if flow_validation_enabled:
+                        case_metrics = validate_joint_flow_case(
+                            model,
+                            val_data,
+                            args,
+                            device,
+                            flow_metric_evaluator,
+                            recon_num_slices,
+                        )
+                        val_ssim.append(case_metrics["ssim"])
+                        val_nmse.append(case_metrics["nrmse"])
+                        val_relerr.append(case_metrics["relerr"])
+                        val_angerr.append(case_metrics["angerr"])
+                        continue
                     (
                         input,
                         target,
@@ -950,80 +1328,137 @@ def trainer(args):
                     val_psnr.append(np.mean(psnr_array))
 
                 if args.ddp:
-                    # wait for all processes to finish
                     dist.barrier()
                     val_ssim = gather_metric(val_ssim, device, world_size)
                     val_nmse = gather_metric(val_nmse, device, world_size)
-                    val_psnr = gather_metric(val_psnr, device, world_size)
+                    if flow_validation_enabled:
+                        val_relerr = gather_metric(val_relerr, device, world_size)
+                        val_angerr = gather_metric(val_angerr, device, world_size)
+                    else:
+                        val_psnr = gather_metric(val_psnr, device, world_size)
                 else:
-                    val_ssim, val_nmse, val_psnr = (
-                        np.mean(val_ssim),
-                        np.mean(val_nmse),
-                        np.mean(val_psnr),
+                    val_ssim = float(np.mean(val_ssim))
+                    val_nmse = float(np.mean(val_nmse))
+                    if flow_validation_enabled:
+                        val_relerr = float(np.mean(val_relerr))
+                        val_angerr = float(np.mean(val_angerr))
+                    else:
+                        val_psnr = float(np.mean(val_psnr))
+
+                if flow_validation_enabled:
+                    score = flow_score(
+                        val_relerr,
+                        val_angerr,
+                        cfg_get(args, "phase3.checkpoint_selection.flow_score"),
                     )
-
-                metric = val_ssim
-
-                # save the best checkpoint so far
-                if (metric > best_metric) and not args.val:
-                    best_metric = metric
-                    best_metric_epoch = epoch + 1
+                    current_metrics = {
+                        "flow": score,
+                        "relerr": val_relerr,
+                        "angerr": val_angerr,
+                        "ssim": val_ssim,
+                    }
+                    improved = best_flow_metrics.update(current_metrics, epoch + 1) if not args.val else []
+                    primary_metric = str(cfg_get(args, "phase3.checkpoint_selection.primary", "flow")).lower()
+                    best_metric = getattr(best_flow_metrics, primary_metric)
+                    best_metric_epoch = best_flow_metrics.epochs.get(primary_metric, -1)
                     if rank == 0:
-                        save_checkpoint(
-                            epoch,
-                            global_step,
-                            model,
-                            optimizer,
-                            scheduler,
-                            scaler,
-                            outpath,
-                            best_metric,
-                            best_metric_epoch,
-                            model_filename=args.model_filename[:-3] + "_best.pt",
-                            epoch_finished=True,
-                            is_ddp=args.ddp,
-                            wandb_run_id=run.id,
-                            python_rng_state=random.getstate(),
-                            numpy_rng_state=np.random.get_state(),
-                            torch_rng_state=torch.random.get_rng_state(),
-                            cuda_rng_state=torch.cuda.get_rng_state(),
+                        for metric_name in improved:
+                            save_checkpoint(
+                                epoch,
+                                global_step,
+                                model,
+                                optimizer,
+                                scheduler,
+                                scaler,
+                                outpath,
+                                best_metric,
+                                best_metric_epoch,
+                                model_filename=args.model_filename[:-3] + f"_best_{metric_name}.pt",
+                                epoch_finished=True,
+                                is_ddp=args.ddp,
+                                wandb_run_id=run.id,
+                                python_rng_state=random.getstate(),
+                                numpy_rng_state=np.random.get_state(),
+                                torch_rng_state=torch.random.get_rng_state(),
+                                cuda_rng_state=torch.cuda.get_rng_state(),
+                                best_flow_metrics=best_flow_metrics.state_dict(),
+                                loss_normalization_ema=loss_normalizer.state_dict(),
+                            )
+                        for name, value in (
+                            ("ssim", val_ssim),
+                            ("nrmse", val_nmse),
+                            ("relerr", val_relerr),
+                            ("angerr", val_angerr),
+                            ("flow_score", score),
+                        ):
+                            writer.add_scalar(f"val/{name}", value, epoch + 1)
+                        run.log(
+                            {
+                                "val/ssim": val_ssim,
+                                "val/nrmse": val_nmse,
+                                "val/relerr": val_relerr,
+                                "val/angerr": val_angerr,
+                                "val/flow_score": score,
+                            },
+                            step=epoch + 1,
                         )
-                    print("saved new best metric model")
-                print(
-                    "current epoch: {} current mean ssim: {:.4f} best mean ssim: {:.4f} at epoch {} \
-                     time elapsed: {:.2f} mins",
-                    epoch + 1,
-                    metric,
-                    best_metric,
-                    best_metric_epoch,
-                    (time.time() - tic_val) / 60,
-                )
-                if rank == 0:
-                    inp = (
-                        inp
-                        if args.model_type.lower() not in ["varnet", "kspace_mar"]
-                        else ifftn_centered(inp, spatial_dims=2)
+                    print(
+                        f"epoch {epoch + 1}: SSIM={val_ssim:.6f} nRMSE={val_nmse:.6f} "
+                        f"RelErr={val_relerr:.6f} AngErr={val_angerr:.6f}deg flow_score={score:.6f}; "
+                        f"primary={primary_metric} improved={improved or 'none'} "
+                        f"time={(time.time() - tic_val) / 60:.2f} min"
                     )
-                    inp_vis = crop_k_space(inp, (final_shape[-2], final_shape[-1]))
-                    sample_imgs = visualize(
-                        inp_vis[:1, 0, ...].detach().cpu(),
-                        outputs_rss[:1, 0, ...],
-                        targets_rss[:1, 0, ...],
-                        epoch + 1,
-                        writer,
+                else:
+                    metric = val_ssim
+                    if (metric > best_metric) and not args.val:
+                        best_metric = metric
+                        best_metric_epoch = epoch + 1
+                        if rank == 0:
+                            save_checkpoint(
+                                epoch,
+                                global_step,
+                                model,
+                                optimizer,
+                                scheduler,
+                                scaler,
+                                outpath,
+                                best_metric,
+                                best_metric_epoch,
+                                model_filename=args.model_filename[:-3] + "_best.pt",
+                                epoch_finished=True,
+                                is_ddp=args.ddp,
+                                wandb_run_id=run.id,
+                                python_rng_state=random.getstate(),
+                                numpy_rng_state=np.random.get_state(),
+                                torch_rng_state=torch.random.get_rng_state(),
+                                cuda_rng_state=torch.cuda.get_rng_state(),
+                            )
+                    print(
+                        f"epoch {epoch + 1}: SSIM={val_ssim:.4f}, best={best_metric:.4f} "
+                        f"at epoch {best_metric_epoch}, time={(time.time() - tic_val) / 60:.2f} min"
                     )
-                    writer.add_scalar("val_mean_ssim", val_ssim, epoch + 1)
-                    writer.add_scalar("val_mean_nmse", val_nmse, epoch + 1)
-                    writer.add_scalar("val_mean_psnr", val_psnr, epoch + 1)
-                    run.log(
-                        {
-                            "val/ssim": val_ssim,
-                            "val/nmse": val_nmse,
-                            "val/psnr": val_psnr,
-                            "val/sample_image": [wandb.Image(img) for img in sample_imgs],
-                        },
-                        step=epoch + 1,
-                    )
+                    if rank == 0:
+                        inp = inp if args.model_type.lower() not in ["varnet", "kspace_mar"] else ifftn_centered(inp, spatial_dims=2)
+                        inp_vis = crop_k_space(inp, (final_shape[-2], final_shape[-1]))
+                        sample_imgs = visualize(
+                            inp_vis[:1, 0, ...].detach().cpu(),
+                            outputs_rss[:1, 0, ...],
+                            targets_rss[:1, 0, ...],
+                            epoch + 1,
+                            writer,
+                        )
+                        writer.add_scalar("val_mean_ssim", val_ssim, epoch + 1)
+                        writer.add_scalar("val_mean_nmse", val_nmse, epoch + 1)
+                        writer.add_scalar("val_mean_psnr", val_psnr, epoch + 1)
+                        run.log(
+                            {
+                                "val/ssim": val_ssim,
+                                "val/nmse": val_nmse,
+                                "val/psnr": val_psnr,
+                                "val/sample_image": [wandb.Image(img) for img in sample_imgs],
+                            },
+                            step=epoch + 1,
+                        )
                 if args.ddp:
                     # wait for all processes to finish
                     dist.barrier()
