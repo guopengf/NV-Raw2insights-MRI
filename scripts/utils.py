@@ -722,7 +722,7 @@ def validate_phase3_config(config) -> None:
 
     validation = _get_attr(phase3, "validation", None)
     if validation is not None:
-        _warn_unknown_config_keys(validation, "phase3.validation", {"flow_metrics"})
+        _warn_unknown_config_keys(validation, "phase3.validation", {"enabled", "flow_metrics"})
         _warn_unknown_config_keys(
             _get_attr(validation, "flow_metrics", None),
             "phase3.validation.flow_metrics",

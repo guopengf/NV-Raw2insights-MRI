@@ -454,7 +454,10 @@ def trainer(args):
     use_multi_epochs_train_loader = bool(cfg_get(args, "use_multi_epochs_train_loader", False))
     joint_spec = joint_encoding_spec(args)
     loss_profile = str(cfg_get(args, "phase3.loss.profile", "pengfei_joint")).lower()
-    flow_validation_enabled = bool(cfg_get(args, "phase3.validation.flow_metrics.enabled", False))
+    validation_enabled = bool(cfg_get(args, "phase3.validation.enabled", True))
+    flow_validation_enabled = validation_enabled and bool(
+        cfg_get(args, "phase3.validation.flow_metrics.enabled", False)
+    )
     if flow_validation_enabled and not joint_spec.enabled:
         raise ValueError("Official 4D Flow validation requires phase3.joint_encoding.enabled=true")
     train_windowed_hdf5 = windowed_hdf5_enabled(args, "train")
@@ -1782,7 +1785,9 @@ def trainer(args):
         torch.cuda.empty_cache()
 
         # validation
-        if ((epoch + 1) % val_interval == 0) or args.val or epoch == args.num_epochs - 1:
+        if validation_enabled and (
+            ((epoch + 1) % val_interval == 0) or args.val or epoch == args.num_epochs - 1
+        ):
             model.eval()
             with torch.no_grad():
                 val_ssim, val_psnr, val_nmse = list(), list(), list()

@@ -313,6 +313,7 @@
             }
         },
         "validation": {
+            "enabled": false,
             "flow_metrics": {
                 "enabled": true,
                 "eval_code_dir": "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData_GT/EvaluationCode"
