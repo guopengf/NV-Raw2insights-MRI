@@ -12,6 +12,8 @@ TEST_FILES = (
     Path("tests/test_flowvn_3d_backbone.py"),
     Path("tests/test_windowed_4dflow.py"),
     Path("tests/test_windowed_4dflow_conversion_plan.py"),
+    Path("tests/test_four_dflow_augmentation.py"),
+    Path("tests/test_4dflow_joint_losses.py"),
 )
 
 

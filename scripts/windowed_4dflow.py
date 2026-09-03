@@ -16,7 +16,13 @@ import torch
 from monai.data.fft_utils import ifftn_centered
 
 from four_dflow_augmentation import FourDFlowOnlineAugmenter
-from mra_utils import load_vessel_mask_prior, read_mat_array, read_real_mat_array
+from mra_utils import (
+    load_roi_loss_mask,
+    load_vessel_mask_prior,
+    read_mat_array,
+    read_real_mat_array,
+    roi_loss_mask_needed,
+)
 from transforms import raw_4dflow_coilmap_to_hybrid, raw_4dflow_to_joint_hybrid
 from utils import complex_zscore, is_slab_recon, slab_num_slices
 
@@ -412,7 +418,11 @@ def convert_patient_to_windowed_hdf5_profiles(
                     coil_dataset.attrs["layout"] = layout
 
             if segmask_path is not None:
-                segmask = load_vessel_mask_prior(segmask_path, mask_args)
+                segmask = (
+                    load_roi_loss_mask(segmask_path, mask_args)
+                    if roi_loss_mask_needed(mask_args)
+                    else load_vessel_mask_prior(segmask_path, mask_args)
+                )
                 if segmask.shape != (nx, nz, ny):
                     raise ValueError(f"Segmentation mask mismatch for {patient_key}: {segmask.shape}")
                 for store in stores.values():

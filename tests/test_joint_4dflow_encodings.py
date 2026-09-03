@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import scipy.io
 import torch
 
 
@@ -167,7 +168,7 @@ def test_joint_loss_gate_is_backward_compatible_and_independent():
     assert joint_encoding_loss_enabled(legacy_args, SimpleNamespace(enabled=False)) is False
 
 
-def test_joint_configs_enable_online_augmentation():
+def test_joint_configs_enable_synchronized_augmentation():
     config_names = (
         "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
         "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
@@ -369,6 +370,59 @@ def test_non_joint_reader_slices_one_encoding_without_target_cache(tmp_path):
     assert sample["worker_timing"]["target_cache_hit"] == 0.0
 
 
+def test_joint_reader_loads_independent_roi_without_vaa(tmp_path):
+    segmask_path = tmp_path / "segmask.mat"
+    scipy.io.savemat(segmask_path, {"segmask": np.ones((2, 3, 4), dtype=np.float32)})
+    manifest = tmp_path / "joint.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "kspace": "undersampled.mat",
+                "target_kspace": "target.mat",
+                "mask": [],
+                "is_4dflow": True,
+                "joint_encodings": True,
+                "encoding_indices": [0, 1, 2, 3],
+                "segmask": str(segmask_path),
+            }
+        )
+    )
+    args = SimpleNamespace(
+        reader_target_cache_entries=1,
+        reader_coilmap_cache_entries=1,
+        phase3=SimpleNamespace(
+            enable_vaa=False,
+            loss=SimpleNamespace(
+                use_vascular=False,
+                roi=SimpleNamespace(
+                    enabled=True,
+                    source="segmask",
+                    field="segmask",
+                    keys=["segmask"],
+                    axis_order="zyx",
+                    binary=True,
+                    threshold=0.5,
+                ),
+            ),
+        ),
+    )
+    reader = CMRxReconReader(fixed_mask_types=["fixed"], args=args)
+
+    def fake_read(path, preferred_keys=(), selection=None, return_shape=False):
+        value = np.zeros((4, 2), dtype=np.complex64)
+        return (value, value.shape) if return_shape else value
+
+    reader.read_first_mat_array = fake_read
+    reader.read_cached_mat_array = lambda *args, **kwargs: (
+        np.zeros((4, 2), dtype=np.complex64),
+        (4, 2),
+        False,
+    )
+    sample = reader.read(manifest)
+    assert sample["joint_segmask"].shape == (4, 2, 3)
+    assert "mra_prior" not in sample
+
+
 def _small_joint_config(mode: str):
     config_names = {
         "batch": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
@@ -492,7 +546,7 @@ def run_directly():
         test_joint_loss_zero_signal_has_finite_gradients,
         test_joint_configs_keep_global_flowvn_complex_loss_enabled,
         test_joint_loss_gate_is_backward_compatible_and_independent,
-        test_augmented_joint_configs_disable_only_joint_loss,
+        test_joint_configs_enable_synchronized_augmentation,
         test_non_joint_loss_flags_remain_config_driven,
         test_flowvn_conv3d_kernels_use_adam_with_muon_optimizer,
         test_target_grouped_sampler_shuffles_groups_without_splitting_them,
@@ -510,10 +564,13 @@ def run_directly():
         test_target_group_partition_keeps_accelerations_adjacent_and_balanced(Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
         test_non_joint_reader_slices_one_encoding_without_target_cache(Path(temporary))
+    with tempfile.TemporaryDirectory() as temporary:
+        test_joint_reader_loads_independent_roi_without_vaa(Path(temporary))
     print("PASS test_grouped_manifest_has_one_json_per_case_acceleration")
     print("PASS test_target_group_partition_keeps_accelerations_adjacent_and_balanced")
     print("PASS test_non_joint_reader_slices_one_encoding_without_target_cache")
-    print(f"COMPLETED {len(tests) + 3} joint-encoding tests")
+    print("PASS test_joint_reader_loads_independent_roi_without_vaa")
+    print(f"COMPLETED {len(tests) + 4} joint-encoding tests")
 
 
 if __name__ == "__main__":

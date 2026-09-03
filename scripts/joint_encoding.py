@@ -7,6 +7,15 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from einops import rearrange
+from mri_data.flow_losses import (
+    EMALossNormalizer,
+    angular_cosine_loss,
+    circular_phase_loss,
+    complex2magflow_torch,
+    complex_roi_l1_loss,
+    relerr_loss,
+    velocity_component_loss,
+)
 
 
 @dataclass(frozen=True)
@@ -110,7 +119,7 @@ def select_joint_mask_slab(case_mask, micro_b, final_shape, num_slices: int):
 
 
 class JointEncodingLoss(nn.Module):
-    """Stable metric-aligned loss over [G,E,...,2] coil-combined images."""
+    """Configurable joint loss over [G,E,...,2] coil-combined images."""
 
     def __init__(
         self,
@@ -120,19 +129,56 @@ class JointEncodingLoss(nn.Module):
         circular_weight: float = 0.5,
         speed_weight: float = 0.25,
         direction_weight: float = 0.05,
+        velocity_weight: float = 0.1,
+        relerr_weight: float = 0.1,
+        angular_weight: float = 0.1,
         encoding_count: int = 4,
+        reference_index: int = 0,
+        profile: str = "pengfei_joint",
+        velocity_type: str = "smooth_l1",
+        angular_min_speed: float = 0.0,
+        loss_normalization_enabled: bool = False,
+        loss_normalization_momentum: float = 0.99,
+        loss_normalization_eps: float = 1e-8,
         eps: float = 1e-8,
     ):
         super().__init__()
-        self.weights = {
-            "complex": float(complex_weight),
-            "magnitude": float(magnitude_weight),
-            "circular": float(circular_weight),
-            "speed": float(speed_weight),
-            "direction": float(direction_weight),
-        }
+        self.profile = str(profile).lower()
+        if self.profile not in {"pengfei_joint", "official_aligned"}:
+            raise ValueError(
+                "phase3.loss.profile must be 'pengfei_joint' or 'official_aligned', "
+                f"got {profile!r}"
+            )
+        if self.profile == "pengfei_joint":
+            self.weights = {
+                "complex": float(complex_weight),
+                "magnitude": float(magnitude_weight),
+                "circular": float(circular_weight),
+                "speed": float(speed_weight),
+                "direction": float(direction_weight),
+            }
+        else:
+            self.weights = {
+                "complex": float(complex_weight),
+                "circular": float(circular_weight),
+                "velocity": float(velocity_weight),
+                "relerr": float(relerr_weight),
+                "angular": float(angular_weight),
+            }
         self.encoding_count = int(encoding_count)
+        self.reference_index = int(reference_index)
+        if not 0 <= self.reference_index < self.encoding_count:
+            raise ValueError(
+                f"reference_index={self.reference_index} outside encoding_count={self.encoding_count}"
+            )
+        self.velocity_type = str(velocity_type)
+        self.angular_min_speed = float(angular_min_speed)
         self.eps = float(eps)
+        self.normalizer = EMALossNormalizer(
+            enabled=loss_normalization_enabled,
+            momentum=loss_normalization_momentum,
+            eps=loss_normalization_eps,
+        )
 
     def _masked_mean(self, value: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
         if mask is None:
@@ -147,7 +193,93 @@ class JointEncodingLoss(nn.Module):
         mask = torch.broadcast_to(mask, value.shape)
         return (value * mask).sum() / mask.sum().clamp_min(self.eps)
 
-    def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | None = None):
+    def _pengfei_components(self, pred: torch.Tensor, target: torch.Tensor, mask):
+        pred_complex = torch.view_as_complex(pred.contiguous())
+        target_complex = torch.view_as_complex(target.contiguous())
+
+        complex_error = torch.abs(pred_complex - target_complex)
+        magnitude_error = torch.abs(torch.abs(pred_complex) - torch.abs(target_complex))
+        target_amplitude = torch.abs(target_complex)
+        amplitude_scale = self._masked_mean(target_amplitude, mask).clamp_min(self.eps)
+
+        reference = pred_complex[:, self.reference_index : self.reference_index + 1]
+        target_reference = target_complex[:, self.reference_index : self.reference_index + 1]
+        flow_indices = [index for index in range(self.encoding_count) if index != self.reference_index]
+        pred_relative = pred_complex[:, flow_indices] * torch.conj(reference)
+        target_relative = target_complex[:, flow_indices] * torch.conj(target_reference)
+        pred_unit = pred_relative / torch.abs(pred_relative).clamp_min(self.eps)
+        target_unit = target_relative / torch.abs(target_relative).clamp_min(self.eps)
+        circular_error = 1.0 - torch.real(pred_unit * torch.conj(target_unit))
+        circular_error = torch.where(torch.abs(target_relative) > self.eps, circular_error, 0.0)
+
+        pred_flow = torch.angle(pred_relative)
+        target_flow = torch.angle(target_relative)
+        pred_speed = torch.linalg.vector_norm(pred_flow, dim=1)
+        target_speed = torch.linalg.vector_norm(target_flow, dim=1)
+        dot = torch.sum(pred_flow * target_flow, dim=1)
+        norms = pred_speed * target_speed
+        direction_error = 1.0 - torch.clamp(dot / norms.clamp_min(self.eps), -1.0, 1.0)
+        direction_error = torch.where(target_speed > self.eps, direction_error, 0.0)
+
+        return {
+            "complex": self._masked_mean(complex_error, mask) / amplitude_scale,
+            "magnitude": self._masked_mean(magnitude_error, mask) / amplitude_scale,
+            "circular": self._masked_mean(circular_error, mask),
+            # Keep the historical component name while using the exact official RelErr formula.
+            "speed": relerr_loss(pred_flow, target_flow, mask, component_dim=1),
+            "direction": self._masked_mean(direction_error, mask),
+        }
+
+    def _official_components(self, pred: torch.Tensor, target: torch.Tensor, mask):
+        _, pred_flow = complex2magflow_torch(
+            pred,
+            encoding_dim=1,
+            reference_index=self.reference_index,
+        )
+        _, target_flow = complex2magflow_torch(
+            target,
+            encoding_dim=1,
+            reference_index=self.reference_index,
+        )
+        return {
+            "complex": complex_roi_l1_loss(pred, target, mask),
+            "circular": circular_phase_loss(
+                pred,
+                target,
+                mask,
+                encoding_dim=1,
+                reference_index=self.reference_index,
+            ),
+            "velocity": velocity_component_loss(
+                pred_flow,
+                target_flow,
+                mask,
+                loss_type=self.velocity_type,
+            ),
+            "relerr": relerr_loss(pred_flow, target_flow, mask, component_dim=1),
+            "angular": angular_cosine_loss(
+                pred_flow,
+                target_flow,
+                mask,
+                component_dim=1,
+                min_speed=self.angular_min_speed,
+            ),
+        }
+
+    def normalization_state_dict(self) -> dict[str, float]:
+        return self.normalizer.state_dict()
+
+    def load_normalization_state_dict(self, state: dict[str, float] | None) -> None:
+        self.normalizer.load_state_dict(state)
+
+    def forward(
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        *,
+        ramp: float = 1.0,
+    ):
         if (
             pred.shape != target.shape
             or pred.ndim < 4
@@ -161,43 +293,16 @@ class JointEncodingLoss(nn.Module):
 
         pred = pred.float()
         target = target.float()
-        pred_complex = torch.view_as_complex(pred.contiguous())
-        target_complex = torch.view_as_complex(target.contiguous())
-
-        complex_error = torch.abs(pred_complex - target_complex)
-        magnitude_error = torch.abs(torch.abs(pred_complex) - torch.abs(target_complex))
-        target_amplitude = torch.abs(target_complex)
-        amplitude_scale = self._masked_mean(target_amplitude, mask).clamp_min(self.eps)
-
-        pred_relative = pred_complex[:, 1:] * torch.conj(pred_complex[:, 0:1])
-        target_relative = target_complex[:, 1:] * torch.conj(target_complex[:, 0:1])
-        pred_unit = pred_relative / torch.abs(pred_relative).clamp_min(self.eps)
-        target_unit = target_relative / torch.abs(target_relative).clamp_min(self.eps)
-        circular_error = 1.0 - torch.real(pred_unit * torch.conj(target_unit))
-        circular_error = torch.where(torch.abs(target_relative) > self.eps, circular_error, 0.0)
-
-        pred_flow = torch.angle(pred_relative)
-        target_flow = torch.angle(target_relative)
-        pred_speed = torch.linalg.vector_norm(pred_flow, dim=1)
-        target_speed = torch.linalg.vector_norm(target_flow, dim=1)
-        speed_error = (pred_speed - target_speed).square()
-        speed_mse = self._masked_mean(speed_error, mask)
-        speed_reference_energy = self._masked_mean(target_speed.square(), mask)
-        speed_loss = (
-            torch.sqrt(speed_mse + self.eps) - self.eps**0.5
-        ) / torch.sqrt(speed_reference_energy + self.eps)
-
-        dot = torch.sum(pred_flow * target_flow, dim=1)
-        norms = pred_speed * target_speed
-        direction_error = 1.0 - torch.clamp(dot / norms.clamp_min(self.eps), -1.0, 1.0)
-        direction_error = torch.where(target_speed > self.eps, direction_error, 0.0)
-
-        components = {
-            "complex": self._masked_mean(complex_error, mask) / amplitude_scale,
-            "magnitude": self._masked_mean(magnitude_error, mask) / amplitude_scale,
-            "circular": self._masked_mean(circular_error, mask),
-            "speed": speed_loss,
-            "direction": self._masked_mean(direction_error, mask),
-        }
-        total = sum(self.weights[name] * value for name, value in components.items())
+        components = (
+            self._pengfei_components(pred, target, mask)
+            if self.profile == "pengfei_joint"
+            else self._official_components(pred, target, mask)
+        )
+        total = pred.sum() * 0.0
+        for name, value in components.items():
+            normalized = self.normalizer.normalize(name, value)
+            ramp_multiplier = 1.0
+            if self.profile == "official_aligned" and name != "complex":
+                ramp_multiplier = float(ramp)
+            total = total + self.weights[name] * ramp_multiplier * normalized
         return total, components

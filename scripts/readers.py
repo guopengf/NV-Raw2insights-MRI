@@ -21,7 +21,14 @@ from collections.abc import Sequence
 
 import numpy as np
 import scipy
-from mra_utils import cfg_get, generate_or_load_mra_prior, load_vessel_mask_prior, vascular_prior_needed
+from mra_utils import (
+    cfg_get,
+    generate_or_load_mra_prior,
+    load_roi_loss_mask,
+    load_vessel_mask_prior,
+    roi_loss_mask_needed,
+    vascular_prior_needed,
+)
 from monai.config import PathLike
 from monai.data.image_reader import ImageReader
 from monai.data.utils import is_supported_format
@@ -504,8 +511,15 @@ class CMRxReconReader(ImageReader):
                 dat[CMRxReconKeys.SENSITIVITY_MAPS] = coilmap_value
                 if worker_timings is not None:
                     worker_timings["coilmap_cache_hit"] = float(coilmap_cache_hit)
-            if joint_encodings and json_data.get("segmask"):
-                dat["joint_segmask"] = load_vessel_mask_prior(json_data["segmask"], self.args)
+            if joint_encodings:
+                roi_field = str(cfg_get(self.args, "phase3.loss.roi.field", "segmask"))
+                roi_path = json_data.get(roi_field, json_data.get("segmask"))
+                if roi_path and roi_loss_mask_needed(self.args):
+                    dat["joint_segmask"] = load_roi_loss_mask(roi_path, self.args)
+                elif json_data.get("segmask"):
+                    # Backward compatibility for pengfei_joint configs that predate
+                    # the independent phase3.loss.roi namespace.
+                    dat["joint_segmask"] = load_vessel_mask_prior(json_data["segmask"], self.args)
             if vascular_prior_needed(self.args):
                 prior_source = str(cfg_get(self.args, "phase3.vaa.prior_source", "mra")).lower()
                 if prior_source == "mask":

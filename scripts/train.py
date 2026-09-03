@@ -40,6 +40,8 @@ from mri_data.data_utils import (
     postprocess_mri_recon,
     rearrange_mri_data,
 )
+from mri_data.flow_losses import BestFlowMetrics, flow_loss_ramp, flow_score
+from mri_data.flow_metrics import OfficialFlowMetricEvaluator, coil_combined_samples_to_official_volume
 from torch.amp import GradScaler, autocast
 from torch.distributed.elastic.multiprocessing.errors import record
 from torch.utils.tensorboard import SummaryWriter
@@ -97,9 +99,13 @@ def cfg_get(obj, path, default=None):
 
 def resolve_training_loss_flags(args, joint_spec):
     """Resolve independently configured losses that can accompany joint supervision."""
+    profile = str(cfg_get(args, "phase3.loss.profile", "pengfei_joint")).lower()
+    main_zy_default = profile == "official_aligned"
+    phase_default = profile == "pengfei_joint"
     return {
-        "main_zy": bool(cfg_get(args, "phase3.loss.use_ssim_zy", True)) and not joint_spec.enabled,
-        "phase": bool(cfg_get(args, "phase3.loss.use_phase", False)),
+        "main_zy": bool(cfg_get(args, "phase3.loss.use_ssim_zy", main_zy_default))
+        and (not joint_spec.enabled or profile == "official_aligned"),
+        "phase": bool(cfg_get(args, "phase3.loss.use_phase", phase_default)),
         "vascular": bool(cfg_get(args, "phase3.loss.use_vascular", False)) and not joint_spec.enabled,
     }
 
@@ -243,6 +249,97 @@ def short_train_log_name(name):
     }.get(name, name)
 
 
+def validate_joint_flow_case(model, val_data, args, device, evaluator, joint_spec, recon_num_slices):
+    """Reconstruct one native joint-VENC case and run exact official metrics."""
+
+    input_tensor = val_data["kspace_masked_ifft"][0]
+    target_tensor = val_data["kspace_ifft"][0]
+    sampling_mask = val_data["mask"][0]
+    mean = val_data["mean"][0]
+    std = val_data["std"][0]
+    sensitivity_maps = val_data.get("sensitivity_maps")
+    if sensitivity_maps is None:
+        raise RuntimeError("Official 4D Flow validation requires sensitivity maps")
+    sensitivity_maps = sensitivity_maps[0]
+    roi_mask = val_data.get("joint_segmask")
+    roi_mask = roi_mask[0] if roi_mask is not None else None
+    final_shape = [int(value) for value in val_data["kspace_meta_dict"]["shape"][0]]
+    mask_type = val_data["mask_type"][0]
+    acc_factor = val_data["acc_factor"][0]
+    acq_type = val_data["acquisition"][0]
+    case_id = str(val_data["kspace_meta_dict"]["filename"][0])
+    corr_cache_id = case_id.split("__ktGaussian", 1)[0]
+
+    predictions = []
+    targets = []
+    num_samples = input_tensor.shape[0]
+    center_s = recon_num_slices // 2
+    center_t = args.num_frames // 2
+    for micro_b, _ in mini_dataloader(
+        list(range(num_samples)),
+        2 * joint_group_batch_size(args),
+        shuffle=False,
+        drop_last=False,
+        pad_last=False,
+    ):
+        inp_joint, window_idx = joint_windowed_input_x_slab(
+            input_tensor,
+            micro_b,
+            final_shape,
+            num_frames=args.num_frames,
+            num_slices=recon_num_slices,
+        )
+        tar_joint = gather_joint_window(target_tensor, window_idx)
+        mask_joint = gather_joint_window(sampling_mask, window_idx)
+        mean_joint = gather_joint_window(mean, window_idx)
+        std_joint = gather_joint_window(std, window_idx)
+        sens_joint = gather_joint_window(sensitivity_maps, window_idx)
+        inp = flatten_joint_model_batch(inp_joint).to(device)
+        tar = flatten_joint_model_batch(tar_joint).to(device)
+        mas = flatten_joint_model_batch(mask_joint).to(device)
+        norm_mean = flatten_joint_model_batch(mean_joint).to(device)
+        norm_std = flatten_joint_model_batch(std_joint).to(device)
+        sens = flatten_joint_model_batch(sens_joint).to(device)
+        with autocast("cuda", torch.bfloat16, enabled=args.amp):
+            output = model(
+                inp,
+                mas.bool(),
+                mask_type,
+                acc_factor,
+                acq_type,
+                sensitivity_maps=sens,
+                mra_prior=None,
+            )
+
+        output = output[:, center_s, center_t] * norm_std[:, center_s, center_t] + norm_mean[:, center_s, center_t]
+        target = tar[:, center_s, center_t]
+        sens_center = sens[:, center_s, center_t]
+        output = crop_k_space(output, (final_shape[-2], final_shape[-1]))
+        target = crop_k_space(target, (final_shape[-2], final_shape[-1]))
+        sens_center = crop_k_space(sens_center, (final_shape[-2], final_shape[-1]))
+        output = sensitivity_map_reduce(output.float(), sens_center.float()).squeeze(-4)
+        target = sensitivity_map_reduce(target.float(), sens_center.float()).squeeze(-4)
+        output = restore_joint_model_batch(output, joint_spec.count).permute(1, 0, 2, 3, 4)
+        target = restore_joint_model_batch(target, joint_spec.count).permute(1, 0, 2, 3, 4)
+        predictions.append(output.cpu())
+        targets.append(target.cpu())
+
+    prediction_volume = coil_combined_samples_to_official_volume(torch.cat(predictions, dim=1), final_shape)
+    target_volume = coil_combined_samples_to_official_volume(torch.cat(targets, dim=1), final_shape)
+    roi_zyx = (
+        roi_mask.permute(1, 2, 0).cpu().numpy().astype(np.float32, copy=False)
+        if roi_mask is not None
+        else None
+    )
+    return evaluator.evaluate(
+        case_id,
+        prediction_volume,
+        target_volume,
+        roi_zyx,
+        corr_cache_id=corr_cache_id,
+    )
+
+
 def build_4dflow_aorta_manifests(
     data_roots, out_dir, accelerations=None, encodings=None, joint_encodings=False
 ):
@@ -356,6 +453,13 @@ def trainer(args):
     Path(outpath).mkdir(parents=True, exist_ok=True)  # create output directory to store model checkpoints
     use_multi_epochs_train_loader = bool(cfg_get(args, "use_multi_epochs_train_loader", False))
     joint_spec = joint_encoding_spec(args)
+    loss_profile = str(cfg_get(args, "phase3.loss.profile", "pengfei_joint")).lower()
+    validation_enabled = bool(cfg_get(args, "phase3.validation.enabled", True))
+    flow_validation_enabled = validation_enabled and bool(
+        cfg_get(args, "phase3.validation.flow_metrics.enabled", False)
+    )
+    if flow_validation_enabled and not joint_spec.enabled:
+        raise ValueError("Official 4D Flow validation requires phase3.joint_encoding.enabled=true")
     train_windowed_hdf5 = windowed_hdf5_enabled(args, "train")
     val_windowed_hdf5 = windowed_hdf5_enabled(args, "val")
     if train_windowed_hdf5 and not getattr(args, "is_4dflow_aorta", False):
@@ -540,6 +644,7 @@ def trainer(args):
         best_metric,
         best_metric_epoch,
         wandb_run_id,
+        training_metadata,
     ) = load_net(
         model,
         resume_path,
@@ -550,6 +655,7 @@ def trainer(args):
         resume_training_state=(
             resume_from_current_experiment or not bool(getattr(args, "resume_weights_only", False))
         ),
+        return_training_metadata=True,
     )
     model = torch.compile(model) if args.uniform_input_kspace else model
     model_params = sum(p.numel() for p in model.parameters())
@@ -652,6 +758,17 @@ def trainer(args):
         f"pin_memory={val_pin_memory}, lazy={lazy_val_loader}"
     )
     val_loader = val_loader_cls(val_ds, **val_loader_kwargs)
+    flow_metric_evaluator = (
+        OfficialFlowMetricEvaluator(
+            cfg_get(
+                args,
+                "phase3.validation.flow_metrics.eval_code_dir",
+                "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData_GT/EvaluationCode",
+            )
+        )
+        if flow_validation_enabled
+        else None
+    )
 
     # create the loss function
     loss_function = get_loss_function(args, device)
@@ -669,15 +786,86 @@ def trainer(args):
     use_joint_loss = joint_encoding_loss_enabled(args, joint_spec)
     joint_loss_function = None
     if use_joint_loss:
+        reference_encoding = int(cfg_get(joint_loss_cfg, "reference_encoding", 0))
+        if reference_encoding not in joint_spec.order:
+            raise ValueError(
+                f"reference_encoding={reference_encoding} is not in joint order {joint_spec.order}"
+            )
+        reference_index = joint_spec.order.index(reference_encoding)
+        if loss_profile == "official_aligned":
+            complex_weight = (
+                float(cfg_get(args, "phase3.loss.complex_roi.weight", 0.1))
+                if bool(cfg_get(args, "phase3.loss.complex_roi.enabled", True))
+                else 0.0
+            )
+            circular_weight = (
+                float(cfg_get(args, "phase3.loss.cross_venc_phase.weight", 0.1))
+                if bool(cfg_get(args, "phase3.loss.cross_venc_phase.enabled", True))
+                else 0.0
+            )
+            velocity_weight = (
+                float(cfg_get(args, "phase3.loss.velocity.weight", 0.1))
+                if bool(cfg_get(args, "phase3.loss.velocity.enabled", True))
+                else 0.0
+            )
+            relerr_weight = (
+                float(cfg_get(args, "phase3.loss.relerr.weight", 0.1))
+                if bool(cfg_get(args, "phase3.loss.relerr.enabled", True))
+                else 0.0
+            )
+            angular_weight = (
+                float(cfg_get(args, "phase3.loss.angular.weight", 0.1))
+                if bool(cfg_get(args, "phase3.loss.angular.enabled", True))
+                else 0.0
+            )
+        else:
+            complex_weight = float(cfg_get(joint_loss_cfg, "complex_weight", 1.0))
+            circular_weight = float(cfg_get(joint_loss_cfg, "circular_weight", 0.5))
+            velocity_weight = 0.0
+            relerr_weight = 0.0
+            angular_weight = 0.0
         joint_loss_function = JointEncodingLoss(
-            complex_weight=float(cfg_get(joint_loss_cfg, "complex_weight", 1.0)),
+            profile=loss_profile,
+            complex_weight=complex_weight,
             magnitude_weight=float(cfg_get(joint_loss_cfg, "magnitude_weight", 0.1)),
-            circular_weight=float(cfg_get(joint_loss_cfg, "circular_weight", 0.5)),
+            circular_weight=circular_weight,
             speed_weight=float(cfg_get(joint_loss_cfg, "speed_weight", 0.25)),
             direction_weight=float(cfg_get(joint_loss_cfg, "direction_weight", 0.05)),
+            velocity_weight=velocity_weight,
+            relerr_weight=relerr_weight,
+            angular_weight=angular_weight,
             encoding_count=joint_spec.count,
+            reference_index=reference_index,
+            velocity_type=str(cfg_get(args, "phase3.loss.velocity.type", "smooth_l1")),
+            angular_min_speed=float(cfg_get(args, "phase3.loss.angular.min_speed", 0.0)),
+            loss_normalization_enabled=bool(
+                cfg_get(args, "phase3.loss.loss_normalization.enabled", False)
+            ),
+            loss_normalization_momentum=float(
+                cfg_get(args, "phase3.loss.loss_normalization.momentum", 0.99)
+            ),
+            loss_normalization_eps=float(
+                cfg_get(args, "phase3.loss.loss_normalization.eps", 1e-8)
+            ),
             eps=float(cfg_get(joint_loss_cfg, "eps", 1e-8)),
         ).to(device)
+        joint_loss_function.load_normalization_state_dict(
+            training_metadata.get("loss_normalization_ema")
+        )
+    best_flow_metrics = BestFlowMetrics.from_dict(
+        training_metadata.get("best_flow_metrics"),
+        legacy_ssim=best_metric if best_metric >= 0 else None,
+    )
+
+    def flow_checkpoint_state():
+        return {
+            "best_flow_metrics": best_flow_metrics.state_dict(),
+            "loss_normalization_ema": (
+                joint_loss_function.normalization_state_dict()
+                if joint_loss_function is not None
+                else None
+            ),
+        }
     loss_flags = resolve_training_loss_flags(args, joint_spec)
     use_main_zy_loss = loss_flags["main_zy"]
     use_phase_loss = loss_flags["phase"]
@@ -692,7 +880,7 @@ def trainer(args):
     if rank == 0:
         print(
             "training_losses: "
-            f"joint={use_joint_loss}, main_zy={use_main_zy_loss}, "
+            f"profile={loss_profile}, joint={use_joint_loss}, main_zy={use_main_zy_loss}, "
             f"phase={use_phase_loss}, vascular={use_vascular_loss}"
         )
     phase_loss_weight = float(cfg_get(args, "phase3.loss.phase.weight", cfg_get(args, "phase3.loss.weights.phase", 1.0)))
@@ -818,6 +1006,7 @@ def trainer(args):
         )
 
     max_compute_cost = 0
+    roi_fallback_reported = False
     for epoch in range(start_epoch, args.num_epochs):
         if args.ddp and train_sampler is not None:
             train_sampler.set_epoch(epoch)
@@ -1227,11 +1416,30 @@ def trainer(args):
                             if prewindowed_4dflow and case_joint_mask is not None
                             else select_joint_mask_slab(case_joint_mask, micro_b, final_shape, recon_num_slices)
                         )
-                        joint_loss, joint_components = joint_loss_function(joint_output, joint_target, joint_mask)
+                        if joint_mask is None and rank == 0 and not roi_fallback_reported:
+                            print("joint_loss roi_source=full_image (segmask unavailable)")
+                            roi_fallback_reported = True
+                        ramp_value = (
+                            flow_loss_ramp(
+                                epoch + 1,
+                                enabled=bool(cfg_get(args, "phase3.loss.flow_loss_ramp.enabled", False)),
+                                start_epoch=int(cfg_get(args, "phase3.loss.flow_loss_ramp.start_epoch", 5)),
+                                end_epoch=int(cfg_get(args, "phase3.loss.flow_loss_ramp.end_epoch", 20)),
+                            )
+                            if loss_profile == "official_aligned"
+                            else 1.0
+                        )
+                        joint_loss, joint_components = joint_loss_function(
+                            joint_output,
+                            joint_target,
+                            joint_mask,
+                            ramp=ramp_value,
+                        )
                         loss = loss + joint_loss
                         raw_loss_log.update(
                             {f"joint_{name}": value.detach() for name, value in joint_components.items()}
                         )
+                        aux_loss_log["flow_loss_ramp"] = torch.tensor(ramp_value, device=device)
                         weighted_loss_log["joint_loss_weighted"] = joint_loss.detach()
                 stop_phase_timing(
                     step_timings,
@@ -1414,6 +1622,7 @@ def trainer(args):
                             epoch_finished=False,
                             is_ddp=args.ddp,
                             wandb_run_id=run.id,
+                            **flow_checkpoint_state(),
                         )
                         log_checkpoint_timing(
                             "mid_epoch",
@@ -1537,6 +1746,7 @@ def trainer(args):
                 epoch_finished=True,
                 is_ddp=args.ddp,
                 wandb_run_id=run.id,
+                **flow_checkpoint_state(),
             )
             log_checkpoint_timing(
                 "rolling",
@@ -1559,6 +1769,7 @@ def trainer(args):
                     epoch_finished=True,
                     is_ddp=args.ddp,
                     wandb_run_id=run.id,
+                    **flow_checkpoint_state(),
                 )
                 log_checkpoint_timing(
                     "milestone",
@@ -1574,12 +1785,30 @@ def trainer(args):
         torch.cuda.empty_cache()
 
         # validation
-        if ((epoch + 1) % val_interval == 0) or args.val or epoch == args.num_epochs - 1:
+        if validation_enabled and (
+            ((epoch + 1) % val_interval == 0) or args.val or epoch == args.num_epochs - 1
+        ):
             model.eval()
             with torch.no_grad():
                 val_ssim, val_psnr, val_nmse = list(), list(), list()
+                val_relerr, val_angerr = list(), list()
                 tic_val = time.time()
                 for val_data in tqdm.tqdm(val_loader):
+                    if flow_validation_enabled:
+                        case_metrics = validate_joint_flow_case(
+                            model,
+                            val_data,
+                            args,
+                            device,
+                            flow_metric_evaluator,
+                            joint_spec,
+                            recon_num_slices,
+                        )
+                        val_ssim.append(case_metrics["ssim"])
+                        val_nmse.append(case_metrics["nrmse"])
+                        val_relerr.append(case_metrics["relerr"])
+                        val_angerr.append(case_metrics["angerr"])
+                        continue
                     (
                         input,
                         target,
@@ -1787,61 +2016,135 @@ def trainer(args):
                     val_psnr.append(np.mean(psnr_array))
 
                 if args.ddp:
-                    # wait for all processes to finish
                     dist.barrier()
                     val_ssim = gather_metric(val_ssim, device, world_size)
                     val_nmse = gather_metric(val_nmse, device, world_size)
-                    val_psnr = gather_metric(val_psnr, device, world_size)
+                    if flow_validation_enabled:
+                        val_relerr = gather_metric(val_relerr, device, world_size)
+                        val_angerr = gather_metric(val_angerr, device, world_size)
+                    else:
+                        val_psnr = gather_metric(val_psnr, device, world_size)
                 else:
-                    val_ssim, val_nmse, val_psnr = (
-                        np.mean(val_ssim),
-                        np.mean(val_nmse),
-                        np.mean(val_psnr),
+                    val_ssim = float(np.mean(val_ssim))
+                    val_nmse = float(np.mean(val_nmse))
+                    if flow_validation_enabled:
+                        val_relerr = float(np.mean(val_relerr))
+                        val_angerr = float(np.mean(val_angerr))
+                    else:
+                        val_psnr = float(np.mean(val_psnr))
+
+                if flow_validation_enabled:
+                    score = flow_score(
+                        val_relerr,
+                        val_angerr,
+                        cfg_get(args, "phase3.checkpoint_selection.flow_score"),
                     )
-
-                metric = val_ssim
-
-                # save the best checkpoint so far
-                if (metric > best_metric) and not args.val:
-                    best_metric = metric
-                    best_metric_epoch = epoch + 1
+                    current_metrics = {
+                        "flow": score,
+                        "relerr": val_relerr,
+                        "angerr": val_angerr,
+                        "ssim": val_ssim,
+                    }
+                    improved = best_flow_metrics.update(current_metrics, epoch + 1) if not args.val else []
+                    primary_metric = str(cfg_get(args, "phase3.checkpoint_selection.primary", "flow")).lower()
+                    best_metric = getattr(best_flow_metrics, primary_metric)
+                    best_metric_epoch = best_flow_metrics.epochs.get(primary_metric, -1)
                     if rank == 0:
-                        checkpoint_timing = save_checkpoint(
-                            epoch,
-                            global_step,
-                            model,
-                            optimizer,
-                            scheduler,
-                            scaler,
-                            outpath,
+                        for metric_name in improved:
+                            checkpoint_timing = save_checkpoint(
+                                epoch,
+                                global_step,
+                                model,
+                                optimizer,
+                                scheduler,
+                                scaler,
+                                outpath,
+                                best_metric,
+                                best_metric_epoch,
+                                model_filename=args.model_filename[:-3] + f"_best_{metric_name}.pt",
+                                epoch_finished=True,
+                                is_ddp=args.ddp,
+                                wandb_run_id=run.id,
+                                python_rng_state=random.getstate(),
+                                numpy_rng_state=np.random.get_state(),
+                                torch_rng_state=torch.random.get_rng_state(),
+                                cuda_rng_state=torch.cuda.get_rng_state(),
+                                **flow_checkpoint_state(),
+                            )
+                            log_checkpoint_timing(
+                                f"best_{metric_name}",
+                                checkpoint_timing,
+                                writer,
+                                global_step,
+                            )
+                        for name, value in (
+                            ("ssim", val_ssim),
+                            ("nrmse", val_nmse),
+                            ("relerr", val_relerr),
+                            ("angerr", val_angerr),
+                            ("flow_score", score),
+                        ):
+                            writer.add_scalar(f"val/{name}", value, epoch + 1)
+                        run.log(
+                            {
+                                "val/ssim": val_ssim,
+                                "val/nrmse": val_nmse,
+                                "val/relerr": val_relerr,
+                                "val/angerr": val_angerr,
+                                "val/flow_score": score,
+                            },
+                            step=epoch + 1,
+                        )
+                    print(
+                        f"epoch {epoch + 1}: SSIM={val_ssim:.6f} nRMSE={val_nmse:.6f} "
+                        f"RelErr={val_relerr:.6f} AngErr={val_angerr:.6f}deg flow_score={score:.6f}; "
+                        f"primary={primary_metric} improved={improved or 'none'} "
+                        f"time={(time.time() - tic_val) / 60:.2f} min"
+                    )
+                else:
+                    metric = val_ssim
+                    if (metric > best_metric) and not args.val:
+                        best_metric = metric
+                        best_metric_epoch = epoch + 1
+                        if rank == 0:
+                            checkpoint_timing = save_checkpoint(
+                                epoch,
+                                global_step,
+                                model,
+                                optimizer,
+                                scheduler,
+                                scaler,
+                                outpath,
+                                best_metric,
+                                best_metric_epoch,
+                                model_filename=args.model_filename[:-3] + "_best.pt",
+                                epoch_finished=True,
+                                is_ddp=args.ddp,
+                                wandb_run_id=run.id,
+                                python_rng_state=random.getstate(),
+                                numpy_rng_state=np.random.get_state(),
+                                torch_rng_state=torch.random.get_rng_state(),
+                                cuda_rng_state=torch.cuda.get_rng_state(),
+                                **flow_checkpoint_state(),
+                            )
+                            log_checkpoint_timing(
+                                "best",
+                                checkpoint_timing,
+                                writer,
+                                global_step,
+                            )
+                        print("saved new best metric model")
+                    print(
+                        "current epoch: {} current mean ssim: {:.4f} best mean ssim: {:.4f} at epoch {} "
+                        "time elapsed: {:.2f} mins".format(
+                            epoch + 1,
+                            metric,
                             best_metric,
                             best_metric_epoch,
-                            model_filename=args.model_filename[:-3] + "_best.pt",
-                            epoch_finished=True,
-                            is_ddp=args.ddp,
-                            wandb_run_id=run.id,
-                            python_rng_state=random.getstate(),
-                            numpy_rng_state=np.random.get_state(),
-                            torch_rng_state=torch.random.get_rng_state(),
-                            cuda_rng_state=torch.cuda.get_rng_state(),
+                            (time.time() - tic_val) / 60,
                         )
-                        log_checkpoint_timing(
-                            "best",
-                            checkpoint_timing,
-                            writer,
-                            global_step,
-                        )
-                    print("saved new best metric model")
-                print(
-                    "current epoch: {} current mean ssim: {:.4f} best mean ssim: {:.4f} at epoch {} \
-                     time elapsed: {:.2f} mins",
-                    epoch + 1,
-                    metric,
-                    best_metric,
-                    best_metric_epoch,
-                    (time.time() - tic_val) / 60,
-                )
-                if rank == 0:
+                    )
+                if rank == 0 and not flow_validation_enabled:
                     inp = (
                         inp
                         if args.model_type.lower() not in ["varnet", "kspace_mar"]

@@ -391,6 +391,8 @@ def validate_phase3_config(config) -> None:
             "freeze",
             "gamma",
             "loss",
+            "validation",
+            "checkpoint_selection",
             "inference",
         },
     )
@@ -604,13 +606,27 @@ def validate_phase3_config(config) -> None:
                 "vascular",
                 "joint",
                 "weights",
+                "profile",
+                "roi",
+                "complex_roi",
+                "cross_venc_phase",
+                "velocity",
+                "relerr",
+                "angular",
+                "flow_loss_ramp",
+                "loss_normalization",
             },
         )
+        profile = str(_get_attr(loss, "profile", "pengfei_joint")).lower()
+        if profile not in {"pengfei_joint", "official_aligned"}:
+            raise ValueError("phase3.loss.profile must be 'pengfei_joint' or 'official_aligned'")
+        _set_attr(loss, "profile", profile)
         spatial_dims = normalize_ssim_spatial_dims(_get_attr(loss, "ssim_spatial_dims", "auto"), recon_mode)
         _set_attr(loss, "ssim_spatial_dims", spatial_dims)
         phase_loss = _get_attr(loss, "phase", None)
         vascular_loss = _get_attr(loss, "vascular", None)
         joint_loss = _get_attr(loss, "joint", None)
+        roi_loss = _get_attr(loss, "roi", None)
         _warn_unknown_config_keys(phase_loss, "phase3.loss.phase", {"method", "weight", "eps"})
         _warn_unknown_config_keys(vascular_loss, "phase3.loss.vascular", {"method", "weight", "normalize_by_mask"})
         _warn_unknown_config_keys(
@@ -623,8 +639,59 @@ def validate_phase3_config(config) -> None:
                 "circular_weight",
                 "speed_weight",
                 "direction_weight",
+                "reference_encoding",
                 "eps",
             },
+        )
+        _warn_unknown_config_keys(
+            roi_loss,
+            "phase3.loss.roi",
+            {
+                "enabled",
+                "source",
+                "field",
+                "keys",
+                "axis_order",
+                "binary",
+                "threshold",
+                "normalize_by_mask",
+                "outside_weight",
+            },
+        )
+        if roi_loss is not None:
+            roi_source = str(_get_attr(roi_loss, "source", "segmask")).lower()
+            if roi_source != "segmask":
+                raise ValueError("phase3.loss.roi.source currently supports only 'segmask'")
+            roi_axis_order = str(_get_attr(roi_loss, "axis_order", "zyx")).lower()
+            if sorted(roi_axis_order) != ["x", "y", "z"]:
+                raise ValueError("phase3.loss.roi.axis_order must be a permutation of 'zyx'")
+            _set_attr(roi_loss, "source", roi_source)
+            _set_attr(roi_loss, "axis_order", roi_axis_order)
+        for name in ("complex_roi", "cross_venc_phase", "relerr"):
+            _warn_unknown_config_keys(
+                _get_attr(loss, name, None),
+                f"phase3.loss.{name}",
+                {"enabled", "weight"},
+            )
+        _warn_unknown_config_keys(
+            _get_attr(loss, "velocity", None),
+            "phase3.loss.velocity",
+            {"enabled", "weight", "type"},
+        )
+        _warn_unknown_config_keys(
+            _get_attr(loss, "angular", None),
+            "phase3.loss.angular",
+            {"enabled", "weight", "min_speed"},
+        )
+        _warn_unknown_config_keys(
+            _get_attr(loss, "flow_loss_ramp", None),
+            "phase3.loss.flow_loss_ramp",
+            {"enabled", "start_epoch", "end_epoch"},
+        )
+        _warn_unknown_config_keys(
+            _get_attr(loss, "loss_normalization", None),
+            "phase3.loss.loss_normalization",
+            {"enabled", "momentum", "eps"},
         )
         _warn_unknown_config_keys(
             _get_attr(loss, "weights", None),
@@ -652,6 +719,32 @@ def validate_phase3_config(config) -> None:
             if vascular_method not in flowvn_methods:
                 raise ValueError(f"Unsupported phase3.loss.vascular.method={vascular_method!r}")
             _set_attr(vascular_loss, "method", vascular_method)
+
+    validation = _get_attr(phase3, "validation", None)
+    if validation is not None:
+        _warn_unknown_config_keys(validation, "phase3.validation", {"enabled", "flow_metrics"})
+        _warn_unknown_config_keys(
+            _get_attr(validation, "flow_metrics", None),
+            "phase3.validation.flow_metrics",
+            {"enabled", "eval_code_dir"},
+        )
+
+    checkpoint_selection = _get_attr(phase3, "checkpoint_selection", None)
+    if checkpoint_selection is not None:
+        _warn_unknown_config_keys(
+            checkpoint_selection,
+            "phase3.checkpoint_selection",
+            {"primary", "flow_score"},
+        )
+        primary = str(_get_attr(checkpoint_selection, "primary", "flow")).lower()
+        if primary not in {"flow", "relerr", "angerr", "ssim"}:
+            raise ValueError("phase3.checkpoint_selection.primary must be flow, relerr, angerr, or ssim")
+        _set_attr(checkpoint_selection, "primary", primary)
+        _warn_unknown_config_keys(
+            _get_attr(checkpoint_selection, "flow_score", None),
+            "phase3.checkpoint_selection.flow_score",
+            {"relerr_weight", "angerr_weight", "angerr_scale"},
+        )
 
     inference = _get_attr(phase3, "inference", None)
     if inference is not None:
@@ -1136,6 +1229,7 @@ def load_net(
     resume_rng_state=False,
     prepare_model_for_ddp=None,
     resume_training_state=True,
+    return_training_metadata=False,
 ):
     """
     Load the Net model.
@@ -1161,6 +1255,7 @@ def load_net(
     best_metric = -1
     best_metric_epoch = -1
     wandb_run_id = None
+    training_metadata = {}
 
     if not os.path.exists(resume_training_ckpt):
         print("Training from scratch or pretrained model.")
@@ -1226,6 +1321,10 @@ def load_net(
                 best_metric_epoch = checkpoint_net["best_metric_epoch"]
             if "wandb_run_id" in checkpoint_net:
                 wandb_run_id = checkpoint_net["wandb_run_id"]
+            training_metadata = {
+                "best_flow_metrics": checkpoint_net.get("best_flow_metrics"),
+                "loss_normalization_ema": checkpoint_net.get("loss_normalization_ema"),
+            }
             if resume_rng_state:
                 if "python_rng_state" in checkpoint_net:
                     random.setstate(checkpoint_net["python_rng_state"])
@@ -1264,7 +1363,7 @@ def load_net(
     elif torch.cuda.is_available():
         net = net.to(device)
 
-    return (
+    result = (
         net,
         optimizer_state_dict,
         scheduler_state_dict,
@@ -1275,6 +1374,7 @@ def load_net(
         best_metric_epoch,
         wandb_run_id,
     )
+    return result + (training_metadata,) if return_training_metadata else result
 
 
 def save_checkpoint(
@@ -1295,6 +1395,8 @@ def save_checkpoint(
     numpy_rng_state=None,
     torch_rng_state=None,
     cuda_rng_state=None,
+    best_flow_metrics=None,
+    loss_normalization_ema=None,
 ) -> dict:
     """
     Save checkpoint.
@@ -1334,6 +1436,8 @@ def save_checkpoint(
             "numpy_rng_state": numpy_rng_state,
             "torch_rng_state": torch_rng_state,
             "cuda_rng_state": cuda_rng_state,
+            "best_flow_metrics": best_flow_metrics,
+            "loss_normalization_ema": loss_normalization_ema,
         },
         ckpt_path,
     )
