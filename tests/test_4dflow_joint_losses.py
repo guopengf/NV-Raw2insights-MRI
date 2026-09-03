@@ -177,6 +177,20 @@ def test_roi_losses_fall_back_to_full_image_when_mask_is_missing():
         assert torch.isfinite(gradient).all()
 
 
+def test_complex_roi_l1_is_relative_to_roi_target_amplitude():
+    mask = torch.tensor([[[1.0, 1.0, 0.0], [1.0, 0.0, 0.0]]])
+    target = torch.zeros(1, 4, 2, 3, 2)
+    target[..., 0] = torch.where(mask.unsqueeze(1).bool(), 2.0, 1000.0)
+    pred = target + 1.0
+
+    loss = complex_roi_l1_loss(pred, target, mask)
+    torch.testing.assert_close(loss, torch.tensor(0.5))
+    torch.testing.assert_close(
+        complex_roi_l1_loss(pred * 1.0e6, target * 1.0e6, mask),
+        loss,
+    )
+
+
 def test_pengfei_profile_uses_exact_relerr_for_speed_component():
     pred = torch.randn(2, 4, 3, 1, 5, 6, 2, requires_grad=True)
     target = torch.randn_like(pred)

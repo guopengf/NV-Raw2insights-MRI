@@ -111,20 +111,25 @@ def complex_roi_l1_loss(
     outside_weight: float = 0.0,
     eps: float = 1e-8,
 ) -> torch.Tensor:
-    """Coordinate-wise complex L1: mean of |dRe| and |dIm| inside ROI."""
+    """ROI complex L1 relative to the mean target magnitude in the same ROI."""
 
     values = torch.abs(pred - target).mean(dim=-1)
+    target_amplitude = torch.linalg.vector_norm(target, dim=-1)
     if normalize_by_mask:
         inside = _masked_mean(values, roi_mask, eps=eps)
+        amplitude_scale = _masked_mean(target_amplitude, roi_mask, eps=eps)
     elif roi_mask is None:
         inside = values.mean()
+        amplitude_scale = target_amplitude.mean()
     else:
         mask = _broadcast_mask(roi_mask, values)
         inside = (values * mask).mean()
-    if outside_weight <= 0 or roi_mask is None:
-        return inside
-    outside = _masked_mean(values, 1.0 - torch.as_tensor(roi_mask), eps=eps)
-    return inside + float(outside_weight) * outside
+        amplitude_scale = (target_amplitude * mask).mean()
+    loss = inside
+    if outside_weight > 0 and roi_mask is not None:
+        outside = _masked_mean(values, 1.0 - torch.as_tensor(roi_mask), eps=eps)
+        loss = loss + float(outside_weight) * outside
+    return loss / amplitude_scale.clamp_min(eps)
 
 
 def circular_phase_loss(
