@@ -176,14 +176,24 @@ def test_joint_configs_enable_synchronized_augmentation():
     for config_name in config_names:
         config = load_config(REPO_ROOT / "configs" / config_name)
         spec = joint_encoding_spec(config)
+        augmentation = config.four_dflow_augmentation
 
         assert spec.enabled is True
         assert config.data_aug is True
-        assert config.four_dflow_augmentation.enabled is True
-        assert config.four_dflow_augmentation.flip.axes == ["z", "y"]
-        assert config.four_dflow_augmentation.flip.prob == 0.25
-        assert config.four_dflow_augmentation.shift.max_pixels == [3, 8]
-        assert config.four_dflow_augmentation.contrast.gamma == [0.8, 1.2]
+        assert augmentation.enabled is True
+        assert augmentation.flip.prob == 0.25
+        assert list(augmentation.flip.axes) == ["z", "y"]
+        assert augmentation.shift.prob == 0.25
+        assert list(augmentation.shift.max_pixels) == [3, 8]
+        assert augmentation.contrast.prob == 0.2
+        assert list(augmentation.contrast.gamma) == [0.8, 1.2]
+        assert resolve_training_loss_flags(config, spec) == {
+            "main_zy": False,
+            "phase": True,
+            "vascular": False,
+        }
+        assert config.phase3.loss.phase.method == "flowvn_complex_l1"
+        assert config.phase3.loss.phase.weight > 0
 
 
 def test_non_joint_loss_flags_remain_config_driven():
@@ -498,8 +508,7 @@ def test_joint_configs_keep_fixed_training_cardinality():
         "batch": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
         "channel": "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
     }
-    expected_workers = {"batch": 4, "channel": 8}
-    expected_val_workers = {"batch": 0, "channel": 4}
+    expected_workers = {"batch": (4, 0), "channel": (8, 4)}
     for mode, config_name in config_names.items():
         config_path = (
             REPO_ROOT
@@ -509,8 +518,9 @@ def test_joint_configs_keep_fixed_training_cardinality():
         payload = json.loads(config_path.read_text())
         assert payload["batch_size"] == 8
         assert payload["num_samples_per_case"] == 8
-        assert payload["train_num_workers"] == expected_workers[mode]
-        assert payload["val_num_workers"] == expected_val_workers[mode]
+        train_workers, val_workers = expected_workers[mode]
+        assert payload["train_num_workers"] == train_workers
+        assert payload["val_num_workers"] == val_workers
         assert payload["group_accelerations_by_target"] is True
         assert payload["reader_target_cache_entries"] == 1
         assert payload["phase3"]["joint_encoding"]["mode"] == mode
