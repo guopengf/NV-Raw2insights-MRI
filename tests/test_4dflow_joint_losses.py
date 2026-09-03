@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import sys
 import tempfile
 from pathlib import Path
@@ -29,10 +28,8 @@ from mri_data.flow_losses import (
     velocity_component_loss,
 )
 from train import resolve_training_loss_flags
+from tools.evaluate_4dflow_submission import import_official_eval
 from utils import load_config
-
-
-OFFICIAL_DIR = Path("/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData_GT/EvaluationCode")
 
 
 def _namespace(**kwargs):
@@ -57,11 +54,46 @@ def _roi_args(axis_order="zyx"):
     )
 
 
-def _official_module(filename, module_name):
-    spec = importlib.util.spec_from_file_location(module_name, OFFICIAL_DIR / filename)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def _official_complex2magflow_reference(values):
+    magnitude = np.abs(values)
+    flow = np.angle(values[1:] * np.conj(values[0:1]))
+    return magnitude, flow
+
+
+def _official_relerr_reference(pred, target, mask, eps=1e-12):
+    target_speed = np.linalg.norm(target, axis=0)
+    pred_speed = np.linalg.norm(pred, axis=0)
+    while mask.ndim < target_speed.ndim:
+        mask = mask[None]
+    mask = np.broadcast_to(mask.astype(bool), target_speed.shape).astype(np.float32)
+    numerator = np.sum(((target_speed - pred_speed) ** 2) * mask)
+    denominator = np.sum((target_speed**2) * mask) + eps
+    return np.sqrt(numerator / denominator)
+
+
+def _write_eval_fixture(root: Path, *, relative_metrics_import: bool) -> None:
+    metrics_import = (
+        "from .pytorch_ssim import TOKEN" if relative_metrics_import else "from pytorch_ssim import TOKEN"
+    )
+    (root / "pytorch_ssim.py").write_text("TOKEN = 17\n", encoding="utf-8")
+    (root / "utils_bgc.py").write_text(
+        "def execute_MSAC(value, **kwargs):\n    return value\n",
+        encoding="utf-8",
+    )
+    (root / "utils_flow.py").write_text(
+        "def complex2magflow(value, venc=None):\n    return value, value\n",
+        encoding="utf-8",
+    )
+    (root / "utils_metrics.py").write_text(
+        metrics_import
+        + "\n"
+        + "def SSIM(*args): return TOKEN\n"
+        + "def nRMSE(*args): return TOKEN\n"
+        + "def RelErr(*args): return TOKEN\n"
+        + "def AngErr(*args): return TOKEN\n"
+        + "def ComplexDiffErr(*args): return TOKEN\n",
+        encoding="utf-8",
+    )
 
 
 def test_roi_mask_loading_is_independent_from_vaa_and_oriented_xzy():
@@ -77,34 +109,54 @@ def test_roi_mask_loading_is_independent_from_vaa_and_oriented_xzy():
 
 
 def test_complex2magflow_matches_official():
-    official = _official_module("utils_flow.py", "official_utils_flow")
     rng = np.random.default_rng(7)
     values = (rng.normal(size=(4, 2, 3, 4, 5)) + 1j * rng.normal(size=(4, 2, 3, 4, 5))).astype(
         np.complex64
     )
-    expected_mag, expected_flow = official.complex2magflow(values)
+    expected_mag, expected_flow = _official_complex2magflow_reference(values)
     actual_mag, actual_flow = complex2magflow_torch(torch.view_as_real(torch.from_numpy(values)), encoding_dim=0)
     np.testing.assert_allclose(actual_mag.numpy(), expected_mag, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(actual_flow.numpy(), expected_flow, rtol=1e-6, atol=1e-6)
 
 
 def test_relerr_matches_official_with_joint_singleton_coil_dimension():
-    sys.path.insert(0, str(OFFICIAL_DIR))
-    official = _official_module("utils_metrics.py", "official_utils_metrics")
     rng = np.random.default_rng(9)
     target = rng.normal(size=(3, 2, 4, 5, 6)).astype(np.float32)
     pred = rng.normal(size=target.shape).astype(np.float32)
     mask = (rng.random(size=(2, 4, 5, 6)) > 0.2).astype(np.float32)
-    expected = official.RelErr(pred, target, mask[0])
+    expected = _official_relerr_reference(pred, target, mask[0])
     actual = relerr_loss(
         torch.from_numpy(pred[:, :1]).permute(1, 0, 2, 3, 4).unsqueeze(3),
         torch.from_numpy(target[:, :1]).permute(1, 0, 2, 3, 4).unsqueeze(3),
         torch.from_numpy(mask[:1]),
         component_dim=1,
     )
-    expected_first = official.RelErr(pred[:, :1], target[:, :1], mask[0])
+    expected_first = _official_relerr_reference(pred[:, :1], target[:, :1], mask[0])
     np.testing.assert_allclose(actual.numpy(), expected_first, rtol=1e-6, atol=1e-6)
     assert np.isfinite(expected)
+
+
+def test_official_evaluator_loader_supports_package_relative_imports():
+    with tempfile.TemporaryDirectory() as tmp:
+        eval_dir = Path(tmp)
+        _write_eval_fixture(eval_dir, relative_metrics_import=True)
+        funcs = import_official_eval(eval_dir)
+    assert funcs["SSIM"]() == 17
+    assert funcs["complex2magflow"]("value") == ("value", "value")
+
+
+def test_official_evaluator_loader_preserves_flat_import_support():
+    previous_module = sys.modules.pop("pytorch_ssim", None)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            eval_dir = Path(tmp)
+            _write_eval_fixture(eval_dir, relative_metrics_import=False)
+            funcs = import_official_eval(eval_dir)
+        assert funcs["RelErr"]() == 17
+    finally:
+        sys.modules.pop("pytorch_ssim", None)
+        if previous_module is not None:
+            sys.modules["pytorch_ssim"] = previous_module
 
 
 def test_roi_losses_fall_back_to_full_image_when_mask_is_missing():
