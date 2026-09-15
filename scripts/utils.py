@@ -105,6 +105,7 @@ __all__ = [
     "load_net",
     "load_shape_compatible_state_dict",
     "save_checkpoint",
+    "atomic_torch_save",
     "get_acs_image",
     "save_img4ranking",
     "ind2xy",
@@ -1377,6 +1378,19 @@ def load_net(
     return result + (training_metadata,) if return_training_metadata else result
 
 
+def atomic_torch_save(payload, destination) -> None:
+    """Write a torch checkpoint without exposing a partially written destination."""
+    destination_path = Path(destination)
+    temporary_path = destination_path.with_name(f".{destination_path.name}.tmp")
+    try:
+        torch.save(payload, temporary_path)
+        with temporary_path.open("rb") as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, destination_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 def save_checkpoint(
     epoch: int,
     global_step: int,
@@ -1420,7 +1434,7 @@ def save_checkpoint(
         scheduler_state_dict = None
     state_prepare_s = time.perf_counter() - state_prepare_started
     torch_save_started = time.perf_counter()
-    torch.save(
+    atomic_torch_save(
         {
             "epoch": epoch + 1,
             "global_step": global_step + 1,

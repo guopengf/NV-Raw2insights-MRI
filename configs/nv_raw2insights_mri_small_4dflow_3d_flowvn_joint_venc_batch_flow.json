@@ -106,18 +106,18 @@
     "val_mask_types": [
         "fixed"
     ],
-    "num_epochs": 960,
+    "num_epochs": 300,
     "exp_dir": "outputs/4dflow/4dflow_joint_encoding/",
-    "exp": "small_ft_4dflow_3d_flowvn_joint_venc_flow",
-    "lr": 5e-05,
+    "exp": "small_ft_4dflow_3d_flowvn_joint_venc_batch_flow",
+    "lr": 2e-05,
     "weight_decay": 0.001,
     "loss_type": "ssim",
     "model_type": "restormer",
     "dataset": "CMRxRecon",
     "warmup_epochs": 5,
     "lr_schedule": "cosine",
-    "min_lr": 1e-05,
-    "model_filename": "nv_raw2insights_mri_small_ft_4dflow_3d_flowvn_joint_venc_flow.pt",
+    "min_lr": 5e-06,
+    "model_filename": "nv_raw2insights_mri_small_ft_4dflow_3d_flowvn_joint_venc_batch_flow.pt",
     "use_csm": true,
     "use_tau_csm": false,
     "use_acs_region": false,
@@ -169,7 +169,7 @@
         "enable_vaa": false,
         "joint_encoding": {
             "enabled": true,
-            "mode": "channel",
+            "mode": "batch",
             "count": 4,
             "order": [0, 1, 2, 3]
         },
@@ -238,10 +238,6 @@
             "mode": "shifted_sigmoid"
         },
         "loss": {
-            "use_phase": true,
-            "use_vascular": false,
-            "use_ssim_zy": false,
-            "use_ssim_xy": false,
             "profile": "official_aligned",
             "roi": {
                 "enabled": true,
