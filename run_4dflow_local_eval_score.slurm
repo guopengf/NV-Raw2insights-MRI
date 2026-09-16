@@ -45,11 +45,12 @@ srun \
             --eval-code-dir \"\$RUN/official/CMRx4DFlow2026/CMRx4DFlowReconDemo/Utils\" \
             --cache-dir \"\$RUN/corrmaps\" \
             --spatial-mode full \
+            --use-venc \
             --include-complex-diff \
-            --out-csv \"\$RUN/metrics/epoch900_full_no_venc.csv\" \
-            --out-json \"\$RUN/metrics/epoch900_full_no_venc.summary.json\"
+            --out-csv \"\$RUN/metrics/epoch900_full_venc.csv\" \
+            --out-json \"\$RUN/metrics/epoch900_full_venc.summary.json\"
         '$PY' scripts/tools/verify_4dflow_leaderboard_parity.py \
-            \"\$RUN/metrics/epoch900_full_no_venc.summary.json\" \
+            \"\$RUN/metrics/epoch900_full_venc.summary.json\" \
             --out \"\$RUN/metrics/epoch900_parity_receipt.json\"
         '$PY' scripts/tools/evaluate_4dflow_submission.py \
             --submission-root \"\$RUN/submissions/epoch960\" \
@@ -57,6 +58,7 @@ srun \
             --eval-code-dir \"\$RUN/official/CMRx4DFlow2026/CMRx4DFlowReconDemo/Utils\" \
             --cache-dir \"\$RUN/corrmaps\" \
             --spatial-mode full \
+            --use-venc \
             --include-complex-diff \
             --out-csv \"\$RUN/metrics/epoch960.csv\" \
             --out-json \"\$RUN/metrics/epoch960.summary.json\"
