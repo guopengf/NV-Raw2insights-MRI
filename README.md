@@ -217,13 +217,10 @@ Carotid, Cerebrovascular, PortalVein, and RenalArtery. The default 70/15/15 allo
 therefore contains 292 train, 63 validation, and 62 test patients after deterministic
 largest-remainder rounding.
 
-The original R1R2 TrainSet at
-`/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TrainSet` contains the 138 fully sampled
-targets, coil maps, and segmentation masks, but no `ktGaussian` undersampled files. The
-config records that path as the raw identity root and uses the existing prepared mirror
-`/SSDHome/share/haosen/4dflow/TrainSet` as `prepared_root`. The prepared mirror has the
-same 138 patient paths and all five acceleration pairs, so the unified view is directly
-usable without regenerating them.
+On HEL, the configured R1R2 TrainSet already contains the 138 fully sampled targets,
+coil maps, segmentation masks, and all five `ktGaussian` acceleration pairs. The config
+therefore points `root` and `prepared_root` to the same tree. This preserves the raw
+identity/data-root distinction while avoiding a redundant prepared mirror.
 
 ### Split rules
 
@@ -264,7 +261,7 @@ python scripts/tools/create_4dflow_unified_split.py \
 The default output root is outside the raw challenge directory:
 
 ```text
-/SSDHome/share/haosen/4dflow/unified-multiorgan-v1
+~/workspace/data/CMRx4DFlow2026-unified-70_15_15-seed20260914
 ```
 
 Override it without editing the config when needed:
