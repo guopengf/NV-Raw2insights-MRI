@@ -186,6 +186,156 @@ outputs/4dflow/4dflow_finetune_ckpts/
 outputs/
 ```
 
+## Unified Multi-Organ Train/Val/Test Split
+
+`scripts/tools/create_4dflow_unified_split.py` combines the local R1R2 TrainSet and the
+R1R2, S1, and S2 Validation/TestSet_ALL patient pools into a single patient-level
+train/validation/test definition. It does not copy or modify the raw MAT files. When
+explicitly applied, it creates real output patient directories containing symbolic links
+to the existing data files.
+
+The provided config is:
+
+```text
+configs/4dflow_unified_split_70_15_15.json
+```
+
+It describes seven read-only source datasets:
+
+```text
+TaskR1R2/TrainSet       138 Aorta patients
+TaskR1R2/ValidationSet   32 Aorta patients
+TaskR1R2/TestSet_ALL    27 Aorta patients
+TaskS1/ValidationSet    40 Aorta patients
+TaskS1/TestSet_ALL      60 Aorta patients
+TaskS2/ValidationSet    40 multi-organ patients
+TaskS2/TestSet_ALL      80 multi-organ patients
+```
+
+The combined pool has 417 patients: 297 Aorta patients and 30 patients for each of
+Carotid, Cerebrovascular, PortalVein, and RenalArtery. The default 70/15/15 allocation
+therefore contains 292 train, 63 validation, and 62 test patients after deterministic
+largest-remainder rounding.
+
+The original R1R2 TrainSet at
+`/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TrainSet` contains the 138 fully sampled
+targets, coil maps, and segmentation masks, but no `ktGaussian` undersampled files. The
+config records that path as the raw identity root and uses the existing prepared mirror
+`/SSDHome/share/haosen/4dflow/TrainSet` as `prepared_root`. The prepared mirror has the
+same 138 patient paths and all five acceleration pairs, so the unified view is directly
+usable without regenerating them.
+
+### Split rules
+
+- A patient is the indivisible unit. All four VENC encodings, time frames, slices, and
+  available acceleration factors from that patient stay in the same split.
+- Organ is the primary, exact quota dimension. Integer quotas are selected with a
+  largest-remainder allocation while preserving the exact overall split sizes.
+- Center, organ-center pair, scanner, original task/split, and acceleration-coverage
+  profile are optimized jointly over deterministic seeded search trials.
+- Groups with at least `coverage_min_cases` receive an objective penalty when absent
+  from a split. Very small centers cannot always appear in all three splits.
+- Reusing the same config and seed produces the same patient assignment.
+- Original task and source split remain in the manifest and unique patient link name,
+  but R1R2/S1/S2 are no longer the top-level training partitions.
+
+The expected default organ quotas are:
+
+```text
+Organ               Train     Val    Test
+Aorta                 208  44 or 45 45 or 44
+Each 30-case organ      21  4 or 5  5 or 4
+Total                  292      63      62
+```
+
+Integer ties are deterministic. Changing the seed may exchange which organs receive the
+extra validation or test patient while retaining the total and train quotas.
+
+### Plan-only usage
+
+The default command inventories and validates the inputs and writes a split plan. It
+does not create patient links:
+
+```bash
+python scripts/tools/create_4dflow_unified_split.py \
+  --config configs/4dflow_unified_split_70_15_15.json
+```
+
+The default output root is outside the raw challenge directory:
+
+```text
+/SSDHome/share/haosen/4dflow/unified-multiorgan-v1
+```
+
+Override it without editing the config when needed:
+
+```bash
+python scripts/tools/create_4dflow_unified_split.py \
+  --config configs/4dflow_unified_split_70_15_15.json \
+  --output-root /path/to/safe/unified-multiorgan-v1
+```
+
+Plan-only mode writes:
+
+```text
+inventory.jsonl       source inventory before assignment
+split_manifest.json   complete assignment and provenance
+split_manifest.csv    tabular assignment for manual review
+split_summary.json    split counts and all stratification distributions
+training_paths.json   data_path_train/data_path_val/data_path_test organ roots
+```
+
+Review `split_summary.json` and `split_manifest.csv` before materializing the view.
+
+### Create the symlink view
+
+Only `--apply` creates real patient directories and their file links:
+
+```bash
+python scripts/tools/create_4dflow_unified_split.py \
+  --config configs/4dflow_unified_split_70_15_15.json \
+  --apply
+```
+
+The resulting layout is compatible with the current `Center*/Scanner*/Patient*`
+discovery logic when each organ directory is supplied as a data root:
+
+```text
+<output_root>/
+  train/<organ>/<center>/<scanner>/<unique_patient>/<linked source files>
+  val/<organ>/<center>/<scanner>/<unique_patient>/<linked source files>
+  test/<organ>/<center>/<scanner>/<unique_patient>/<linked source files>
+```
+
+`unique_patient` contains task, original split, organ, center, scanner, and patient ID.
+This prevents repeated names such as `P001` from colliding and also keeps current
+windowed-HDF5 patient keys unique across organ roots. Existing non-matching links or
+regular files are never overwritten. Reapplying an unchanged plan is idempotent.
+Using real patient directories instead of directory symlinks also prevents a later tool
+from accidentally writing through the unified view into a source patient directory.
+
+### Configuration
+
+`split_ratios` controls overall train/val/test sizes. `primary_dimension` controls the
+hard per-group quotas; keep it as `organ` for the intended multi-organ experiment.
+Weights under `secondary_dimensions` control how strongly center, scanner, source,
+and acceleration distributions are preserved. `seed` and `search_trials` control the
+deterministic assignment search.
+
+Every accepted patient must contain `kdata_full.mat`, `coilmap.mat`, `segmask.mat`, and
+at least one matched `kdata_ktGaussianXX.mat`/`usmask_ktGaussianXX.mat` pair. The
+expected source and total patient counts intentionally fail fast if the local dataset
+changes. Set `invalid_case_policy` to `skip` only when intentionally building from an
+incomplete source copy.
+
+The original ValidationSet cases currently contain one acceleration pair per patient,
+while TestSet_ALL and the prepared TrainSet contain all five factors
+`10/20/30/40/50`. The split therefore balances `acceleration_profile`. The raw MAT
+manifest path can use all cases and skips unavailable factors. The current windowed-HDF5
+converter requires every configured acceleration, so either convert only complete
+five-factor cases or extend that converter before using this mixed split with the
+windowed backend. The split script never creates missing undersampled data or masks.
+
 ## Config
 
 The 4D Flow config is:

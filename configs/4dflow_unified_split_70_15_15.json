@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "output_root": "/SSDHome/share/haosen/4dflow/unified-multiorgan-v1",
+  "seed": 20260914,
+  "sources": [
+    {
+      "task": "TaskR1R2",
+      "source_split": "TrainSet",
+      "root": "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TrainSet",
+      "prepared_root": "/SSDHome/share/haosen/4dflow/TrainSet",
+      "expected_patients": 138
+    },
+    {
+      "task": "TaskR1R2",
+      "source_split": "ValidationSet",
+      "root": "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData/TaskR1R2/ValidationSet",
+      "expected_patients": 32
+    },
+    {
+      "task": "TaskR1R2",
+      "source_split": "TestSet_ALL",
+      "root": "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData/TaskR1R2/TestSet_ALL",
+      "expected_patients": 27
+    },
+    {
+      "task": "TaskS1",
+      "source_split": "ValidationSet",
+      "root": "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData/TaskS1/ValidationSet",
+      "expected_patients": 40
+    },
+    {
+      "task": "TaskS1",
+      "source_split": "TestSet_ALL",
+      "root": "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData/TaskS1/TestSet_ALL",
+      "expected_patients": 60
+    },
+    {
+      "task": "TaskS2",
+      "source_split": "ValidationSet",
+      "root": "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData/TaskS2/ValidationSet",
+      "expected_patients": 40
+    },
+    {
+      "task": "TaskS2",
+      "source_split": "TestSet_ALL",
+      "root": "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData/TaskS2/TestSet_ALL",
+      "expected_patients": 80
+    }
+  ],
+  "split_ratios": {
+    "train": 0.7,
+    "val": 0.15,
+    "test": 0.15
+  },
+  "stratification": {
+    "primary_dimension": "organ",
+    "secondary_dimensions": {
+      "organ_center": 5.0,
+      "center": 3.0,
+      "acceleration_profile": 2.0,
+      "scanner": 1.0,
+      "source_dataset": 1.0
+    },
+    "search_trials": 256,
+    "coverage_min_cases": 5,
+    "coverage_penalty": 50.0
+  },
+  "accelerations": {
+    "values": [10, 20, 30, 40, 50],
+    "input_pattern": "kdata_ktGaussian{acceleration}.mat",
+    "mask_pattern": "usmask_ktGaussian{acceleration}.mat",
+    "minimum_available": 1
+  },
+  "validation": {
+    "expected_total_patients": 417,
+    "required_files": [
+      "kdata_full.mat",
+      "coilmap.mat",
+      "segmask.mat"
+    ],
+    "optional_files": [
+      "params.csv"
+    ],
+    "invalid_case_policy": "error"
+  },
+  "materialization": {
+    "mode": "file_symlink"
+  }
+}
