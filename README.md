@@ -191,8 +191,8 @@ outputs/
 `scripts/tools/create_4dflow_unified_split.py` combines the local R1R2 TrainSet and the
 R1R2, S1, and S2 Validation/TestSet_ALL patient pools into a single patient-level
 train/validation/test definition. It does not copy or modify the raw MAT files. When
-explicitly applied, it creates real output patient directories containing symbolic links
-to the existing data files.
+explicitly applied, it creates real output patient directories containing relative
+symbolic links to the existing data files.
 
 The provided config is:
 
@@ -308,8 +308,10 @@ discovery logic when each organ directory is supplied as a data root:
 This prevents repeated names such as `P001` from colliding and also keeps current
 windowed-HDF5 patient keys unique across organ roots. Existing non-matching links or
 regular files are never overwritten. Reapplying an unchanged plan is idempotent.
-Using real patient directories instead of directory symlinks also prevents a later tool
-from accidentally writing through the unified view into a source patient directory.
+Using real patient directories instead of directory symlinks keeps newly created
+sidecars or outputs in the unified view. The linked source files must still be treated as
+read-only. Relative link targets remain valid when the common datasets parent is mounted
+as one tree at a different location inside a container.
 
 ### Configuration
 

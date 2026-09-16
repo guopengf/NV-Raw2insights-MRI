@@ -683,7 +683,8 @@ def materialize_file_symlinks(plan: dict[str, Any]) -> tuple[int, int, int]:
                 raise FileExistsError(
                     f"Refusing to replace existing output file: {destination_file}"
                 )
-            destination_file.symlink_to(source_file)
+            relative_target = os.path.relpath(source_file, start=destination_file.parent)
+            destination_file.symlink_to(relative_target)
             links_created += 1
     return directories_created, links_created, links_existing
 
