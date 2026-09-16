@@ -261,7 +261,7 @@ python scripts/tools/create_4dflow_unified_split.py \
 The default output root is outside the raw challenge directory:
 
 ```text
-~/workspace/data/CMRx4DFlow2026-unified-70_15_15-seed20260914
+~/healthcareeng_monai/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914
 ```
 
 Override it without editing the config when needed:

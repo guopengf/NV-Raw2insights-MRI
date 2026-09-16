@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "output_root": "~/workspace/data/CMRx4DFlow2026-unified-70_15_15-seed20260914",
+  "output_root": "~/healthcareeng_monai/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914",
   "seed": 20260914,
   "sources": [
     {
