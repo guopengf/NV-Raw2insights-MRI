@@ -5,6 +5,13 @@
   "sources": [
     {
       "task": "TaskR1R2",
+      "source_split": "TrainSet",
+      "root": "/SSDHome/share/4dFlow/ChallengeData/TaskR1&R2/TrainSet",
+      "prepared_root": "/SSDHome/share/haosen/4dflow/TrainSet",
+      "expected_patients": 138
+    },
+    {
+      "task": "TaskR1R2",
       "source_split": "ValidationSet",
       "root": "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData/TaskR1R2/ValidationSet",
       "expected_patients": 32
@@ -65,7 +72,7 @@
     "minimum_available": 1
   },
   "validation": {
-    "expected_total_patients": 279,
+    "expected_total_patients": 417,
     "required_files": [
       "kdata_full.mat",
       "coilmap.mat",
@@ -77,6 +84,6 @@
     "invalid_case_policy": "error"
   },
   "materialization": {
-    "mode": "symlink"
+    "mode": "file_symlink"
   }
 }

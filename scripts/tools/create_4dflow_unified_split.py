@@ -37,10 +37,12 @@ class Case:
     source_task: str
     source_split: str
     source_root: str
+    data_root: str
     organ: str
     center: str
     scanner: str
     patient: str
+    raw_origin_path: str
     source_path: str
     available_accelerations: tuple[int, ...]
     acceleration_profile: str
@@ -61,11 +63,13 @@ class Case:
             "source_split": self.source_split,
             "source_dataset": self.source_dataset,
             "source_root": self.source_root,
+            "data_root": self.data_root,
             "organ": self.organ,
             "center": self.center,
             "organ_center": self.organ_center,
             "scanner": self.scanner,
             "patient": self.patient,
+            "raw_origin_path": self.raw_origin_path,
             "source_path": self.source_path,
             "available_accelerations": list(self.available_accelerations),
             "acceleration_profile": self.acceleration_profile,
@@ -173,10 +177,13 @@ def discover_cases(config: dict[str, Any]) -> list[Case]:
 
     for source in config["sources"]:
         root = Path(source["root"]).expanduser().resolve()
+        data_root = Path(source.get("prepared_root", root)).expanduser().resolve()
         task = str(source["task"])
         source_split = str(source["source_split"])
         if not root.is_dir():
             raise FileNotFoundError(f"Source root does not exist: {root}")
+        if not data_root.is_dir():
+            raise FileNotFoundError(f"Prepared source root does not exist: {data_root}")
 
         source_count = 0
         for organ_dir in sorted(path for path in root.iterdir() if path.is_dir()):
@@ -185,20 +192,38 @@ def discover_cases(config: dict[str, Any]) -> list[Case]:
                     continue
                 for scanner_dir in sorted(path for path in center_dir.iterdir() if path.is_dir()):
                     for patient_dir in sorted(path for path in scanner_dir.iterdir() if path.is_dir()):
-                        missing = [name for name in required_files if not (patient_dir / name).is_file()]
+                        relative_patient = patient_dir.relative_to(root)
+                        data_patient_dir = data_root / relative_patient
+                        if not data_patient_dir.is_dir():
+                            if _invalid_case(
+                                f"Prepared patient directory is missing: {data_patient_dir}",
+                                invalid_policy,
+                            ):
+                                continue
+                        missing = [
+                            name
+                            for name in required_files
+                            if not (data_patient_dir / name).is_file()
+                        ]
                         if missing:
                             if _invalid_case(
-                                f"{patient_dir} is missing required files: {missing}", invalid_policy
+                                f"{data_patient_dir} is missing required files: {missing}",
+                                invalid_policy,
                             ):
                                 continue
 
                         available: list[int] = []
                         for acceleration in acceleration_values:
-                            input_path = patient_dir / input_pattern.format(acceleration=acceleration)
-                            mask_path = patient_dir / mask_pattern.format(acceleration=acceleration)
+                            input_path = data_patient_dir / input_pattern.format(
+                                acceleration=acceleration
+                            )
+                            mask_path = data_patient_dir / mask_pattern.format(
+                                acceleration=acceleration
+                            )
                             if input_path.is_file() != mask_path.is_file():
                                 if _invalid_case(
-                                    f"{patient_dir} has an incomplete acceleration {acceleration} pair",
+                                    f"{data_patient_dir} has an incomplete acceleration "
+                                    f"{acceleration} pair",
                                     invalid_policy,
                                 ):
                                     available = []
@@ -207,7 +232,7 @@ def discover_cases(config: dict[str, Any]) -> list[Case]:
                                 available.append(acceleration)
                         if len(available) < minimum_available:
                             if _invalid_case(
-                                f"{patient_dir} has {len(available)} acceleration pairs; "
+                                f"{data_patient_dir} has {len(available)} acceleration pairs; "
                                 f"minimum_available={minimum_available}",
                                 invalid_policy,
                             ):
@@ -222,7 +247,8 @@ def discover_cases(config: dict[str, Any]) -> list[Case]:
                             scanner_dir.name,
                             patient_dir.name,
                         )
-                        source_path = str(patient_dir.resolve())
+                        source_path = str(data_patient_dir.resolve())
+                        raw_origin_path = str(patient_dir.resolve())
                         if uid in seen_uids:
                             raise ValueError(f"Duplicate case UID: {uid}")
                         if source_path in seen_sources:
@@ -231,7 +257,7 @@ def discover_cases(config: dict[str, Any]) -> list[Case]:
                         files_present = tuple(
                             name
                             for name in (*required_files, *optional_files)
-                            if (patient_dir / name).is_file()
+                            if (data_patient_dir / name).is_file()
                         )
                         cases.append(
                             Case(
@@ -239,10 +265,12 @@ def discover_cases(config: dict[str, Any]) -> list[Case]:
                                 source_task=task,
                                 source_split=source_split,
                                 source_root=str(root),
+                                data_root=str(data_root),
                                 organ=organ_dir.name,
                                 center=center_dir.name,
                                 scanner=scanner_dir.name,
                                 patient=patient_dir.name,
+                                raw_origin_path=raw_origin_path,
                                 source_path=source_path,
                                 available_accelerations=available_tuple,
                                 acceleration_profile=_acceleration_profile(
@@ -519,6 +547,11 @@ def build_outputs(
         split = assignment[case.uid]
         record["split"] = split
         record["destination"] = str(_destination_for(case, split, output_root))
+        record["materialized_files"] = sorted(
+            path.name
+            for path in Path(case.source_path).iterdir()
+            if not path.name.startswith(".") and path.is_file()
+        )
         records.append(record)
 
     dimensions = (
@@ -599,6 +632,7 @@ def write_outputs(
         "source_split",
         "acceleration_profile",
         "available_accelerations",
+        "raw_origin_path",
         "source_path",
         "destination",
     ]
@@ -614,39 +648,60 @@ def write_outputs(
     os.replace(temporary, csv_path)
 
 
-def materialize_symlinks(plan: dict[str, Any]) -> tuple[int, int]:
-    created = 0
-    existing = 0
+def materialize_file_symlinks(plan: dict[str, Any]) -> tuple[int, int, int]:
+    directories_created = 0
+    links_created = 0
+    links_existing = 0
     for record in plan["cases"]:
         source = Path(record["source_path"])
         destination = Path(record["destination"])
         if not source.is_dir():
             raise FileNotFoundError(f"Source patient disappeared before apply: {source}")
-        destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.is_symlink():
-            if destination.resolve() != source.resolve():
-                raise FileExistsError(
-                    f"Existing symlink points to a different patient: {destination}"
-                )
-            existing += 1
-            continue
-        if destination.exists():
+            raise FileExistsError(
+                f"Expected a real output patient directory, found a symlink: {destination}"
+            )
+        if destination.exists() and not destination.is_dir():
             raise FileExistsError(f"Refusing to replace existing path: {destination}")
-        destination.symlink_to(source, target_is_directory=True)
-        created += 1
-    return created, existing
+        if not destination.exists():
+            destination.mkdir(parents=True)
+            directories_created += 1
+
+        for filename in record["materialized_files"]:
+            source_file = source / filename
+            destination_file = destination / filename
+            if not source_file.is_file():
+                raise FileNotFoundError(f"Source file disappeared before apply: {source_file}")
+            if destination_file.is_symlink():
+                if destination_file.resolve() != source_file.resolve():
+                    raise FileExistsError(
+                        f"Existing link points to a different source: {destination_file}"
+                    )
+                links_existing += 1
+                continue
+            if destination_file.exists():
+                raise FileExistsError(
+                    f"Refusing to replace existing output file: {destination_file}"
+                )
+            destination_file.symlink_to(source_file)
+            links_created += 1
+    return directories_created, links_created, links_existing
 
 
 def main() -> None:
     cli = parse_args()
     config = _load_json(cli.config)
-    source_roots = [Path(source["root"]) for source in config["sources"]]
+    source_roots = [
+        Path(path)
+        for source in config["sources"]
+        for path in (source["root"], source.get("prepared_root", source["root"]))
+    ]
     configured_output = cli.output_root or Path(config["output_root"])
     output_root = assert_outputs_not_in_data([configured_output], source_roots)[0]
 
     materialization = config.get("materialization", {})
-    if str(materialization.get("mode", "symlink")).lower() != "symlink":
-        raise ValueError("Only materialization.mode='symlink' is supported")
+    if str(materialization.get("mode", "file_symlink")).lower() != "file_symlink":
+        raise ValueError("Only materialization.mode='file_symlink' is supported")
 
     cases = discover_cases(config)
     assignment, capacities, primary_quotas, objective = assign_splits(cases, config)
@@ -665,8 +720,11 @@ def main() -> None:
     print(f"Planned {len(cases)} patients: {capacities}")
     print(f"Split plan: {output_root / 'split_manifest.json'}")
     if cli.apply:
-        created, existing = materialize_symlinks(plan)
-        print(f"Symlinks created={created}, already_correct={existing}")
+        directories, links, existing = materialize_file_symlinks(plan)
+        print(
+            f"Patient directories created={directories}, file links created={links}, "
+            f"already_correct={existing}"
+        )
     else:
         print("Plan-only mode: no patient symlinks were created. Use --apply to materialize.")
 
