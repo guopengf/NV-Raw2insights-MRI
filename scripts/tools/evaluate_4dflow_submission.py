@@ -163,7 +163,25 @@ def load_segmask(load_mat_array_fn, path: Path) -> np.ndarray:
 
 
 def load_dense(load_coo_npz, path: Path) -> np.ndarray:
+    if path.suffix == ".npy":
+        return as_float32_if_real(np.load(path, mmap_mode=None, allow_pickle=False))
     return as_float32_if_real(load_coo_npz(str(path), as_dense=True))
+
+
+def load_venc(path: Path) -> np.ndarray:
+    """Read the three semicolon-separated VENC values from params.csv."""
+
+    with open(path, newline="") as stream:
+        row = next(csv.DictReader(stream), None)
+    if row is None or not row.get("VENC"):
+        raise ValueError(f"Missing VENC in {path}")
+    venc = np.asarray(
+        [float(value.strip()) for value in row["VENC"].split(";") if value.strip()],
+        dtype=np.float32,
+    )
+    if venc.shape != (3,):
+        raise ValueError(f"Expected three VENC values in {path}, got {venc.tolist()}")
+    return venc
 
 
 def corrmap_path_for(gt_case_dir: Path, cache_dir: Path | None) -> Path:
@@ -210,6 +228,8 @@ def evaluate_arrays(
     *,
     corr_maps: np.ndarray | None = None,
     include_complex_diff: bool = False,
+    spatial_mode: str = "bbox",
+    venc: np.ndarray | None = None,
 ):
     """Evaluate dense arrays with the same crop/conversion/metrics as submission evaluation."""
 
@@ -226,11 +246,14 @@ def evaluate_arrays(
         raise ValueError("Official flow metrics require a non-empty segmentation mask")
 
     corr_maps = compute_corrmap(funcs, gt, segmask) if corr_maps is None else np.asarray(corr_maps)
-    gt, pred, segmask, corr_maps = crop_to_seg_bbox(gt, pred, segmask, corr_maps)
+    if spatial_mode == "bbox":
+        gt, pred, segmask, corr_maps = crop_to_seg_bbox(gt, pred, segmask, corr_maps)
+    elif spatial_mode != "full":
+        raise ValueError(f"Unknown spatial_mode={spatial_mode!r}")
     gt_c, pred_c = phase_correct(gt, pred, corr_maps)
 
-    mag_gt, flow_gt = funcs["complex2magflow"](gt_c)
-    mag_pred, flow_pred = funcs["complex2magflow"](pred_c)
+    mag_gt, flow_gt = funcs["complex2magflow"](gt_c, venc=venc)
+    mag_pred, flow_pred = funcs["complex2magflow"](pred_c, venc=venc)
     mag_gt = as_float32_if_real(mag_gt)
     mag_pred = as_float32_if_real(mag_pred)
     flow_gt = as_float32_if_real(flow_gt)
@@ -248,7 +271,16 @@ def evaluate_arrays(
     return row
 
 
-def evaluate_one(funcs: dict, pred_path: Path, gt_path: Path, seg_path: Path, cache_dir: Path | None, include_complex_diff: bool):
+def evaluate_one(
+    funcs: dict,
+    pred_path: Path,
+    gt_path: Path,
+    seg_path: Path,
+    cache_dir: Path | None,
+    include_complex_diff: bool,
+    spatial_mode: str,
+    venc: np.ndarray | None,
+):
     gt = load_dense(funcs["load_coo_npz"], gt_path)
     pred = load_dense(funcs["load_coo_npz"], pred_path)
     segmask = load_segmask(funcs["load_mat_array"], seg_path)
@@ -260,11 +292,34 @@ def evaluate_one(funcs: dict, pred_path: Path, gt_path: Path, seg_path: Path, ca
         segmask,
         corr_maps=corr,
         include_complex_diff=include_complex_diff,
+        spatial_mode=spatial_mode,
+        venc=venc,
     )
 
 
 def mean_or_nan(values: list[float]) -> float:
     return float(np.mean(values)) if values else float("nan")
+
+
+def summarize_rows(rows: list[dict], metric_keys: list[str], group_keys: tuple[str, ...] = ()) -> dict:
+    valid = [row for row in rows if not row.get("comments")]
+    if not group_keys:
+        return {
+            key: mean_or_nan(
+                [float(row[key]) for row in valid if key in row and np.isfinite(float(row[key]))]
+            )
+            for key in metric_keys
+        }
+    groups: dict[tuple[str, ...], list[dict]] = {}
+    for row in valid:
+        groups.setdefault(tuple(str(row[key]) for key in group_keys), []).append(row)
+    return {
+        "/".join(group): {
+            "count": len(group_rows),
+            "metrics_mean": summarize_rows(group_rows, metric_keys),
+        }
+        for group, group_rows in sorted(groups.items())
+    }
 
 
 def main() -> None:
@@ -278,6 +333,17 @@ def main() -> None:
     parser.add_argument("--out-json", type=Path, default=None)
     parser.add_argument("--task", type=str, default=None, help="Optional task filter, e.g. TaskR1R2")
     parser.add_argument("--include-complex-diff", action="store_true")
+    parser.add_argument(
+        "--spatial-mode",
+        choices=("bbox", "full"),
+        default="bbox",
+        help="bbox preserves the historical wrapper behavior; full matches official BatchEval.py.",
+    )
+    parser.add_argument(
+        "--use-venc",
+        action="store_true",
+        help="Scale phase to velocity with params.csv VENC values, as in the organizer notebook.",
+    )
     parser.add_argument("--cache-dir", type=Path, default=None, help="Optional corrmap cache directory. Default writes beside GT, matching official code.")
     parser.add_argument("--skip-errors", action="store_true", help="Keep going and record error comments instead of failing.")
     args = parser.parse_args()
@@ -301,8 +367,11 @@ def main() -> None:
         if match is None:
             continue
         gt_case_dir = gt_root / rel.parent
-        gt_path = gt_case_dir / "img_gt.npz"
+        gt_path = gt_case_dir / "img_gt.npy"
+        if not gt_path.exists():
+            gt_path = gt_case_dir / "img_gt.npz"
         seg_path = gt_case_dir / "segmask.mat"
+        params_path = gt_case_dir / "params.csv"
 
         row = {
             "rel_path": str(rel),
@@ -321,7 +390,19 @@ def main() -> None:
                 raise FileNotFoundError(f"missing GT: {gt_path}")
             if not seg_path.exists():
                 raise FileNotFoundError(f"missing segmask: {seg_path}")
-            row.update(evaluate_one(funcs, pred_path, gt_path, seg_path, args.cache_dir, args.include_complex_diff))
+            venc = load_venc(params_path) if args.use_venc else None
+            row.update(
+                evaluate_one(
+                    funcs,
+                    pred_path,
+                    gt_path,
+                    seg_path,
+                    args.cache_dir,
+                    args.include_complex_diff,
+                    args.spatial_mode,
+                    venc,
+                )
+            )
         except Exception as exc:
             if not args.skip_errors:
                 raise
@@ -342,10 +423,16 @@ def main() -> None:
     summary = {
         "num_valid": len(valid),
         "num_total": len(rows),
-        "metrics_mean": {
-            key: mean_or_nan([float(r[key]) for r in valid if key in r and np.isfinite(float(r[key]))])
-            for key in metric_keys
+        "configuration": {
+            "spatial_mode": args.spatial_mode,
+            "use_venc": bool(args.use_venc),
+            "include_complex_diff": bool(args.include_complex_diff),
         },
+        "metrics_mean": summarize_rows(rows, metric_keys),
+        "by_task": summarize_rows(rows, metric_keys, ("task",)),
+        "by_task_center": summarize_rows(rows, metric_keys, ("task", "center")),
+        "by_task_anatomy": summarize_rows(rows, metric_keys, ("task", "anatomy")),
+        "by_task_acceleration": summarize_rows(rows, metric_keys, ("task", "R")),
     }
     if args.out_json is None:
         args.out_json = args.out_csv.with_suffix(".summary.json")
