@@ -277,6 +277,7 @@ def evaluate_one(
     gt_path: Path,
     seg_path: Path,
     cache_dir: Path | None,
+    corrmap_path: Path | None,
     include_complex_diff: bool,
     spatial_mode: str,
     venc: np.ndarray | None,
@@ -284,7 +285,12 @@ def evaluate_one(
     gt = load_dense(funcs["load_coo_npz"], gt_path)
     pred = load_dense(funcs["load_coo_npz"], pred_path)
     segmask = load_segmask(funcs["load_mat_array"], seg_path)
-    corr = get_corrmap(funcs, gt, segmask, gt_path.parent, cache_dir)
+    if corrmap_path is None:
+        corr = get_corrmap(funcs, gt, segmask, gt_path.parent, cache_dir)
+    else:
+        if not corrmap_path.exists():
+            raise FileNotFoundError(f"missing supplied corrmap: {corrmap_path}")
+        corr = load_dense(funcs["load_coo_npz"], corrmap_path)
     return evaluate_arrays(
         funcs,
         pred,
@@ -344,13 +350,32 @@ def main() -> None:
         action="store_true",
         help="Scale phase to velocity with params.csv VENC values, as in the organizer notebook.",
     )
-    parser.add_argument("--cache-dir", type=Path, default=None, help="Optional corrmap cache directory. Default writes beside GT, matching official code.")
+    parser.add_argument("--cache-dir", type=Path, default=None, help="Optional generated corrmap cache directory. Default writes beside GT, matching official code.")
+    parser.add_argument(
+        "--corrmap-root",
+        type=Path,
+        default=None,
+        help=(
+            "Read precomputed organizer corrmap.npz files from matching "
+            "Task*/Set/Anatomy/Center/Vendor/Patient paths. Missing files fail."
+        ),
+    )
     parser.add_argument("--skip-errors", action="store_true", help="Keep going and record error comments instead of failing.")
     args = parser.parse_args()
+
+    if args.cache_dir is not None and args.corrmap_root is not None:
+        parser.error("--cache-dir and --corrmap-root are mutually exclusive")
 
     funcs = import_official_eval(args.eval_code_dir)
     submission_root = args.submission_root.expanduser().resolve(strict=False)
     gt_root = args.gt_root.expanduser().resolve(strict=False)
+    corrmap_root = (
+        args.corrmap_root.expanduser().resolve(strict=False)
+        if args.corrmap_root is not None
+        else None
+    )
+    if corrmap_root is not None and not corrmap_root.is_dir():
+        raise FileNotFoundError(f"corrmap root does not exist: {corrmap_root}")
 
     pred_files = sorted(submission_root.rglob("img_ktGaussian*.npz"))
     if not pred_files:
@@ -372,6 +397,7 @@ def main() -> None:
             gt_path = gt_case_dir / "img_gt.npz"
         seg_path = gt_case_dir / "segmask.mat"
         params_path = gt_case_dir / "params.csv"
+        corrmap_path = corrmap_root / rel.parent / "corrmap.npz" if corrmap_root is not None else None
 
         row = {
             "rel_path": str(rel),
@@ -398,6 +424,7 @@ def main() -> None:
                     gt_path,
                     seg_path,
                     args.cache_dir,
+                    corrmap_path,
                     args.include_complex_diff,
                     args.spatial_mode,
                     venc,
@@ -427,6 +454,8 @@ def main() -> None:
             "spatial_mode": args.spatial_mode,
             "use_venc": bool(args.use_venc),
             "include_complex_diff": bool(args.include_complex_diff),
+            "corrmap_source": "supplied" if corrmap_root is not None else "generated_or_cached",
+            "corrmap_root": str(corrmap_root) if corrmap_root is not None else None,
         },
         "metrics_mean": summarize_rows(rows, metric_keys),
         "by_task": summarize_rows(rows, metric_keys, ("task",)),
