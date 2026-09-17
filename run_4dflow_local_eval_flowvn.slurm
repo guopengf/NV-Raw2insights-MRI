@@ -20,7 +20,7 @@ DATASET_ROOT=/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_monai/d
 PY=/root/miniconda3/envs/nv-raw2insights-mri/bin/python
 
 test -f "$RUN_ROOT/metrics/epoch900_parity_receipt.json"
-test -f "$RUN_ROOT/metrics/epoch960.csv"
+test -f "$RUN_ROOT/metrics/epoch960_official_full.csv"
 mkdir -p "$RUN_ROOT/flowvn/TaskR1R2/ValidationSet" "$RUN_ROOT/logs"
 
 srun \
@@ -34,6 +34,7 @@ srun \
         export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 PYTHONUNBUFFERED=1
         RUN=/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/local_leaderboard_eval/joint_venc_epoch960_20260916T210353Z
         OFFICIAL=\"\$RUN/official/CMRx4DFlow2026/CMRx4DFlowReconDemo\"
+        '$PY' -c 'import json; p=json.load(open(\"/workspace/code/NV-Raw2insights-MRI-fork/outputs/4dflow/local_leaderboard_eval/joint_venc_epoch960_20260916T210353Z/metrics/epoch900_parity_receipt.json\")); assert p[\"status\"] == \"passed\", p'
         cd \"\$OFFICIAL/ForEvalution\"
         '$PY' -c 'import torch, pytorch_lightning; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))'
         '$PY' BatchRecon_FlowVN.py \
@@ -48,7 +49,7 @@ srun \
         '$PY' scripts/tools/evaluate_4dflow_submission.py \
             --submission-root \"\$RUN/flowvn\" \
             --gt-root \"\$RUN/gt\" \
-            --eval-code-dir \"\$RUN/official/CMRx4DFlow2026/CMRx4DFlowReconDemo/Utils\" \
+            --eval-code-dir \"\$RUN/official/CMRx-evaluation-snippets/evaluation-2026\" \
             --cache-dir \"\$RUN/corrmaps\" \
             --task TaskR1R2 \
             --spatial-mode full \
@@ -56,7 +57,7 @@ srun \
             --out-csv \"\$RUN/metrics/flowvn_r2.csv\" \
             --out-json \"\$RUN/metrics/flowvn_r2.summary.json\"
         '$PY' scripts/tools/compare_4dflow_flowvn_baseline.py \
-            --submission-csv \"\$RUN/metrics/epoch960.csv\" \
+            --submission-csv \"\$RUN/metrics/epoch960_official_full.csv\" \
             --flowvn-csv \"\$RUN/metrics/flowvn_r2.csv\" \
             --out-csv \"\$RUN/metrics/epoch960_r2_vs_flowvn.csv\" \
             --out-json \"\$RUN/metrics/epoch960_r2_vs_flowvn.summary.json\"
