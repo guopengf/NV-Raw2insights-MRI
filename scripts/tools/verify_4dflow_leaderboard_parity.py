@@ -47,7 +47,24 @@ def main() -> None:
             "always retained in the receipt for auditability."
         ),
     )
+    parser.add_argument(
+        "--expected-json",
+        type=Path,
+        help=(
+            "Optional JSON containing 'expected' task metrics and, optionally, "
+            "'synapse_rows'. Defaults to the built-in epoch-900 leaderboard anchor."
+        ),
+    )
     args = parser.parse_args()
+
+    expected = EXPECTED
+    synapse_rows = SYNAPSE_ROWS
+    if args.expected_json is not None:
+        payload = json.loads(args.expected_json.read_text())
+        expected = payload.get("expected", payload)
+        synapse_rows = payload.get("synapse_rows", {})
+    if not expected:
+        raise ValueError("Expected metrics cannot be empty")
 
     variants = []
     for path in args.summaries:
@@ -55,14 +72,14 @@ def main() -> None:
         differences = {}
         all_abs = []
         required_abs = []
-        for task, expected_metrics in EXPECTED.items():
+        for task, expected_metrics in expected.items():
             observed = task_means(summary, task)
             differences[task] = {}
-            for metric, expected in expected_metrics.items():
-                delta = float(observed[metric]) - expected
+            for metric, expected_value in expected_metrics.items():
+                delta = float(observed[metric]) - expected_value
                 differences[task][metric] = {
                     "observed": float(observed[metric]),
-                    "expected": expected,
+                    "expected": expected_value,
                     "delta": delta,
                     "abs_delta": abs(delta),
                 }
@@ -97,8 +114,8 @@ def main() -> None:
         "required_metrics": list(args.required_metrics),
         "selected_summary": selected["summary"] if passed else None,
         "selected_configuration": selected["configuration"] if passed else None,
-        "expected": EXPECTED,
-        "synapse_rows": SYNAPSE_ROWS,
+        "expected": expected,
+        "synapse_rows": synapse_rows,
         "variants": variants,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)

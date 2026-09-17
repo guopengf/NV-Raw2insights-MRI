@@ -1,0 +1,44 @@
+{
+  "expected": {
+    "TaskR1R2": {
+      "AngErr": 30.669880,
+      "RelErr": 0.317796,
+      "SSIM": 0.948082,
+      "nRMSE": 0.045877
+    },
+    "TaskS1": {
+      "AngErr": 30.772611,
+      "RelErr": 0.489578,
+      "SSIM": 0.954764,
+      "nRMSE": 0.079325
+    },
+    "TaskS2": {
+      "AngErr": 41.936201,
+      "RelErr": 0.522326,
+      "SSIM": 0.944104,
+      "nRMSE": 0.070323
+    }
+  },
+  "synapse_rows": {
+    "TaskR1R2": {
+      "row_id": 9777501,
+      "entity_id": "syn77021489",
+      "name": "TaskR1R2_ValidationSet_small_jc_e960.zip",
+      "table_id": "syn74303580"
+    },
+    "TaskS1": {
+      "row_id": 9777503,
+      "entity_id": "syn77021468",
+      "name": "TaskS1_ValidationSet_small_jc_e960.zip",
+      "table_id": "syn74303875"
+    },
+    "TaskS2": {
+      "row_id": 9777505,
+      "entity_id": "syn77021485",
+      "name": "TaskS2_ValidationSet_small_jc_e960.zip",
+      "table_id": "syn74307283"
+    }
+  },
+  "source": "https://www.synapse.org/Synapse:syn64545434/wiki/639667",
+  "queried_at": "2026-09-16"
+}
