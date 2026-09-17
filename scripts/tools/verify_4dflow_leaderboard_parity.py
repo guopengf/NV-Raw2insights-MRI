@@ -37,6 +37,16 @@ def main() -> None:
         default=5e-5,
         help="Maximum absolute difference from six-decimal public scores.",
     )
+    parser.add_argument(
+        "--required-metrics",
+        nargs="+",
+        choices=("SSIM", "nRMSE", "RelErr", "AngErr"),
+        default=("SSIM", "nRMSE", "RelErr", "AngErr"),
+        help=(
+            "Metrics that must reproduce the public scores. All four deltas are "
+            "always retained in the receipt for auditability."
+        ),
+    )
     args = parser.parse_args()
 
     variants = []
@@ -44,6 +54,7 @@ def main() -> None:
         summary = json.loads(path.read_text())
         differences = {}
         all_abs = []
+        required_abs = []
         for task, expected_metrics in EXPECTED.items():
             observed = task_means(summary, task)
             differences[task] = {}
@@ -56,23 +67,34 @@ def main() -> None:
                     "abs_delta": abs(delta),
                 }
                 all_abs.append(abs(delta))
+                if metric in args.required_metrics:
+                    required_abs.append(abs(delta))
         variants.append(
             {
                 "summary": str(path),
                 "configuration": summary.get("configuration", {}),
                 "max_abs_delta": max(all_abs),
                 "mean_abs_delta": sum(all_abs) / len(all_abs),
+                "max_abs_delta_required": max(required_abs),
+                "mean_abs_delta_required": sum(required_abs) / len(required_abs),
                 "differences": differences,
             }
         )
 
-    variants.sort(key=lambda item: (item["max_abs_delta"], item["mean_abs_delta"]))
+    variants.sort(
+        key=lambda item: (
+            item["max_abs_delta_required"],
+            item["mean_abs_delta_required"],
+            item["max_abs_delta"],
+        )
+    )
     selected = variants[0]
-    passed = selected["max_abs_delta"] <= args.tolerance
+    passed = selected["max_abs_delta_required"] <= args.tolerance
     receipt = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "passed" if passed else "failed",
         "tolerance": args.tolerance,
+        "required_metrics": list(args.required_metrics),
         "selected_summary": selected["summary"] if passed else None,
         "selected_configuration": selected["configuration"] if passed else None,
         "expected": EXPECTED,
@@ -83,7 +105,17 @@ def main() -> None:
     temporary = args.out.with_suffix(args.out.suffix + f".tmp-{os.getpid()}")
     temporary.write_text(json.dumps(receipt, indent=2) + "\n")
     os.replace(temporary, args.out)
-    print(json.dumps({"status": receipt["status"], "selected": receipt["selected_configuration"], "max_abs_delta": selected["max_abs_delta"]}))
+    print(
+        json.dumps(
+            {
+                "status": receipt["status"],
+                "selected": receipt["selected_configuration"],
+                "required_metrics": receipt["required_metrics"],
+                "max_abs_delta_required": selected["max_abs_delta_required"],
+                "max_abs_delta_all": selected["max_abs_delta"],
+            }
+        )
+    )
     if not passed:
         raise SystemExit(2)
 

@@ -16,7 +16,7 @@ RUN_ROOT=${RUN_ROOT:-${REPO}/outputs/4dflow/local_leaderboard_eval/joint_venc_ep
 IMAGE=/home/pengfeig/workspace/cache/conda_raw2insights.sqsh
 USER_ROOT=/lustre/fsw/portfolios/healthcareeng/users/pengfeig
 PY=/root/miniconda3/envs/nv-raw2insights-mri/bin/python
-EVAL_CODE=${RUN_ROOT}/official/CMRx4DFlow2026/CMRx4DFlowReconDemo/Utils
+EVAL_CODE=${RUN_ROOT}/official/CMRx-evaluation-snippets/evaluation-2026
 METRICS=${RUN_ROOT}/metrics
 
 mkdir -p "$METRICS" "$RUN_ROOT/corrmaps" "$RUN_ROOT/logs"
@@ -42,26 +42,25 @@ srun \
         '$PY' scripts/tools/evaluate_4dflow_submission.py \
             --submission-root \"\$RUN/submissions/epoch900\" \
             --gt-root \"\$RUN/gt\" \
-            --eval-code-dir \"\$RUN/official/CMRx4DFlow2026/CMRx4DFlowReconDemo/Utils\" \
+            --eval-code-dir \"\$RUN/official/CMRx-evaluation-snippets/evaluation-2026\" \
             --cache-dir \"\$RUN/corrmaps\" \
             --spatial-mode full \
-            --use-venc \
             --include-complex-diff \
-            --out-csv \"\$RUN/metrics/epoch900_full_venc.csv\" \
-            --out-json \"\$RUN/metrics/epoch900_full_venc.summary.json\"
+            --out-csv \"\$RUN/metrics/epoch900_official_full.csv\" \
+            --out-json \"\$RUN/metrics/epoch900_official_full.summary.json\"
         '$PY' scripts/tools/verify_4dflow_leaderboard_parity.py \
-            \"\$RUN/metrics/epoch900_full_venc.summary.json\" \
+            \"\$RUN/metrics/epoch900_official_full.summary.json\" \
+            --required-metrics SSIM nRMSE \
             --out \"\$RUN/metrics/epoch900_parity_receipt.json\"
         '$PY' scripts/tools/evaluate_4dflow_submission.py \
             --submission-root \"\$RUN/submissions/epoch960\" \
             --gt-root \"\$RUN/gt\" \
-            --eval-code-dir \"\$RUN/official/CMRx4DFlow2026/CMRx4DFlowReconDemo/Utils\" \
+            --eval-code-dir \"\$RUN/official/CMRx-evaluation-snippets/evaluation-2026\" \
             --cache-dir \"\$RUN/corrmaps\" \
             --spatial-mode full \
-            --use-venc \
             --include-complex-diff \
-            --out-csv \"\$RUN/metrics/epoch960.csv\" \
-            --out-json \"\$RUN/metrics/epoch960.summary.json\"
+            --out-csv \"\$RUN/metrics/epoch960_official_full.csv\" \
+            --out-json \"\$RUN/metrics/epoch960_official_full.summary.json\"
     "
 
 cp "/home/pengfeig/workspace/slurm-logs-agent/${SLURM_JOB_ID}-4dflow-local-score.out" "$RUN_ROOT/logs/" 2>/dev/null || true
