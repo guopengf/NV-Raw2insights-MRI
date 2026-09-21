@@ -51,6 +51,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plan-out", type=Path)
     parser.add_argument("--num-shards", type=int, default=10)
     parser.add_argument("--shard-index", type=int)
+    parser.add_argument(
+        "--data-split",
+        choices=("train", "val", "both"),
+        default="both",
+        help=(
+            "Select which configured data roots are converted. The default preserves "
+            "the historical train+val behavior; production training caches should use train."
+        ),
+    )
     parser.add_argument("--expected-patients", type=int, default=0)
     parser.add_argument("--forbid-path", type=Path, action="append", default=[])
     parser.add_argument("--limit-patients", type=int, default=0)
@@ -389,18 +398,23 @@ def finalize_conversion_plan(
 
 
 def _discover_from_config(
-    config_path: Path, limit_patients: int
+    config_path: Path, limit_patients: int, data_split: str = "both"
 ) -> tuple[Any, list[dict[str, Any]]]:
     config = load_config(config_path)
     if config is None:
         raise RuntimeError(f"Could not load config: {config_path}")
-    roots = list(dict.fromkeys([*config.data_path_train, *config.data_path_val]))
+    split_roots = {
+        "train": list(config.data_path_train),
+        "val": list(config.data_path_val),
+        "both": [*config.data_path_train, *config.data_path_val],
+    }
+    roots = list(dict.fromkeys(split_roots[data_split]))
     accelerations = [int(value) for value in config.four_dflow_accelerations]
     patients = discover_4dflow_patients(roots, accelerations)
     if limit_patients > 0:
         patients = patients[:limit_patients]
     if not patients:
-        raise RuntimeError("No fully populated 4D-flow patients were discovered")
+        raise RuntimeError(f"No 4D-flow patients were discovered for data split {data_split!r}")
     return config, patients
 
 
@@ -430,7 +444,9 @@ def _run_verify_only(cli: argparse.Namespace) -> None:
 def _run_sequential(cli: argparse.Namespace) -> None:
     config_path = _require(cli.config, "--config is required")
     output_root = _require(cli.e1_output_root, "--e1-output-root is required")
-    config, patients = _discover_from_config(config_path, cli.limit_patients)
+    config, patients = _discover_from_config(
+        config_path, cli.limit_patients, data_split=cli.data_split
+    )
     _check_expected_patient_count(len(patients), cli.expected_patients)
     _check_forbidden_paths(cli.forbid_path)
 
@@ -493,7 +509,9 @@ def main() -> None:
         )
         plan_out = _require(cli.plan_out, "--plan-out is required with --prepare-plan")
         _check_forbidden_paths(cli.forbid_path)
-        _, patients = _discover_from_config(config_path, cli.limit_patients)
+        _, patients = _discover_from_config(
+            config_path, cli.limit_patients, data_split=cli.data_split
+        )
         plan = build_conversion_plan_payload(
             config_path=config_path,
             output_root=output_root,

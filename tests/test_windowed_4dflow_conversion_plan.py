@@ -16,6 +16,7 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 sys.path.insert(0, str(TOOLS_ROOT))
 
 from build_4dflow_windowed_h5 import (
+    _discover_from_config,
     build_conversion_plan_payload,
     finalize_conversion_plan,
     load_conversion_plan,
@@ -86,6 +87,35 @@ def _synthetic_patient(root: Path) -> dict:
         "coilmap_path": coilmap_path,
         "segmask_path": None,
     }
+
+
+def test_discovery_can_be_restricted_to_the_training_split(tmp_path):
+    train_root = tmp_path / "train"
+    val_root = tmp_path / "val"
+    _fake_patient(train_root, 1, 101)
+    _fake_patient(val_root, 2, 102)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "data_path_train": [str(train_root)],
+                "data_path_val": [str(val_root)],
+                "four_dflow_accelerations": [10, 20],
+            }
+        )
+    )
+
+    _, train_patients = _discover_from_config(config_path, 0, data_split="train")
+    _, val_patients = _discover_from_config(config_path, 0, data_split="val")
+    _, all_patients = _discover_from_config(config_path, 0, data_split="both")
+
+    assert [patient["patient_key"] for patient in train_patients] == [
+        "Center001/ScannerA/P001"
+    ]
+    assert [patient["patient_key"] for patient in val_patients] == [
+        "Center001/ScannerA/P002"
+    ]
+    assert len(all_patients) == 2
 
 
 def test_ten_shard_plan_is_deterministic_complete_and_balanced(tmp_path):

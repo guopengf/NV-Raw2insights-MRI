@@ -34,6 +34,7 @@ from windowed_4dflow import (
     build_windowed_4dflow_manifests,
     convert_patient_to_windowed_hdf5,
     convert_patient_to_windowed_hdf5_profiles,
+    discover_4dflow_patients,
     rebuild_windowed_index,
     validate_patient_store,
     validate_windowed_profile_pair,
@@ -137,6 +138,29 @@ def _convert_and_manifest(tmp_path: Path, *, joint: bool):
     return source, store_path, index, manifests
 
 
+def test_discovery_accepts_partial_acceleration_profiles(tmp_path):
+    source = _write_synthetic_patient(tmp_path / "raw")
+    patients = discover_4dflow_patients([source["root"]], [10, 20])
+
+    assert len(patients) == 1
+    assert patients[0]["patient_key"] == "Center001/ScannerA/P001"
+    assert set(patients[0]["inputs"]) == {10}
+    assert set(patients[0]["masks"]) == {10}
+
+
+def test_discovery_rejects_incomplete_acceleration_pairs(tmp_path):
+    source = _write_synthetic_patient(tmp_path / "raw")
+    patient_root = source["target_path"].parent
+    (patient_root / "kdata_ktGaussian20.mat").touch()
+
+    try:
+        discover_4dflow_patients([source["root"]], [10, 20])
+    except ValueError as error:
+        assert "Incomplete acceleration 20 pair" in str(error)
+    else:
+        raise AssertionError("Expected an incomplete acceleration pair to be rejected")
+
+
 def test_build_window_indices_wraps_time_and_clamps_slices():
     result = build_window_indices(
         [0, 17], total_frames=3, total_slices=6, num_frames=3, num_slices=3
@@ -164,6 +188,7 @@ def test_windowed_backend_is_opt_in_for_joint_and_legacy_configs():
         "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_windowed_h5_pg.json",
         "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_batch_windowed_h5_pg.json",
         "nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_joint_channel_pg.json",
+        "nv_raw2insights_mri_small_4dflow_3d_flowvn_joint_venc_batch_flow_unified_70_15_15.json",
     )
     for name in opt_in_names:
         config = load_config(REPO_ROOT / "configs" / name)

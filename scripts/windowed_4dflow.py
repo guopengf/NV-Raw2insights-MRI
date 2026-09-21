@@ -496,16 +496,25 @@ def discover_4dflow_patients(
                     target = patient_dir / "kdata_full.mat"
                     if not target.exists():
                         continue
-                    inputs = {
-                        int(acceleration): patient_dir / f"kdata_ktGaussian{int(acceleration)}.mat"
-                        for acceleration in accelerations
-                    }
-                    masks = {
-                        int(acceleration): patient_dir / f"usmask_ktGaussian{int(acceleration)}.mat"
-                        for acceleration in accelerations
-                    }
-                    missing = [str(path) for path in [*inputs.values(), *masks.values()] if not path.exists()]
-                    if missing:
+                    inputs = {}
+                    masks = {}
+                    for acceleration_value in accelerations:
+                        acceleration = int(acceleration_value)
+                        input_path = patient_dir / f"kdata_ktGaussian{acceleration}.mat"
+                        mask_path = patient_dir / f"usmask_ktGaussian{acceleration}.mat"
+                        input_exists = input_path.exists()
+                        mask_exists = mask_path.exists()
+                        if input_exists != mask_exists:
+                            present = input_path if input_exists else mask_path
+                            missing = mask_path if input_exists else input_path
+                            raise ValueError(
+                                f"Incomplete acceleration {acceleration} pair in {patient_dir}: "
+                                f"present={present}, missing={missing}"
+                            )
+                        if input_exists:
+                            inputs[acceleration] = input_path
+                            masks[acceleration] = mask_path
+                    if not inputs:
                         continue
                     patients.append(
                         {
