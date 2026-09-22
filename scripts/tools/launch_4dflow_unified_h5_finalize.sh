@@ -37,7 +37,10 @@ for shard_index in 0 1 2 3 4 5 6 7; do
     test -s "$marker"
 done
 test ! -e "$HOST_CONTROL_ROOT/COMPLETED"
-test ! -e "$E1_HOST_ROOT/COMPLETED"
+if test -e "$E1_HOST_ROOT/COMPLETED"; then
+    test -s "$E1_HOST_ROOT/index.json"
+fi
+mkdir -p "$HOST_CONTROL_ROOT/validation"
 
 srun --export=ALL,NVIDIA_VISIBLE_DEVICES=void --kill-on-bad-exit=1 \
     --container-image "$IMAGE" \
@@ -50,12 +53,18 @@ srun --export=ALL,NVIDIA_VISIBLE_DEVICES=void --kill-on-bad-exit=1 \
         PY=/root/miniconda3/envs/nv-raw2insights-mri/bin/python
         export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONUNBUFFERED=1
 
-        \"\$PY\" scripts/tools/build_4dflow_windowed_h5.py \
-            --finalize-plan \
-            --plan '$PLAN' \
-            --deep-verify \
-            --expected-patients 292 \
-            | tee '$CONTROL_ROOT/finalize.log'
+        if test -e '$E1_ROOT/COMPLETED'; then
+            test -s '$E1_ROOT/index.json'
+            printf '%s\n' '{\"status\":\"reused_completed_finalization\"}' \
+                | tee -a '$CONTROL_ROOT/finalize.log'
+        else
+            \"\$PY\" scripts/tools/build_4dflow_windowed_h5.py \
+                --finalize-plan \
+                --plan '$PLAN' \
+                --deep-verify \
+                --expected-patients 292 \
+                | tee '$CONTROL_ROOT/finalize.log'
+        fi
 
         \"\$PY\" scripts/tools/validate_4dflow_windowed_h5_real.py \
             --config '$CONFIG' \

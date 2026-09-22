@@ -3,9 +3,11 @@
 ## Scope
 
 This branch adds an opt-in training backend that converts each raw patient once
-and writes two numerically identical, differently chunked HDF5 stores. Training
-reads only the temporal and raw-x windows selected for the current sample. The
-existing raw-MAT backend remains unchanged and is still used by old configs.
+and can write numerically identical, differently chunked HDF5 stores. Production
+writes only the measured-fast E1 profile; E4 remains available for controlled
+experiments. Training reads only the temporal and raw-x windows selected for the
+current sample. The existing raw-MAT backend remains unchanged and is still used
+by old configs.
 
 Both supplied training configurations keep `batch_size=8` and
 `num_samples_per_case=8`. Joint four-encoding and legacy per-encoding training
@@ -14,14 +16,19 @@ profile.
 
 ## Production Destination
 
-The restartable production converter is configured to write only the measured-fast E1 profile:
+The completed unified production converter wrote only the measured-fast E1
+profile:
 
-- E1 host root: `/home/pengfeig/healthcareeng_monai/datasets/CMRx4DFlow2026-ChallengeData/windowed-e1-v2`
+- Run ID: `unified_e1_20260921T1325Z`
+- E1 host root:
+  `/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_isaac/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`
 
 Inside the training container this is mounted as
-`/data/CMRx4DFlow2026-ChallengeData/windowed-e1-v2`. The converter CLI still
-accepts an optional E4 output for controlled experiments, but the production
-launcher intentionally omits it.
+`/h5data/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`.
+The converter CLI still accepts an optional E4 output for controlled
+experiments, but the production launcher intentionally omits it. Migration to
+`healthcareeng_monai` is a separate copy-verify-switch operation and was not
+performed by this run.
 
 ## Storage Profiles
 
@@ -113,23 +120,72 @@ explicit debug stop with `checkpoint_saved=False`, and wrote no `.pt` files.
 | Legacy E1 | 0.347/0.417 s | 0.266/0.286 s | 43 s |
 
 E1 is therefore the measured default for both modes. E4 remains fully
-supported and is produced because it is a useful alternative for future reader
-or compression experiments.
+supported and can be produced as a useful alternative for future reader or
+compression experiments.
 
-## Capacity And Launch
+## Unified Production Completion
 
-The canary stores are intentionally uncompressed to favor runtime throughput.
-There are 138 eligible patients. A canary-size projection is about 1.54 TB for
-the E1 production dataset; exact usage varies with geometry.
+Production completed on 2026-09-22. The effective successful chain was prepare
+job `1278628`, original shard-array tasks 0 and 1, resumed shard-array tasks 2
+through 6, recovery shard-7 job `1293377`, and finalizer retry `1293475`.
+The original pause cancelled the remaining original array tasks and original
+finalizer. The first resumed shard 7 reached its 12-hour limit after writing
+32/36 stores; its restart-safe recovery reused those stores and wrote only the
+four missing patients in 9m48s.
+
+Finalizer `1293378` completed deep HDF5 verification and real-loader validation,
+but exited 1 when `tee` attempted to open `validation/validate.log` before the
+validation directory existed. The launcher now creates that directory before
+the container step and safely reuses an already completed HDF5 finalization.
+Retry `1293475` then completed in 2m42s with exit code 0 and created the
+control-root `COMPLETED` marker.
+
+The final inventory is:
+
+| Acceleration profile | Patients |
+|---|---:|
+| 10, 20, 30, 40, 50 | 208 |
+| 10 only | 19 |
+| 20 only | 19 |
+| 30 only | 16 |
+| 40 only | 14 |
+| 50 only | 16 |
+| **Total** | **292** |
+
+The index contains exactly 292 unique patient stores. Their logical HDF5 byte
+sum is 4,980,443,982,857 bytes; measured host usage for the production root is
+4,980,445,318,144 bytes. The production root contains no `.tmp` or `.partial`
+files. `index.json`, the production `COMPLETED` receipt, and the control-root
+`COMPLETED` marker are all present.
+
+Validation receipt
+`outputs/4dflow/windowed_h5_unified_production/unified_e1_20260921T1325Z/validation/receipt.json`
+has `status: ok`, 292 patients, 1,124 training manifests, 63 validation
+patients, and 259 validation manifests. It loaded finite samples for all six
+acceleration-profile classes. No compatible training checkpoint was present at
+the configured `cache/nv_raw2insights_mri_small_4dflow_3d_flowvn_multiplane_compatible.pt`
+path or elsewhere under the workspace search scope, so no checkpoint-backed
+forward/backward smoke was claimed. The earlier six-profile canary had already
+passed 6/6 raw-probe parity and finite DataLoader sampling.
+
+Closure hashes:
+
+- `index.json`: `7300ab8d8014c6486826888c70671836d2e73a2a9c88e3cb92dd3a86aed6f414`
+- conversion plan file:
+  `8d9d48319ad19aba672de7b8ae2075754c20629bc9fa0fef31a989d6c0b220b7`
+- production config:
+  `21b37949beb4ee9cde1b2da1f010f242be7aae155a0456824ffe99a1fc2f9cd1`
+- validation receipt:
+  `7a89f2ab7a5bd93501035616aae14d51635f47932a392f5b9c82e5d3e05395d3`
+
+Three interrupted temporary files remain preserved outside the production root
+in the two timestamped `.windowed-e1-v2-*-partials-*` quarantine directories.
+They were not deleted. No data was copied to or removed from
+`healthcareeng_monai`.
 
 Reproducible launchers:
 
-- `build_4dflow_windowed_h5.slurm`: E1-only restartable full conversion and deep verification.
-- `submit_4dflow_windowed_h5.sh`: thin submission wrapper.
-- `validate_windowed_4dflow_cpu.slurm`: paired canary and CPU benchmarks.
-- `validate_windowed_4dflow_gpu.slurm`: one-batch joint/legacy GPU smoke.
-- `validate_windowed_4dflow_interactive.sh`: validation inside an existing allocation.
-- `validate_windowed_4dflow_gpu_interactive.sh`: E1/E4 GPU comparison inside an existing allocation.
-- `validate_windowed_4dflow_e1_only_cpu.slurm`: E1-only CLI and canary verification.
-
-The full 138-patient conversion was not launched during validation.
+- `scripts/tools/launch_4dflow_unified_h5_prepare.sh`
+- `scripts/tools/launch_4dflow_unified_h5_shard.sh`
+- `scripts/tools/launch_4dflow_unified_h5_finalize.sh`
+- `scripts/tools/submit_4dflow_unified_h5_pipeline.sh`
