@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -290,6 +291,64 @@ def test_target_group_partition_keeps_accelerations_adjacent_and_balanced(tmp_pa
         for group in rank0 + rank1
     )
     assert sum(len(group) == 5 for group in rank0 + rank1) >= 2
+
+
+def test_target_group_partition_supports_unified_acceleration_profiles():
+    for shuffle in (False, True):
+        _assert_unified_target_group_partition(shuffle)
+
+
+def _assert_unified_target_group_partition(shuffle):
+    # Production inventory: 208 full-five and 84 single-acceleration patients.
+    groups = [
+        [(patient, acceleration) for acceleration in range(5 if patient < 208 else 1)]
+        for patient in range(292)
+    ]
+    original_records = [record for group in groups for record in group]
+    partitions = [
+        partition_4dflow_target_groups(groups, 8, rank, seed=7, shuffle=shuffle)
+        for rank in range(8)
+    ]
+    assert [sum(map(len, partition)) for partition in partitions] == [141] * 8
+    combined = [record for partition in partitions for group in partition for record in group]
+    counts = Counter(combined)
+    assert set(counts) == set(original_records)
+    assert sum(count - 1 for count in counts.values()) == 4
+    assert max(counts.values()) == 2
+    if not shuffle:
+        assert combined == original_records + original_records[:4]
+
+    for rank, partition in enumerate(partitions):
+        assert partition == partition_4dflow_target_groups(groups, 8, rank, seed=7, shuffle=shuffle)
+        assert all(len({patient for patient, _ in group}) == 1 for group in partition)
+        assert all(group == sorted(group) for group in partition)
+        lengths = [len(group) for group in partition]
+        sampler = TargetGroupedSampler(lengths, seed=rank, shuffle=True)
+        for epoch in (0, 1):
+            sampler.set_epoch(epoch)
+            indices = list(sampler)
+            assert sorted(indices) == list(range(141))
+            positions = {index: offset for offset, index in enumerate(indices)}
+            start = 0
+            for length in lengths:
+                offset = positions[start]
+                assert indices[offset : offset + length] == list(range(start, start + length))
+                start += length
+
+
+def test_target_group_partition_pads_when_ranks_exceed_manifest_count():
+    partitions = [
+        partition_4dflow_target_groups([["a", "b"]], 8, rank, shuffle=False)
+        for rank in range(8)
+    ]
+    assert [sum(map(len, partition)) for partition in partitions] == [1] * 8
+    assert [record for partition in partitions for group in partition for record in group] == ["a", "b"] * 4
+
+
+def test_target_group_partition_rejects_empty_groups():
+    for groups in ([], [[]], [["a"], []]):
+        with np.testing.assert_raises(ValueError):
+            partition_4dflow_target_groups(groups, 2, 0)
 
 
 def test_target_grouped_sampler_shuffles_groups_without_splitting_them():

@@ -137,13 +137,17 @@ def group_4dflow_manifests_by_target(manifest_paths):
 
 
 def partition_4dflow_target_groups(groups, num_partitions, rank, seed=0, shuffle=True):
-    """Partition adjacent target groups with equal per-rank manifest counts."""
+    """Partition variable-size target groups into equal per-rank manifest counts.
+
+    Keep accelerations adjacent, splitting groups only at rank boundaries.
+    Repeat leading manifests when padding is needed for equal DDP step counts.
+    """
     groups = [list(group) for group in groups]
     if not groups:
         raise ValueError("At least one target group is required")
     group_sizes = {len(group) for group in groups}
-    if 0 in group_sizes or len(group_sizes) != 1:
-        raise ValueError(f"Target groups must have one uniform positive size, got {sorted(group_sizes)}")
+    if 0 in group_sizes:
+        raise ValueError("Target groups must have positive sizes")
     num_partitions = int(num_partitions)
     rank = int(rank)
     if num_partitions <= 0 or not 0 <= rank < num_partitions:
@@ -157,7 +161,9 @@ def partition_4dflow_target_groups(groups, num_partitions, rank, seed=0, shuffle
     ]
     manifests_per_rank = math.ceil(len(records) / num_partitions)
     padded_length = manifests_per_rank * num_partitions
-    records.extend(records[: padded_length - len(records)])
+    padding = padded_length - len(records)
+    if padding:
+        records.extend((records * math.ceil(padding / len(records)))[:padding])
     rank_records = records[rank * manifests_per_rank : (rank + 1) * manifests_per_rank]
 
     rank_groups = []
