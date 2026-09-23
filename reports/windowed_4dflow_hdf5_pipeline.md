@@ -24,15 +24,16 @@ profile. The verified production copy is now served from `healthcareeng_monai`:
   `/home/pengfeig/healthcareeng_monai/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`
 - Resolved E1 host root:
   `/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_monai/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`
-- Retained source root:
+- Former source root (deleted after verified promotion and explicit approval):
   `/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_isaac/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`
 
 Inside the training container this is mounted as
 `/h5data/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`.
 The converter CLI still accepts an optional E4 output for controlled
 experiments, but the production launcher intentionally omits it. The later
-copy-verify-switch migration retained the completed Isaac source and promoted
-an independently verified MONAI copy; the in-container path did not change.
+copy-verify-switch migration initially retained the completed Isaac source and
+promoted an independently verified MONAI copy. After explicit approval, the
+Isaac production source was deleted; the in-container path did not change.
 
 ## Storage Profiles
 
@@ -213,12 +214,30 @@ marker. Its path is
 `outputs/4dflow/windowed_h5_unified_migration/monai_copy_20260922T201002Z/migration-receipt.json`
 and its SHA-256 is
 `7c28edeb4a3e1bf126c13a374d4891823b2cf28ec8b131fae13905fa6e2449b7`.
-The original Isaac dataset and all quarantined interrupted partials remain
-intact. No source cleanup was performed.
+At migration completion, the original Isaac dataset and all quarantined
+interrupted partials remained intact; `source_retained: true` records that
+migration-time state.
 
 After these gates passed, the canonical host-side launchers were switched from
 the Isaac H5 root to the MONAI H5 root. The stable container mount remains
 `/h5data/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`.
+
+## Authorized Isaac Source Cleanup
+
+After explicit user authorization, the 4,980,445,318,144-byte Isaac production
+source was deleted at `2026-09-23T02:21:46Z`. Immediately before deletion, the
+MONAI destination still had 292 H5 stores, zero temporary or partial files, the
+expected index hash, an empty full-checksum difference file, and `status: ok`
+migration and validation receipts. The source path was resolved exactly and
+confirmed to be a real directory rather than a symlink before removal.
+
+Post-deletion verification confirmed that the Isaac production path is absent
+and the MONAI destination is unchanged and complete. The two quarantined
+partial directories were intentionally preserved; together they contain two
+files totaling 82,436,690,560 bytes. Cleanup evidence is recorded at
+`outputs/4dflow/windowed_h5_unified_migration/monai_copy_20260922T201002Z/source-cleanup-receipt.json`
+with SHA-256
+`210cebeedd67c8a18d9c55b4fb4205859ddf685b50ba8f6842db124c06fcf047`.
 
 Reproducible launchers:
 
