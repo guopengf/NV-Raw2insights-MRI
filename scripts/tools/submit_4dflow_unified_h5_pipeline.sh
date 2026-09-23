@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork
-H5_ROOT=/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_isaac/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2
+H5_ROOT=/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_monai/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2
 RUN_ID=${1:-unified_e1_$(date -u +%Y%m%dT%H%M%SZ)}
 case "$RUN_ID" in
     *[!A-Za-z0-9._-]* | "")

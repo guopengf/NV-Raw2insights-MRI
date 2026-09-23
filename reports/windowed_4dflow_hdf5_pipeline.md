@@ -17,18 +17,22 @@ profile.
 ## Production Destination
 
 The completed unified production converter wrote only the measured-fast E1
-profile:
+profile. The verified production copy is now served from `healthcareeng_monai`:
 
 - Run ID: `unified_e1_20260921T1325Z`
-- E1 host root:
+- Canonical E1 host root:
+  `/home/pengfeig/healthcareeng_monai/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`
+- Resolved E1 host root:
+  `/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_monai/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`
+- Retained source root:
   `/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_isaac/datasets/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`
 
 Inside the training container this is mounted as
 `/h5data/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`.
 The converter CLI still accepts an optional E4 output for controlled
-experiments, but the production launcher intentionally omits it. Migration to
-`healthcareeng_monai` is a separate copy-verify-switch operation and was not
-performed by this run.
+experiments, but the production launcher intentionally omits it. The later
+copy-verify-switch migration retained the completed Isaac source and promoted
+an independently verified MONAI copy; the in-container path did not change.
 
 ## Storage Profiles
 
@@ -180,8 +184,41 @@ Closure hashes:
 
 Three interrupted temporary files remain preserved outside the production root
 in the two timestamped `.windowed-e1-v2-*-partials-*` quarantine directories.
-They were not deleted. No data was copied to or removed from
-`healthcareeng_monai`.
+They were not deleted.
+
+## Verified MONAI Copy-Verify-Switch
+
+Migration `monai_copy_20260922T201002Z` completed on 2026-09-22 under Slurm job
+`1297822` in 5h58m35s with exit code 0 using workflow commit
+`7c565c18276a1cff2cfb57b63f2f76b1398b2654`. The restartable migration copied
+into a hidden staging directory without `--delete`, compared exact
+relative-path and size inventories, read all 4.98 TB again with an rsync
+checksum dry-run, and only then atomically promoted the staging directory to
+the canonical MONAI destination.
+
+The source and destination inventories are byte-identical and share SHA-256
+`eaa14c58167d2dc1fc67b6d58406526c237feb36ed73bed186e130e101a14892`.
+The checksum difference file is empty. Both roots contain exactly 292 H5
+stores, zero `.tmp` or `.partial` files, a production `COMPLETED` marker, and an
+`index.json` with SHA-256
+`7300ab8d8014c6486826888c70671836d2e73a2a9c88e3cb92dd3a86aed6f414`.
+Both have measured host usage of 4,980,445,318,144 bytes.
+
+The real six-profile loader validation reran against the MONAI copy and wrote
+`outputs/4dflow/windowed_h5_unified_migration/monai_copy_20260922T201002Z/validation/receipt.json`
+with `status: ok`, 292 patients, 1,124 training manifests, 63 validation
+patients, and 259 validation manifests. The migration receipt has `status: ok`
+and `source_retained: true`; the migration control root has its `COMPLETED`
+marker. Its path is
+`outputs/4dflow/windowed_h5_unified_migration/monai_copy_20260922T201002Z/migration-receipt.json`
+and its SHA-256 is
+`7c28edeb4a3e1bf126c13a374d4891823b2cf28ec8b131fae13905fa6e2449b7`.
+The original Isaac dataset and all quarantined interrupted partials remain
+intact. No source cleanup was performed.
+
+After these gates passed, the canonical host-side launchers were switched from
+the Isaac H5 root to the MONAI H5 root. The stable container mount remains
+`/h5data/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2`.
 
 Reproducible launchers:
 

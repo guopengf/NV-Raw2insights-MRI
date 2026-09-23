@@ -22,7 +22,7 @@ export NVIDIA_VISIBLE_DEVICES=void
 IMAGE=/home/pengfeig/workspace/cache/conda_raw2insights.sqsh
 USER_ROOT=/lustre/fsw/portfolios/healthcareeng/users/pengfeig
 SOURCE_DATASETS=/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_monai/datasets
-H5_DATASETS=/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_isaac/datasets
+H5_DATASETS=/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_monai/datasets
 HOST_CONTROL_ROOT=/home/pengfeig/workspace/outputs/4dflow/windowed_h5_unified_production/${RUN_ID}
 CONTROL_ROOT=/workspace/outputs/4dflow/windowed_h5_unified_production/${RUN_ID}
 REPO=/workspace/code/NV-Raw2insights-MRI-fork
@@ -35,7 +35,7 @@ test ! -e "$E1_HOST_ROOT"
 test ! -e "$HOST_CONTROL_ROOT/COMPLETED"
 mkdir -p "$HOST_CONTROL_ROOT"
 /cm/shared/apps/scripts/fs-quota-status > "$HOST_CONTROL_ROOT/quota-before.txt"
-grep -q 'project=healthcareeng_isaac' "$HOST_CONTROL_ROOT/quota-before.txt"
+grep -q 'project=healthcareeng_monai' "$HOST_CONTROL_ROOT/quota-before.txt"
 
 srun --export=ALL,NVIDIA_VISIBLE_DEVICES=void --kill-on-bad-exit=1 \
     --container-image "$IMAGE" \
