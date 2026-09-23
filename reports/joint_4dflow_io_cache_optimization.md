@@ -88,4 +88,4 @@ Old experiment configs do not opt into grouping or reader caching:
 - 12 joint-encoding unit/regression tests passed, including explicit non-joint encoding-slice coverage.
 - 12 pre-existing FlowVN/old-path regression tests passed.
 - Python syntax checks, JSON validation, and `git diff --check` passed.
-- Reproducible debug launcher: `validate_joint_4dflow_io_cache.slurm`.
+- Reproducible debug launcher: `scripts/slurm/validate_joint_4dflow_io_cache.sh`.

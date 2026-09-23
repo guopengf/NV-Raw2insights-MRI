@@ -7,4 +7,4 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 sbatch --parsable \
     --export=ALL,MIGRATION_ID="$MIGRATION_ID" \
-    "$SCRIPT_DIR/launch_4dflow_unified_h5_migrate_monai.slurm"
+    "$SCRIPT_DIR/launch_4dflow_unified_h5_migrate_monai.sh"

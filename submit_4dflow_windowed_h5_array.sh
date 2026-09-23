@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-REPO_ROOT=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DATA_ROOT=/home/pengfeig/healthcareeng_monai/datasets/CMRx4DFlow2026-ChallengeData
 E1_ROOT=${DATA_ROOT}/windowed-e1-v2
 E4_ROOT=${DATA_ROOT}/windowed-e4-v2
@@ -42,21 +42,21 @@ trap cleanup_partial_submission EXIT
 
 PREP_JOB_ID=$(sbatch --parsable \
     --export=ALL,RUN_ID="$RUN_ID" \
-    build_4dflow_windowed_h5_prepare.slurm)
+    scripts/slurm/build_4dflow_windowed_h5_prepare.sh)
 PREP_JOB_ID=${PREP_JOB_ID%%;*}
 submitted_ids+=("$PREP_JOB_ID")
 
 ARRAY_JOB_ID=$(sbatch --parsable \
     --dependency="afterok:${PREP_JOB_ID}" \
     --export=ALL,RUN_ID="$RUN_ID",PREP_JOB_ID="$PREP_JOB_ID" \
-    build_4dflow_windowed_h5_shard.slurm)
+    scripts/slurm/build_4dflow_windowed_h5_shard.sh)
 ARRAY_JOB_ID=${ARRAY_JOB_ID%%;*}
 submitted_ids+=("$ARRAY_JOB_ID")
 
 FINAL_JOB_ID=$(sbatch --parsable \
     --dependency="afterok:${ARRAY_JOB_ID}" \
     --export=ALL,RUN_ID="$RUN_ID",PREP_JOB_ID="$PREP_JOB_ID",ARRAY_JOB_ID="$ARRAY_JOB_ID" \
-    build_4dflow_windowed_h5_finalize.slurm)
+    scripts/slurm/build_4dflow_windowed_h5_finalize.sh)
 FINAL_JOB_ID=${FINAL_JOB_ID%%;*}
 submitted_ids+=("$FINAL_JOB_ID")
 

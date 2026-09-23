@@ -16,22 +16,23 @@ from scripts.tools import run_4dflow_challenge_submission as submission
 
 class ChallengeSubmissionTest(unittest.TestCase):
     ROOT = Path(__file__).resolve().parents[1]
+    LAUNCHERS = ROOT / "scripts" / "slurm"
     FAMILIES = ("joint_epoch100", "joint_channel_epoch260")
     STAGES = ("full", "package", "preflight", "recover", "smoke")
 
     @classmethod
     def launcher_text(cls, family: str, stage: str) -> str:
-        return (cls.ROOT / f"run_raw2ins_4dflow_{family}_challenge_{stage}.slurm").read_text()
+        return (cls.LAUNCHERS / f"run_raw2ins_4dflow_{family}_challenge_{stage}.sh").read_text()
 
     def test_both_launcher_families_use_canonical_checkout(self):
         expected = {
-            f"run_raw2ins_4dflow_{family}_challenge_{stage}.slurm"
+            f"run_raw2ins_4dflow_{family}_challenge_{stage}.sh"
             for family in self.FAMILIES
             for stage in self.STAGES
         }
         actual = {
             path.name
-            for path in self.ROOT.glob("run_raw2ins_4dflow_joint*_challenge_*.slurm")
+            for path in self.LAUNCHERS.glob("run_raw2ins_4dflow_joint*_challenge_*.sh")
         }
         self.assertTrue(expected.issubset(actual), expected - actual)
         for family in self.FAMILIES:

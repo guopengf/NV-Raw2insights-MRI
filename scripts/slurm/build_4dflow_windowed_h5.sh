@@ -44,7 +44,7 @@ srun --nodes="$NODE_COUNT" --ntasks="$NODE_COUNT" --ntasks-per-node=1 --cpus-per
     "${container_args[@]}" \
     bash -lc "
         set -euo pipefail
-        test -d /workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5
+        test -d /workspace/code/NV-Raw2insights-MRI-fork
         test -d '$E1_OUTPUT_ROOT'
         test ! -e '$E4_OUTPUT_ROOT'
         PY=/root/miniconda3/envs/nv-raw2insights-mri/bin/python
@@ -56,7 +56,7 @@ srun --nodes=1 --ntasks=1 --cpus-per-task=1 \
     "${container_args[@]}" \
     bash -lc "
         set -euo pipefail
-        cd /workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5
+        cd /workspace/code/NV-Raw2insights-MRI-fork
         export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONUNBUFFERED=1
         PY=/root/miniconda3/envs/nv-raw2insights-mri/bin/python
         \"\$PY\" scripts/tools/build_4dflow_windowed_h5.py \
@@ -76,7 +76,7 @@ srun --nodes="$NODE_COUNT" --ntasks="$NODE_COUNT" --ntasks-per-node=1 --cpus-per
     "${container_args[@]}" \
     bash -lc "
         set -euo pipefail
-        cd /workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5
+        cd /workspace/code/NV-Raw2insights-MRI-fork
         export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONUNBUFFERED=1
         PY=/root/miniconda3/envs/nv-raw2insights-mri/bin/python
         \"\$PY\" scripts/tools/build_4dflow_windowed_h5.py \
@@ -89,7 +89,7 @@ srun --nodes=1 --ntasks=1 --cpus-per-task=8 \
     "${container_args[@]}" \
     bash -lc "
         set -euo pipefail
-        cd /workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5
+        cd /workspace/code/NV-Raw2insights-MRI-fork
         export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONUNBUFFERED=1
         PY=/root/miniconda3/envs/nv-raw2insights-mri/bin/python
         \"\$PY\" scripts/tools/build_4dflow_windowed_h5.py \

@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO=/home/pengfeig/workspace/code/NV-Raw2insights-MRI-fork-windowed-hdf5
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$REPO"
-sbatch --parsable build_4dflow_windowed_h5.slurm
+sbatch --parsable scripts/slurm/build_4dflow_windowed_h5.sh
