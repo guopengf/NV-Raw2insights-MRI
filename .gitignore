@@ -12,5 +12,9 @@ cache/
 dataset/
 outputs/
 *.slurm
+/submit_4dflow_windowed_h5.sh
+/submit_4dflow_windowed_h5_array.sh
+/validate_windowed_4dflow_gpu_interactive.sh
+/validate_windowed_4dflow_interactive.sh
 .docx
 logs/
