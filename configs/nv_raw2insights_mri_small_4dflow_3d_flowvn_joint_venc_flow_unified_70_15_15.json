@@ -23,7 +23,7 @@
         "ktGaussian"
     ],
     "uniform_input_kspace": false,
-    "val_interval": 80,
+    "val_interval": 100,
     "num_samples_per_case": 8,
     "data_aug": true,
     "four_dflow_augmentation": {
@@ -75,7 +75,7 @@
         "backend": "raw_mat",
         "train_backend": "windowed_hdf5",
         "val_backend": "raw_mat",
-        "index_path": "/h5data/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2/index.json",
+        "index_path": "/data/CMRx4DFlow2026-unified-70_15_15-seed20260914/windowed-e1-v2/index.json",
         "storage_profile": "encoding_chunk_1",
         "handle_cache_entries": 1,
         "hdf5_chunk_cache_bytes": 268435456
