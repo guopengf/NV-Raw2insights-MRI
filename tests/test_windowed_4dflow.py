@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -136,6 +137,79 @@ def _convert_and_manifest(tmp_path: Path, *, joint: bool):
         joint_encodings=joint,
     )
     return source, store_path, index, manifests
+
+
+def _manifests_from_test_index(index_path, source, out_dir, *, joint=True):
+    return build_windowed_4dflow_manifests(
+        index_path=index_path,
+        data_roots=[source["root"]],
+        out_dir=out_dir,
+        accelerations=[10],
+        encodings=[0, 1, 2, 3],
+        joint_encodings=joint,
+    )
+
+
+def test_manifests_load_relocated_stores_without_rewriting_index(tmp_path):
+    for joint in (False, True):
+        root = tmp_path / str(joint)
+        source, store_path, _, manifests = _convert_and_manifest(root, joint=joint)
+        selector = lambda total, count: np.arange(count, dtype=np.int64)
+        dataset = Windowed4DFlowDataset(manifests, _args(), center_selector=selector)
+        expected = dataset[0]
+        dataset.close()
+
+        original_root = root / "converted"
+        index_bytes = (original_root / "index.json").read_bytes()
+        relocated_root = root / "relocated"
+        original_root.rename(relocated_root)
+        assert not store_path.exists()
+        relocated_store = relocated_root / store_path.relative_to(original_root)
+        manifests = _manifests_from_test_index(
+            relocated_root / "index.json", source, root / "relocated_manifests", joint=joint
+        )
+        for manifest_path in manifests:
+            payload = json.loads(manifest_path.read_text())
+            assert payload["windowed_h5"] == str(relocated_store)
+            assert payload["kspace"] == f"{relocated_store}::hybrid/input/10"
+        dataset = Windowed4DFlowDataset(manifests, _args(), center_selector=selector)
+        actual = dataset[0]
+        dataset.close()
+        for key in ("kspace_masked_ifft", "kspace_ifft", "mask", "sensitivity_maps"):
+            torch.testing.assert_close(actual[key], expected[key])
+        assert (relocated_root / "index.json").read_bytes() == index_bytes
+
+
+def test_manifests_prefer_selected_index_copy_over_available_original(tmp_path):
+    source, store_path, _, _ = _convert_and_manifest(tmp_path, joint=True)
+    copied_root = tmp_path / "copied"
+    shutil.copytree(tmp_path / "converted", copied_root)
+    manifests = _manifests_from_test_index(
+        copied_root / "index.json", source, tmp_path / "copied_manifests"
+    )
+    assert store_path.is_file()
+    expected = copied_root / store_path.relative_to(tmp_path / "converted")
+    assert json.loads(manifests[0].read_text())["windowed_h5"] == str(expected)
+
+
+def test_manifests_resolve_relative_store_paths_from_index_directory(tmp_path):
+    source, store_path, index, _ = _convert_and_manifest(tmp_path, joint=True)
+    index_path = tmp_path / "converted" / "index.json"
+    index["patients"][0]["path"] = str(store_path.relative_to(index_path.parent))
+    index_path.write_text(json.dumps(index))
+    manifests = _manifests_from_test_index(index_path, source, tmp_path / "relative_manifests")
+    assert json.loads(manifests[0].read_text())["windowed_h5"] == str(store_path)
+
+
+def test_manifests_reject_missing_stores_before_loading(tmp_path):
+    source, store_path, _, _ = _convert_and_manifest(tmp_path, joint=True)
+    store_path.unlink()
+    with np.testing.assert_raises(FileNotFoundError) as caught:
+        _manifests_from_test_index(
+            tmp_path / "converted" / "index.json", source, tmp_path / "missing_manifests"
+        )
+    assert "Check the dataset mount" in str(caught.exception)
+    assert str(store_path) in str(caught.exception)
 
 
 def test_discovery_accepts_partial_acceleration_profiles(tmp_path):

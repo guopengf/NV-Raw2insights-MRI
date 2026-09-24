@@ -611,6 +611,26 @@ def validate_windowed_profile_pair(
     }
 
 
+def _resolve_indexed_patient_store(patient: dict[str, Any], index_path: Path) -> Path:
+    """Resolve stores through the selected index's mount without rewriting it."""
+    recorded_path = Path(patient["path"])
+    local_path = index_path.parent / "patients" / f"{patient['patient_key']}.h5"
+    # Existing indexes contain absolute conversion-time paths. Prefer the copy
+    # beside the selected index, even if the original mount is still available.
+    candidates = (
+        [local_path, recorded_path]
+        if recorded_path.is_absolute()
+        else [index_path.parent / recorded_path, local_path]
+    )
+    for path in candidates:
+        if path.is_file():
+            return path
+    raise FileNotFoundError(
+        f"HDF5 store for {patient['patient_key']} is missing from index {index_path}; "
+        f"checked: {', '.join(str(path) for path in candidates)}. Check the dataset mount."
+    )
+
+
 def build_windowed_4dflow_manifests(
     *,
     index_path: str | Path,
@@ -622,7 +642,7 @@ def build_windowed_4dflow_manifests(
     expected_storage_profile: str | None = None,
     allow_profile_mismatch: bool = False,
 ) -> list[Path]:
-    index_path = Path(index_path)
+    index_path = Path(index_path).absolute()
     with index_path.open() as stream:
         index = json.load(stream)
     if index.get("schema") != WINDOWED_4DFLOW_SCHEMA:
@@ -658,12 +678,16 @@ def build_windowed_4dflow_manifests(
         if roots and not any(target_path == root or target_path.startswith(root + os.sep) for root in roots):
             continue
         available = {int(value) for value in patient["accelerations"]}
-        for acceleration in sorted(requested_accelerations & available):
+        selected_accelerations = sorted(requested_accelerations & available)
+        if not selected_accelerations:
+            continue
+        store_path = str(_resolve_indexed_patient_store(patient, index_path))
+        for acceleration in selected_accelerations:
             for encoding_group in encoding_groups:
                 payload = {
-                    "windowed_h5": patient["path"],
+                    "windowed_h5": store_path,
                     "target_kspace": patient["target_kspace"],
-                    "kspace": f"{patient['path']}::hybrid/input/{acceleration}",
+                    "kspace": f"{store_path}::hybrid/input/{acceleration}",
                     "mask_type": f"ktGaussian{acceleration}",
                     "acceleration": acceleration,
                     "acquisition": "Flow4d",
