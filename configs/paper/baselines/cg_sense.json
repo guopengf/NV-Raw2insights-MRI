@@ -1,0 +1,43 @@
+{
+  "paper": {
+    "method": "cg_sense",
+    "name": "cg_sense",
+    "seed": 2026,
+    "manifest": "experiments/paper/inputs/final_dataset_manifest.csv",
+    "tree": "experiments/paper/inputs/final_dataset_tree.txt",
+    "train_index": "outputs/paper/index/train_index.json",
+    "validation_manifest": null,
+    "validation_enabled": false,
+    "output_dir": "outputs/paper/cg_sense",
+    "initialization": "independent_random",
+    "smoke_steps": 1,
+    "num_slices": 3,
+    "num_frames": 5,
+    "samples_per_case": 8,
+    "accelerations": [
+      10,
+      20,
+      30,
+      40,
+      50
+    ],
+    "protected_roots": [
+      "/media/Elements/4DFlow",
+      "/media/fudan22/4DFlow"
+    ],
+    "checkpoint": null,
+    "baseline_commit": "9504c29e50237d96eee89f3cf47693c64482bd2f"
+  },
+  "optimizer": {
+    "lr": 0.0001,
+    "weight_decay": 0.0
+  },
+  "num_epochs": 100,
+  "num_workers": 0,
+  "batch_size": 1,
+  "solver": {
+    "iterations": 30,
+    "tolerance": 1e-06,
+    "l2": 0.0001
+  }
+}

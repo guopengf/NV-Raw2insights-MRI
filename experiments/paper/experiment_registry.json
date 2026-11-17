@@ -1,0 +1,301 @@
+{
+  "baseline_git_sha": "9504c29e50237d96eee89f3cf47693c64482bd2f",
+  "current_git_sha": "9504c29e50237d96eee89f3cf47693c64482bd2f",
+  "manifest_sha256": "8d90b6cb36275633e8d9f336949d6275b2cd50e8a41d7bd90c7ef90602c9bf75",
+  "tree_sha256": "1b75eb3ad5c11cbafc73a7d2d8a9e22d0e47f618a4b4c818d905cd3b8dc81b0a",
+  "seed": 2026,
+  "source_snapshots": {
+    "final_dataset_manifest.csv": "8d90b6cb36275633e8d9f336949d6275b2cd50e8a41d7bd90c7ef90602c9bf75",
+    "final_dataset_tree.txt": "1b75eb3ad5c11cbafc73a7d2d8a9e22d0e47f618a4b4c818d905cd3b8dc81b0a",
+    "消融实验对比试验prompt.md": "0355c6af38c733477b721b216c836484ff51fd371298c8d7f9639c48535e011f",
+    "4DFlow_Comparison_Ablation_Codex_Execution_Fixed_20261115.docx": "61a8838aaae020738a4e9b946085aa99068fc432e4f15b75c231794dadaa7488"
+  },
+  "validation": "disabled; no val label provided",
+  "experiments": [
+    {
+      "name": "ablation_A0",
+      "config": "configs/paper/ablation_A0.json",
+      "config_sha256": "2c10fa437815e3309211dbab513ccf2bf543272b6e70e758e87679acd22a87cc",
+      "output_dir": "outputs/paper/ablation_A0",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/ablation_A0/smoke/report.json",
+      "smoke_steps": 1,
+      "peak_gpu_gib": 4.792760848999023,
+      "measured_native_shape": [
+        [
+          4,
+          25,
+          5,
+          19,
+          96,
+          88
+        ]
+      ],
+      "test_data_used": false,
+      "notes": ""
+    },
+    {
+      "name": "ablation_A1",
+      "config": "configs/paper/ablation_A1.json",
+      "config_sha256": "54005eb64df1cc5d6164f4fb5ea35c8bdc1bbf5e55f9e031d895f17e4d2cf032",
+      "output_dir": "outputs/paper/ablation_A1",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/ablation_A1/smoke/report.json",
+      "smoke_steps": 1,
+      "peak_gpu_gib": 6.656137943267822,
+      "measured_native_shape": [
+        [
+          4,
+          25,
+          5,
+          19,
+          96,
+          88
+        ]
+      ],
+      "test_data_used": false,
+      "notes": ""
+    },
+    {
+      "name": "ablation_A2",
+      "config": "configs/paper/ablation_A2.json",
+      "config_sha256": "1a03e45e3166e52b20a234573813ac6d56014b30e840b57d552e5f06321822c3",
+      "output_dir": "outputs/paper/ablation_A2",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/ablation_A2/smoke/report.json",
+      "smoke_steps": 2,
+      "peak_gpu_gib": 10.377536296844482,
+      "measured_native_shape": [
+        [
+          4,
+          25,
+          5,
+          19,
+          96,
+          88
+        ]
+      ],
+      "test_data_used": false,
+      "notes": ""
+    },
+    {
+      "name": "ablation_A3",
+      "config": "configs/paper/ablation_A3.json",
+      "config_sha256": "3640789f3ecffca1a680214adeb88f77b0a67aa58fc1ee07beacf92f8895bd65",
+      "output_dir": "outputs/paper/ablation_A3",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/ablation_A3/smoke/report.json",
+      "smoke_steps": 2,
+      "peak_gpu_gib": 7.242332458496094,
+      "measured_native_shape": [
+        [
+          4,
+          25,
+          5,
+          19,
+          96,
+          88
+        ]
+      ],
+      "test_data_used": false,
+      "notes": ""
+    },
+    {
+      "name": "ablation_A4",
+      "config": "configs/paper/ablation_A4.json",
+      "config_sha256": "866fcbc211e0ea5ec06255c379e01ef55aa0742288a9ded1c23986289be11aab",
+      "output_dir": "outputs/paper/ablation_A4",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/ablation_A4/smoke/report.json",
+      "smoke_steps": 2,
+      "peak_gpu_gib": 7.242336273193359,
+      "measured_native_shape": [
+        [
+          4,
+          25,
+          5,
+          19,
+          96,
+          88
+        ]
+      ],
+      "test_data_used": false,
+      "notes": ""
+    },
+    {
+      "name": "ours_full_final_dataset",
+      "config": "configs/paper/ours_full_final_dataset.json",
+      "config_sha256": "8e255d73b4e9a065252543c7c652f6e11e69d1cd5b41d6ac3f16eddfd98fd2e8",
+      "output_dir": "outputs/paper/ours_full_final_dataset",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/ours_full_final_dataset/smoke/report.json",
+      "smoke_steps": 2,
+      "peak_gpu_gib": 7.242336273193359,
+      "measured_native_shape": [
+        [
+          4,
+          25,
+          5,
+          19,
+          96,
+          88
+        ]
+      ],
+      "test_data_used": false,
+      "notes": ""
+    },
+    {
+      "name": "cg_sense",
+      "config": "configs/paper/baselines/cg_sense.json",
+      "config_sha256": "911666aa33cb464f5e0fdad76c27bf5e9bfd3b3e0ac25947757c0b0a02eabb5c",
+      "output_dir": "outputs/paper/cg_sense",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/cg_sense/smoke/report.json",
+      "smoke_steps": 0,
+      "peak_gpu_gib": null,
+      "measured_native_shape": null,
+      "test_data_used": false,
+      "notes": "CG budget exhausted before tolerance"
+    },
+    {
+      "name": "cs_tv",
+      "config": "configs/paper/baselines/cs_tv.json",
+      "config_sha256": "09083782ce977baaccb1b97c5097dbf811de335c2b16df5d1b2b2f4e4dafaad5",
+      "output_dir": "outputs/paper/cs_tv",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/cs_tv/smoke/report.json",
+      "smoke_steps": 0,
+      "peak_gpu_gib": null,
+      "measured_native_shape": null,
+      "test_data_used": false,
+      "notes": ""
+    },
+    {
+      "name": "flowvn",
+      "config": "configs/paper/baselines/flowvn.json",
+      "config_sha256": "783e783e40fb8514f84932d6bb3d821f43f0909ec8d501ec936359be59f12ca3",
+      "output_dir": "outputs/paper/flowvn",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/flowvn/smoke/report.json",
+      "smoke_steps": 1,
+      "peak_gpu_gib": 3.427640914916992,
+      "measured_native_shape": [
+        [
+          4,
+          25,
+          5,
+          19,
+          96,
+          88
+        ]
+      ],
+      "test_data_used": false,
+      "notes": ""
+    },
+    {
+      "name": "flowmodl",
+      "config": "configs/paper/baselines/flowmodl.json",
+      "config_sha256": "7d7453167d395e962bfbfa3dd1bc95d998fefec01ed14f0aa97ee070fe377f13",
+      "output_dir": "outputs/paper/flowmodl",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/flowmodl/smoke/report.json",
+      "smoke_steps": 1,
+      "peak_gpu_gib": 3.735642433166504,
+      "measured_native_shape": [
+        [
+          4,
+          25,
+          5,
+          19,
+          96,
+          88
+        ]
+      ],
+      "test_data_used": false,
+      "notes": "native 64x6 window verified on this Train case"
+    },
+    {
+      "name": "cut_4dflow",
+      "config": "configs/paper/baselines/cut_4dflow.json",
+      "config_sha256": "a30e9a1bc83075ed73444e9a48fb59d35958fe131e220f29dea132a366e1148a",
+      "output_dir": "outputs/paper/cut_4dflow",
+      "seed": 2026,
+      "resource_note": "GPU memory/native-resolution runtime require smoke measurement",
+      "smoke_status": "PASS",
+      "smoke_report": "outputs/paper/cut_4dflow/smoke/report.json",
+      "smoke_steps": 1,
+      "peak_gpu_gib": 1.4394073486328125,
+      "measured_native_shape": [
+        [
+          4,
+          25,
+          5,
+          19,
+          96,
+          88
+        ]
+      ],
+      "test_data_used": false,
+      "notes": ""
+    }
+  ],
+  "environment": {
+    "torch": "2.6.0",
+    "monai": "1.5.2",
+    "numpy": "1.26.4",
+    "scipy": "1.17.1",
+    "h5py": "3.16.0",
+    "einops": "0.8.0",
+    "sigpy": "0.1.27",
+    "hydra-core": "1.3.8",
+    "zarr": "2.18.7",
+    "numcodecs": "0.15.2",
+    "pytest": "9.2.0"
+  },
+  "author_versions": {
+    "FlowMoDL": {
+      "url": "https://github.com/tgottwald/FlowMoDL.git",
+      "commit": "a65534f7b77164233dec8a7450e74618d08b526e",
+      "path": "experiments/paper/vendor/FlowMoDL",
+      "actual_commit": "a65534f7b77164233dec8a7450e74618d08b526e"
+    },
+    "CUT-4DFlow": {
+      "url": "https://github.com/Abdelrahman912/CUT-4DFlow.git",
+      "commit": "e67e202eca61c0812a991b610d2a5832b8f5be3b",
+      "path": "experiments/paper/vendor/CUT-4DFlow",
+      "sparse_directories": [
+        "src",
+        "scripts",
+        "configs"
+      ],
+      "actual_commit": "e67e202eca61c0812a991b610d2a5832b8f5be3b"
+    },
+    "FlowVN": {
+      "path": "scripts/tools/FlowVN",
+      "repository_commit": "9504c29e50237d96eee89f3cf47693c64482bd2f",
+      "note": "Read-only reuse of the existing PyTorch FlowVN implementation."
+    }
+  },
+  "original_tracked_files_changed": [],
+  "report_generated_utc": "2026-11-15T14:42:47.155361+00:00"
+}

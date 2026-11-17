@@ -1,0 +1,7326 @@
+4D Flow 数据集：计划复制完成后的完整目录树
+依据 2026-11-14 已核对的映射清单；不代表当前复制进度。
+两块硬盘合计1044个检查目录；每个目录6个数据文件。
+train/test归属由CSV指定，不通过磁盘或目录层级划分。
+
+/media/Elements/4DFlow/
+  README.md
+  file_mapping4nvidia(3).csv
+  4DFlow_counts(4).csv
+  Data_split.xls
+  copied_Elements.csv
+  Center001_P000002_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000008_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000010_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000010_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000010_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000018_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000019_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000019_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000019_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000032_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000032_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000034_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000038_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000038_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000038_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000042_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000042_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000042_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000043_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000046_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000046_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000046_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000047_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000047_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000047_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000052_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000053_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000053_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000053_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000057_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000062_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000062_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000062_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000066_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000069_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000082_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000082_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000082_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000083_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000083_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000083_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000088_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000092_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000097_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000097_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000097_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000101_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000117_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000118_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000127_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000128_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000128_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000128_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000133_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000133_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000141_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000142_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000145_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000148_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000150_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000154_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000155_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000168_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000168_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000168_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000182_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000182_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000182_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000185_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000185_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000188_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000188_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000188_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000193_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000194_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000194_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000194_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000195_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000195_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000195_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000199_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000199_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000199_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000202_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000202_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000202_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000210_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000210_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000212_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000212_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000212_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000216_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000216_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000216_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000226_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000231_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000231_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000231_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000237_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000243_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000243_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000243_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000247_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000247_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000247_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000250_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000250_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000255_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000255_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000256_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000271_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000278_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000278_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000287_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000287_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000287_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000292_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000292_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000294_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000294_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000297_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000301_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000301_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000301_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000302_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000302_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000303_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000303_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000303_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000310_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000312_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000314_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000314_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000318_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000318_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000318_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000324_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000332_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000332_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000332_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000333_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000333_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000335_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000336_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000336_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000336_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000345_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000346_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000347_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000350_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000352_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000353_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000353_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000367_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000369_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000369_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000384_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000384_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000385_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000386_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000388_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000391_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000396_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000396_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000396_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000401_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000401_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000410_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000410_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000410_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000411_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000411_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000411_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000413_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000413_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000413_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000423_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000424_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000424_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000424_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000427_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000427_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000433_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000433_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000439_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000441_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000441_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000441_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000445_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000449_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000449_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000449_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000451_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000453_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000454_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000455_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000455_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000457_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000460_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000460_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000461_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000461_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000461_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000464_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000468_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000469_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000469_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000473_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000473_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000473_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000476_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000476_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000476_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000484_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000487_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000491_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000491_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000491_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000494_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000498_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000498_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000498_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000499_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000499_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000500_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000502_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000502_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000502_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000512_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000512_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000518_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000523_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000526_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000527_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000528_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000528_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000530_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000537_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000537_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000537_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000545_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000549_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000549_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000552_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000562_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000562_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000562_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000563_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000565_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000565_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000568_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000569_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000571_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000571_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000571_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000574_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000578_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000578_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000580_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000586_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000594_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000594_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000604_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000604_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000604_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000605_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000605_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000605_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000613_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000625_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000625_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000625_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000627_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000627_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000627_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000628_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000628_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000628_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000630_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000630_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000630_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000631_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000632_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000632_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000634_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000634_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000634_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000643_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000643_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000643_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000647_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000647_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000647_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000663_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000665_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000665_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000665_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000669_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000669_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000669_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000673_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000673_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000673_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000674_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000674_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000674_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000675_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000675_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000675_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000682_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000682_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000685_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000685_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000685_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000693_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000693_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000693_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000694_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000694_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000702_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000705_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000705_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000707_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000712_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000712_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000712_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000717_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000717_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000717_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000718_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000718_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000718_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000720_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000720_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000720_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000724_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000724_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000724_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000729_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000730_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000730_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000730_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000734_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000737_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000737_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000737_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000739_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000739_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000740_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000741_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000741_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000746_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000752_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000753_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000753_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000756_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000756_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000756_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000758_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000762_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000762_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000763_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000763_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000766_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000769_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000769_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center001_P000769_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000041_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000100_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000201_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000217_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000219_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000272_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000389_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000406_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000436_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000493_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000532_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000559_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center002_P000611_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000095_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000099_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000175_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000242_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000263_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000277_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000296_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000339_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000372_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000402_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000486_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000503_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000515_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000522_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000570_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000582_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000597_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000619_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000624_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000639_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000662_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000692_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000754_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000757_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center003_P000760_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center004_P000003_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center004_P000094_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center004_P000165_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center004_P000176_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center004_P000223_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center005_P000112_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center005_P000275_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center005_P000323_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center005_P000434_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center005_P000466_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center005_P000664_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center005_P000706_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center005_P000745_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000004_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000005_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000009_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000015_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000016_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000023_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000036_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000044_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000054_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000055_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000059_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000063_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000065_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000068_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000075_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000076_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000077_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000078_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000080_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000085_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000086_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000087_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000093_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000096_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000104_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000107_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000108_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000114_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000116_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000124_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000134_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000136_Aorta_02/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000136_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000137_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000140_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000147_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000149_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000157_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000158_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000162_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000171_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000174_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000177_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000181_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000191_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000192_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000196_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000205_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000209_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000211_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000215_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000220_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000222_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000224_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000225_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000239_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000240_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000241_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000244_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000245_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000246_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000249_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000266_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000267_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000280_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000281_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000289_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000291_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000305_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000313_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000315_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000317_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000319_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000326_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000327_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000338_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000343_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000354_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000363_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000366_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000371_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000376_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000390_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000398_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000403_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000405_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000412_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000414_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000415_Aorta_02/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000415_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000417_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000421_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000425_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000426_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000437_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000446_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000459_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000465_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000474_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000478_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000481_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000488_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000492_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000501_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000504_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000505_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000509_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000510_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000514_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000521_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000524_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000529_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000538_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000544_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000547_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000548_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000551_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000553_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000557_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000560_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000567_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000583_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000585_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000589_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000591_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000592_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000603_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000607_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000612_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000618_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000621_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000626_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000641_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000642_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000644_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000645_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000646_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000657_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000667_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000676_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000678_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000679_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000686_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000687_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000703_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000714_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000715_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000716_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000719_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000733_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000738_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000749_Aorta_02/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000749_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000761_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center006_P000772_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000006_Aorta_02/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000006_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000011_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000022_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000027_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000028_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000030_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000033_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000058_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000081_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000098_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000110_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000113_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000122_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000126_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000143_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000146_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000152_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000153_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000160_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000166_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000179_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000183_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000184_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000190_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000197_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000204_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000208_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000214_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000221_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000227_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000229_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000230_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000232_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000233_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000235_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000251_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000252_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000261_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000269_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000273_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000276_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000284_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000285_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000299_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000304_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000306_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000309_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000311_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000322_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000325_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000328_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000330_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000337_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000358_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000373_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000375_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000419_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000420_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000422_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000442_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000448_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000450_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000456_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000472_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000479_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000480_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000489_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000497_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000508_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000520_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000533_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000546_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000554_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000556_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000558_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000566_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000581_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000602_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000617_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000623_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000635_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000640_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000648_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000652_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000653_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000658_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000670_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000691_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000695_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000699_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000700_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000704_Aorta_02/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000704_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000709_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000735_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000743_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000747_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center007_P000767_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000013_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000013_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+
+/media/fudan22/4DFlow/
+  README.md
+  file_mapping4nvidia(3).csv
+  4DFlow_counts(4).csv
+  Data_split.xls
+  copied_fudan22.csv
+  Center008_P000013_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000020_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000020_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000020_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000024_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000024_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000024_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000025_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000025_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000025_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000045_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000045_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000045_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000048_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000048_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000051_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000051_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000051_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000073_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000115_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000115_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000115_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000131_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000131_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000139_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000139_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000151_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000151_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000151_Cerebrovascular/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000156_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000156_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000163_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000164_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000200_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000200_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000206_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000206_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000207_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000213_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000213_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000213_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000236_Aorta/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000236_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000257_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000257_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000257_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000258_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000258_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000258_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000260_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000260_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000260_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000293_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000340_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000340_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000340_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000341_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000341_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000341_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000362_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000362_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000379_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000380_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000380_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000393_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000394_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000394_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000394_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000399_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000399_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000399_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000400_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000400_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000400_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000471_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000471_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000483_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000483_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000483_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000506_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000506_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000506_Cerebrovascular/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000519_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000535_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000535_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000535_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000536_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000536_Cerebrovascular/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000541_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000541_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000541_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000564_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000564_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000593_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000593_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000593_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000600_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000600_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000636_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000636_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000636_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000637_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000637_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000649_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000649_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000649_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000651_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000651_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000666_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000666_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000666_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000668_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000668_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000681_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000681_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000681_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000683_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000683_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000683_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000684_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000684_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000684_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000698_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000698_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000698_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000711_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000711_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000711_Cerebrovascular/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000713_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000713_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000713_Cerebrovascular/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000728_Aorta/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000728_Carotid/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000728_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000744_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000744_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000744_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000750_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000750_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000750_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000759_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000759_Carotid/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center008_P000759_Cerebrovascular/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000061_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000072_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000173_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000189_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000198_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000228_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000264_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000270_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000288_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000295_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000377_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000397_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000409_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000428_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000429_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000444_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000463_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000475_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000590_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000596_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000608_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000610_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000672_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000701_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000710_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000722_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000726_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center009_P000742_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000056_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000074_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000254_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000279_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000282_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000357_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000516_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000677_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000697_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center010_P000764_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000040_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000106_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000123_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000349_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000588_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000598_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000599_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000708_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000732_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center011_P000755_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000001_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000070_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000125_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000187_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000203_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000253_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000286_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000316_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000370_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000378_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000382_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000383_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000408_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000416_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000430_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000452_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000540_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000573_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000622_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000629_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000731_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center012_P000768_Aorta/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center013_P000169_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center013_P000186_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center013_P000259_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center013_P000262_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center013_P000365_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center013_P000387_PortalVein/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000014_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000017_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000021_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000031_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000035_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000039_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000049_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000050_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000071_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000079_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000089_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000091_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000102_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000103_RenalArtery_02/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000103_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000105_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000109_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000111_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000119_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000120_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000121_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000129_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000130_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000132_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000135_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000138_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000161_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000167_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000172_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000178_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000180_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000234_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000265_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000274_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000290_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000307_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000308_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000320_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000321_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000342_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000348_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000355_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000356_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000359_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000360_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000361_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000364_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000381_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000395_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000404_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000418_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000432_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000435_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000443_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000467_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000477_RenalArtery_02/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000477_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000482_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000485_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000495_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000517_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000531_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000539_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000543_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000550_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000555_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000561_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000576_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000584_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000587_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000609_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000614_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000616_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000620_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000638_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000650_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000656_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000671_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000688_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000690_RenalArtery/  [train]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000723_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000736_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000751_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000765_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000770_RenalArtery/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center014_P000771_RenalArtery/  [ordinary_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000007_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000012_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000026_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000029_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000037_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000060_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000064_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000067_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000084_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000090_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000144_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000159_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000170_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000218_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000238_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000248_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000268_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000283_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000298_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000300_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000329_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000331_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000334_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000344_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000351_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000368_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000374_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000392_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000407_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000431_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000438_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000440_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000447_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000458_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000462_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000470_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000490_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000496_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000507_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000511_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000513_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000525_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000534_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000542_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000572_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000575_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000577_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000579_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000595_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000601_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000606_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000615_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000633_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000654_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000655_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000659_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000660_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000661_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000680_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000689_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000696_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000721_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000725_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000727_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat
+  Center015_P000748_PortalVein/  [focused_test]
+    coilmap.mat
+    corrmap.npz
+    kdata_full.mat
+    params.csv
+    segmask_new.mat
+    segmask.mat

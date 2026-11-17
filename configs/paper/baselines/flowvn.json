@@ -1,0 +1,59 @@
+{
+  "paper": {
+    "method": "flowvn",
+    "name": "flowvn",
+    "seed": 2026,
+    "manifest": "experiments/paper/inputs/final_dataset_manifest.csv",
+    "tree": "experiments/paper/inputs/final_dataset_tree.txt",
+    "train_index": "outputs/paper/index/train_index.json",
+    "validation_manifest": null,
+    "validation_enabled": false,
+    "output_dir": "outputs/paper/flowvn",
+    "initialization": "independent_random",
+    "smoke_steps": 1,
+    "num_slices": 3,
+    "num_frames": 5,
+    "samples_per_case": 8,
+    "accelerations": [
+      10,
+      20,
+      30,
+      40,
+      50
+    ],
+    "protected_roots": [
+      "/media/Elements/4DFlow",
+      "/media/fudan22/4DFlow"
+    ],
+    "checkpoint": null,
+    "baseline_commit": "9504c29e50237d96eee89f3cf47693c64482bd2f"
+  },
+  "optimizer": {
+    "lr": 0.0001,
+    "weight_decay": 0.0
+  },
+  "num_epochs": 100,
+  "num_workers": 0,
+  "batch_size": 1,
+  "author": {
+    "path": "scripts/tools/FlowVN",
+    "entrypoint": "main.py"
+  },
+  "network": {
+    "D_size": 7,
+    "T_size": 5,
+    "num_stages": 10,
+    "features_in": 1,
+    "features_out": 24,
+    "kernel_size": 7,
+    "act": "linear",
+    "num_act_weights": 71,
+    "grid": 0.25,
+    "weight": 0.025,
+    "vmin": -3.5,
+    "vmax": 3.5,
+    "sgd_momentum": true,
+    "exp_loss": false,
+    "mode": "train"
+  }
+}

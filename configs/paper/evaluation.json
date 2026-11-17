@@ -1,0 +1,24 @@
+{
+  "manifest": "experiments/paper/inputs/final_dataset_manifest.csv",
+  "cache_root": "outputs/paper/case_cache",
+  "output_root": "outputs/paper/full_case",
+  "mask": {
+    "method": "kt_gaussian",
+    "seed": 2026,
+    "accelerations": [10, 20, 30, 40, 50],
+    "description": "Fixed full-time kz/ky kt-Gaussian mask per case/R/seed; shared by all encodings, raw-x slices and methods."
+  },
+  "inference": {
+    "neural_merge": "tile",
+    "ours_merge": "center",
+    "description": "Ours emits center t/x; baseline tiles emit each genuine frame/slice once. overlap is available as an explicit alternative."
+  },
+  "metrics": {
+    "eval_code_dir": "/mnt/nas/nas3/openData/rawdata/4dFlow/ChallengeData_GT/EvaluationCode",
+    "spatial_mode": "bbox",
+    "use_venc": false,
+    "mask_images": true,
+    "include_complex_diff": true,
+    "description": "Historical wrapper settings: bbox and phase-radian flow. Set use_venc=true explicitly for physical velocity units; apply identical settings to every method."
+  }
+}

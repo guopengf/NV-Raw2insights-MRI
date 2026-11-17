@@ -1,0 +1,45 @@
+{
+  "paper": {
+    "method": "cut_4dflow",
+    "name": "cut_4dflow",
+    "seed": 2026,
+    "manifest": "experiments/paper/inputs/final_dataset_manifest.csv",
+    "tree": "experiments/paper/inputs/final_dataset_tree.txt",
+    "train_index": "outputs/paper/index/train_index.json",
+    "validation_manifest": null,
+    "validation_enabled": false,
+    "output_dir": "outputs/paper/cut_4dflow",
+    "initialization": "independent_random",
+    "smoke_steps": 1,
+    "num_slices": 1,
+    "num_frames": 5,
+    "samples_per_case": 8,
+    "accelerations": [
+      10,
+      20,
+      30,
+      40,
+      50
+    ],
+    "protected_roots": [
+      "/media/Elements/4DFlow",
+      "/media/fudan22/4DFlow"
+    ],
+    "checkpoint": null,
+    "baseline_commit": "9504c29e50237d96eee89f3cf47693c64482bd2f",
+    "gradient_accumulation": 5
+  },
+  "optimizer": {
+    "lr": 0.0005,
+    "weight_decay": 0.001
+  },
+  "num_epochs": 100,
+  "num_workers": 0,
+  "batch_size": 1,
+  "author": {
+    "path": "experiments/paper/vendor/CUT-4DFlow",
+    "url": "https://github.com/Abdelrahman912/CUT-4DFlow.git",
+    "train_entrypoint": "scripts/train.sh",
+    "recon_entrypoint": "scripts/recon.sh"
+  }
+}
