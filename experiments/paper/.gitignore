@@ -1,0 +1,8 @@
+vendor/
+.venv/
+.deps/
+__pycache__/
+!run_commands.sh
+!scripts/*.sh
+inputs/*.docx
+inputs/*prompt.md

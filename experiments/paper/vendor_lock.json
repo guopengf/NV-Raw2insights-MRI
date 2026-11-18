@@ -1,0 +1,18 @@
+{
+  "FlowMoDL": {
+    "url": "https://github.com/tgottwald/FlowMoDL.git",
+    "commit": "a65534f7b77164233dec8a7450e74618d08b526e",
+    "path": "experiments/paper/vendor/FlowMoDL"
+  },
+  "CUT-4DFlow": {
+    "url": "https://github.com/Abdelrahman912/CUT-4DFlow.git",
+    "commit": "e67e202eca61c0812a991b610d2a5832b8f5be3b",
+    "path": "experiments/paper/vendor/CUT-4DFlow",
+    "sparse_directories": ["src", "scripts", "configs"]
+  },
+  "FlowVN": {
+    "path": "scripts/tools/FlowVN",
+    "repository_commit": "9504c29e50237d96eee89f3cf47693c64482bd2f",
+    "note": "Read-only reuse of the existing PyTorch FlowVN implementation."
+  }
+}

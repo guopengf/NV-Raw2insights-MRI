@@ -1537,7 +1537,7 @@ class restormer_mri(nn.Module):
         mask_idx = next((i for i, sub in enumerate(self.mask_types) if sub in mask_type.lower()), -1)
         acc_idx = next((i for i, sub in enumerate(self.acc_factors) if int(sub) == acc_factor), -1)
         if acc_idx == -1:
-            acc_idx = min(range(len(self.acc_factors)), key=lambda i: abs(int(self.acc_factors[i]) - int(acc_factor)))
+            acc_idx = min(range(len(self.acc_factors)), key=lambda i: abs(self.acc_factors[i] - acc_factor))
         acq_idx = next(
             (i for i, sub in enumerate(self.acq_types) if sub.lower() == acq_type.lower()),
             -1,

@@ -1,0 +1,6 @@
+[submodule "experiments/paper/vendor/FlowMoDL"]
+	path = experiments/paper/vendor/FlowMoDL
+	url = https://github.com/tgottwald/FlowMoDL.git
+[submodule "experiments/paper/vendor/CUT-4DFlow"]
+	path = experiments/paper/vendor/CUT-4DFlow
+	url = https://github.com/Abdelrahman912/CUT-4DFlow.git

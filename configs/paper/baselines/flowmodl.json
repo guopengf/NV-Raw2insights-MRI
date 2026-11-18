@@ -1,0 +1,61 @@
+{
+  "paper": {
+    "method": "flowmodl",
+    "name": "flowmodl",
+    "seed": 2026,
+    "manifest": "experiments/paper/inputs/final_dataset_manifest.csv",
+    "tree": "experiments/paper/inputs/final_dataset_tree.txt",
+    "train_index": "outputs/paper/index/train_index.json",
+    "validation_manifest": null,
+    "validation_enabled": false,
+    "output_dir": "outputs/paper/flowmodl",
+    "initialization": "independent_random",
+    "smoke_steps": 1,
+    "num_slices": 64,
+    "num_frames": 6,
+    "samples_per_case": 8,
+    "loader": {"case_cache_mib": 512, "prefetch": true, "pin_limit_mib": 128},
+    "checkpoint_every_epochs": 1,
+    "online_undersampling": {
+      "enabled": true,
+      "suite_path": "/SSDHome/share/haosen/4dflow/后续实验/final_mask_suite_20261118/code/mask_suite.py",
+      "methods": ["gaussian", "pr4d", "pseudo", "uih"],
+      "rate_mode": "continuous",
+      "rate_range": [10, 50],
+      "acs_zy": [3, 3],
+      "pseudo_profile": "aorta_c001_R10",
+      "cache_cases": 1024
+    },
+    "accelerations": [
+      10,
+      20,
+      30,
+      40,
+      50
+    ],
+    "protected_roots": [
+      "/media/Elements/4DFlow",
+      "/media/fudan22/4DFlow"
+    ],
+    "checkpoint": null,
+    "baseline_commit": "9504c29e50237d96eee89f3cf47693c64482bd2f"
+  },
+  "optimizer": {
+    "lr": 0.001,
+    "weight_decay": 0.01
+  },
+  "num_epochs": 50,
+  "num_workers": 0,
+  "batch_size": 1,
+  "author": {
+    "path": "experiments/paper/vendor/FlowMoDL",
+    "url": "https://github.com/tgottwald/FlowMoDL.git",
+    "entrypoint": "train.py",
+    "config_name": "config_flowmodl"
+  },
+  "hydra": {
+    "model": "flowmodl",
+    "loss": "composite",
+    "optimizer": "adamw"
+  }
+}

@@ -1,0 +1,2 @@
+final_dataset_manifest.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+final_dataset_tree.txt -text

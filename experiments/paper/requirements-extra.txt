@@ -1,0 +1,6 @@
+# Install inside the paper venv on top of the existing project/4dflow environment.
+sigpy==0.1.27
+hydra-core==1.3.8
+zarr==2.18.7
+numcodecs==0.15.2
+pytest==9.2.0
