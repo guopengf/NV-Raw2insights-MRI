@@ -14,6 +14,16 @@
     "num_slices": 3,
     "num_frames": 5,
     "samples_per_case": 8,
+    "online_undersampling": {
+      "enabled": true,
+      "suite_path": "/SSDHome/share/haosen/4dflow/后续实验/final_mask_suite_20261118/code/mask_suite.py",
+      "methods": ["gaussian", "pr4d", "pseudo", "uih"],
+      "rate_mode": "continuous",
+      "rate_range": [10, 50],
+      "acs_zy": [3, 3],
+      "pseudo_profile": "aorta_c001_R10",
+      "cache_cases": 1024
+    },
     "accelerations": [
       10,
       20,

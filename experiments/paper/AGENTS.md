@@ -6,6 +6,8 @@ private planning documents are not included in the published code branch.
 This package was based on `pengfeig/4dflow-finetune`, baseline SHA
 `9504c29e50237d96eee89f3cf47693c64482bd2f`, and is published on
 `haosen/baseline_ablation` in `guopengf/NV-Raw2insights-MRI`.
+The cluster handoff uses the separately requested branch spelling
+`haosen/baselin_ablation`; its setup and queue guidance are in CLUSTER_TRAINING.md.
 The old root `agent.md` describes an earlier phase and is not the current experiment specification.
 
 - This stage prepares training and runs only 1-3 optimizer steps on Train data.
@@ -17,7 +19,13 @@ The old root `agent.md` describes an earlier phase and is not the current experi
 - Inference/evaluation CLI defaults to Train. Supporting explicit original test labels
   in code is not authorization to execute held-out tests during development.
 - Use one fixed full-time kt-Gaussian mask per case/R/seed across methods; cache only
-  outside datasets. Never resample independently for each inference window.
+  outside datasets for the existing evaluation pipeline. Never resample independently
+  for each inference window.
+- For training and solver Train-window checks, use the cy136 final mask suite
+  configured in paper.online_undersampling. Do not duplicate or edit its code.
+  Draw one method and nominal R per case and epoch; share the full-time pattern
+  across windows, E, coils and x. UIH stays 2D until the loader selects a window.
+  Continuous R in [10,50] is the default; integer mode is an explicit alternative.
 - Reconstruct every time and x position, keep all four encodings and complex phase,
   restore the common acquisition scale, and publish completion metadata last.
 - Our final cascade repeats its center time prediction: export only genuine center

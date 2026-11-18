@@ -54,8 +54,9 @@ class Ours:
         coils = batch["coils"][:, None, None].expand(b, e, t, c, s, h, w).permute(0, 1, 4, 2, 3, 5, 6).reshape(b * e, s, t, c, h, w)
         sens = torch.view_as_real(coils.contiguous())
         mask = batch["mask"][:, None, None, :, None, :, :, None].expand(b, e, s, t, c, h, w, 2).reshape(b * e, s, t, c, h, w, 2).bool()
-        acceleration = int(batch["acceleration"][0])
+        acceleration = float(batch["acceleration"][0])
         with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16, enabled=self.device.type == "cuda" and self.cfg["amp"]):
+            # Share the existing mask-conditioning slot; the actual binary mask drives DC.
             out = self.model(inp, mask, "kt_gaussian", acceleration, "Flow4d", sensitivity_maps=sens, mra_prior=None)
         complex_out = torch.view_as_complex(out.float().contiguous())
         combined = (complex_out * coils.conj()).sum(dim=3).reshape(b, e, s, t, h, w).permute(0, 1, 3, 2, 4, 5)

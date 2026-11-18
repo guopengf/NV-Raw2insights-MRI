@@ -40,7 +40,8 @@ class FlowVNAdapter:
         x0 = sense_adjoint(batch["kspace"], batch["coils"], batch["mask"]).reshape(b * e, 1, t, s, h, w)
         measured = batch["kspace"].permute(0, 1, 3, 2, 4, 5, 6).reshape(b * e, 1, c, t, s, h, w)
         coils = batch["coils"].repeat_interleave(e, dim=0)
-        pred = self.model(x0, measured, coils, batch["acceleration"].repeat_interleave(e)).reshape(b, e, t, s, h, w)
+        rate = batch["acceleration"].to(dtype=x0.real.dtype).repeat_interleave(e)
+        pred = self.model(x0, measured, coils, rate).reshape(b, e, t, s, h, w)
         # The author's non-exp supervised objective is complex absolute L1.
         loss = torch.nn.functional.l1_loss(pred - batch["target"], torch.zeros_like(pred))
         return loss, pred, {"author_complex_l1": loss.detach()}
@@ -156,13 +157,17 @@ class CUTAdapter:
         for si in range(s):
             theta = batch["mask"][:, None, None]
             lam = 1 - theta
+            rate = float(batch["acceleration"][0])
+            if self.model.cond_table is not None:
+                # The author architecture has an anchored table, not a continuous R input.
+                rate = min(self.model.cond_table.r_values, key=lambda r: abs(r - rate))
             native_batch = {"img_zf": initial[:, :, :, si],
                             "kdata_theta": batch["kspace"][:, :, :, :, si].permute(0, 1, 3, 2, 4, 5),
                             "coilmap": batch["coils"][:, :, si],
                             "mask_theta": theta,
                             "kdata_lambda": batch["full_kspace"][:, :, :, :, si].permute(0, 1, 3, 2, 4, 5) * lam,
                             "mask_lambda": lam, "cardiac_bins": batch["frame_indices"][0],
-                            "R": int(batch["acceleration"][0]), "seg_idx": 0, "scanner_weight": 1.0}
+                            "R": rate, "seg_idx": 0, "scanner_weight": 1.0}
             loss, _ = self.training_step(self.model, native_batch, self.device,
                                          apply_scanner_weight=False, lambda_v=self.native["lambda_v"])
             losses.append(loss)

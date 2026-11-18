@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 
 from ..common.data import TrainSlabs, fft2
 from ..common.manifest import read_manifest, validate_train_index
+from ..common.online_sampling import sampling_log
 from ..common.path_mapping import protected_case_paths
 from ..common.safety import OutputGuard, ROOT, sha256
 from pathlib import Path
@@ -83,11 +84,15 @@ def execute_solver(args):
     start = time.monotonic()
     try:
         dataset = TrainSlabs(ROOT / p["train_index"], seed=p["seed"], num_slices=p["num_slices"],
-                             num_frames=p["num_frames"], accelerations=p["accelerations"], smoke=True)
+                             num_frames=p["num_frames"], accelerations=p["accelerations"], smoke=True,
+                             online_undersampling=p.get("online_undersampling"))
         validate_train_index(dataset.cases, cases)
         before = {str(source): (Path(source).stat().st_size, Path(source).stat().st_mtime_ns)
                   for source in dataset.cases[0]["files"].values()}
         batch = next(iter(DataLoader(dataset, batch_size=1)))
+        if dataset.online_sampler is not None:
+            report["online_undersampling"] = dataset.online_sampler.provenance()
+            report["sampling"] = sampling_log(batch)
         pred, details = {"cg_sense": cg_sense, "cs_tv": cs_tv}[p["method"]](batch, cfg["solver"])
         if pred.shape != batch["target"].shape or not torch.isfinite(pred).all():
             raise ValueError(f"Invalid complex output: {pred.shape}")

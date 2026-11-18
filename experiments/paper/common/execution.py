@@ -12,12 +12,13 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 
 from .data import TrainSlabs
 from .manifest import read_manifest, validate_train_index
+from .online_sampling import sampling_log
 from .path_mapping import protected_case_paths
 from .safety import OutputGuard, ROOT, sha256
+from .train_loader import CaseWindowLoader
 
 
 def parser():
@@ -25,7 +26,9 @@ def parser():
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--smoke", action="store_true", help="Train-only 1-3 optimizer steps, no full experiment")
     p.add_argument("--steps", type=int, default=1)
+    p.add_argument("--smoke-case-id", help="Use a specific Train case for a memory/throughput probe")
     p.add_argument("--device", default="cuda:0")
+    p.add_argument("--resume-latest", action="store_true", help="Resume this run's latest.pt when it exists")
     p.add_argument("--probe-flow-loss", action="store_true", help="Smoke-only: test the fully enabled flow-loss curriculum")
     return p
 
@@ -43,6 +46,8 @@ def execute(args, factory):
         raise ValueError("Validation is disabled until an explicit independent validation manifest is provided")
     if args.smoke and not 1 <= args.steps <= 3:
         raise ValueError("Readiness smoke tests permit only 1-3 optimizer steps")
+    if getattr(args, "smoke_case_id", None) and not args.smoke:
+        raise ValueError("--smoke-case-id requires --smoke")
     manifest_path = ROOT / paper["manifest"]
     source_mapping = ROOT / paper["source_mapping"] if paper.get("source_mapping") else None
     source_cases, _ = read_manifest(manifest_path, source_mapping)
@@ -73,15 +78,18 @@ def execute(args, factory):
         dataset = TrainSlabs(ROOT / paper["train_index"], seed=paper["seed"],
                              num_slices=paper.get("smoke_num_slices", paper["num_slices"]) if args.smoke else paper["num_slices"],
                              num_frames=paper.get("smoke_num_frames", paper["num_frames"]) if args.smoke else paper["num_frames"],
-                             samples_per_case=paper["samples_per_case"], accelerations=paper["accelerations"], smoke=args.smoke)
+                             samples_per_case=paper["samples_per_case"], accelerations=paper["accelerations"], smoke=args.smoke,
+                             smoke_case_id=getattr(args, "smoke_case_id", None),
+                             online_undersampling=paper.get("online_undersampling"))
         validate_train_index(dataset.cases, source_cases, require_complete=not args.smoke)
+        if dataset.online_sampler is not None:
+            report["online_undersampling"] = dataset.online_sampler.provenance()
         source_metadata = {}
         for case in dataset.cases:
             for source in case["files"].values():
                 stat = Path(source).stat()
                 source_metadata[source] = (stat.st_size, stat.st_mtime_ns)
-        loader = DataLoader(dataset, batch_size=1, shuffle=not args.smoke,
-                            num_workers=int(cfg.get("num_workers", 0)), generator=torch.Generator().manual_seed(paper["seed"]))
+        loader = CaseWindowLoader(dataset, device, paper["method"], shuffle=not args.smoke, **paper.get("loader", {}))
         guard.json(output / "effective_config.json", cfg)
         adapter = factory(cfg, device)
         model, optimizer = adapter.model, adapter.optimizer
@@ -93,8 +101,14 @@ def execute(args, factory):
         report["trainable_parameters"] = sum(p.numel() for p in model.parameters() if p.requires_grad)
         model.train()
         start_epoch, step = 0, 0
-        if paper.get("checkpoint"):
-            state = torch.load(paper["checkpoint"], map_location=device, weights_only=False)
+        checkpoint = guard.check(output / "latest.pt")
+        resume = paper.get("checkpoint")
+        if getattr(args, "resume_latest", False) and checkpoint.is_file():
+            resume = checkpoint
+        if not args.smoke and resume is None and checkpoint.exists():
+            raise FileExistsError(f"Training checkpoint already exists: {checkpoint}; use --resume-latest or a new output")
+        if resume:
+            state = torch.load(resume, map_location="cpu", weights_only=False, mmap=True)
             model.load_state_dict(state["model"], strict=True)
             optimizer.load_state_dict(state["optimizer"])
             if scheduler is not None and state.get("scheduler") is not None:
@@ -102,88 +116,114 @@ def execute(args, factory):
             if hasattr(adapter, "load_state_dict"):
                 adapter.load_state_dict(state.get("adapter", {}))
             start_epoch, step = state["epoch"] + 1, state["step"]
-            report["resumed_from"] = paper["checkpoint"]
+            report["resumed_from"] = str(resume)
             report["resume_epoch"], report["resume_step"] = start_epoch, step
             del state
         end_epoch = start_epoch + 1 if args.smoke else int(cfg["num_epochs"])
         if end_epoch <= start_epoch:
             raise ValueError("Checkpoint already reached num_epochs; increase the total epoch budget explicitly")
+        save_every = paper.get("checkpoint_every_epochs", 1)
+        if type(save_every) is not int or save_every < 1:
+            raise ValueError("paper.checkpoint_every_epochs must be a positive integer")
         for epoch in range(start_epoch, end_epoch):
             dataset.epoch = epoch
+            case_sampling = {}
             pending, accumulated_loss = 0, 0.0
-            for batch_index, cpu_batch in enumerate(loader):
-                before = {p: p.detach().clone() for p in model.parameters() if p.requires_grad and p.numel() <= 100 and len(report["steps"]) == 0}
-                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in cpu_batch.items()}
-                if pending == 0:
-                    optimizer.zero_grad(set_to_none=True)
-                loss, prediction, components = adapter.step(batch, epoch, step)
-                if not torch.isfinite(loss):
-                    raise FloatingPointError(f"Non-finite loss: {loss}")
-                if prediction.shape != batch["target"].shape or not torch.is_complex(prediction):
-                    raise AssertionError(f"Output must be four-encoding complex [B,E,T,S,Z,Y]: {prediction.shape}")
-                if not torch.isfinite(prediction).all():
-                    raise FloatingPointError("Non-finite complex prediction")
-                if not getattr(adapter, "backward_in_step", False):
-                    (loss / accumulation).backward()
-                pending += 1
-                accumulated_loss += float(loss.detach())
-                if pending < accumulation and batch_index + 1 < len(loader):
-                    continue
-                gradients = [p.grad for p in model.parameters() if p.requires_grad and p.grad is not None]
-                if not gradients or not all(torch.isfinite(g).all() for g in gradients):
-                    raise FloatingPointError("Missing or non-finite gradients")
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                if grad_norm <= 0:
-                    raise AssertionError("All gradients are zero")
-                optimizer.step()
-                if hasattr(adapter, "after_step"):
-                    adapter.after_step()
-                record = {"epoch": epoch, "step": step, "case": cpu_batch["case_id"],
-                          "source": cpu_batch["source"], "input_shape": list(batch["kspace"].shape),
-                          "output_shape": list(prediction.shape), "native_shape": cpu_batch["native_shape"].tolist(),
-                          "acceleration_nominal": cpu_batch["acceleration"].tolist(),
-                          "acceleration_actual": float(batch["mask"].numel() / batch["mask"].sum()),
-                          "venc_order": cpu_batch["venc_order"], "slice_indices": cpu_batch["slice_indices"].tolist(),
-                          "frame_indices": cpu_batch["frame_indices"].tolist(), "loss": accumulated_loss / pending,
-                          "accumulated_microbatches": pending,
-                          "gradient_norm": float(grad_norm), "parameters_with_grad": len(gradients),
-                          "small_parameters_changed": sum(not torch.equal(old, p.detach()) for p, old in before.items()) if before else None,
-                          "components": {k: float(v) for k, v in components.items()}}
-                record["learning_rate"] = optimizer.param_groups[0]["lr"]
-                record["metadata_shape_warning"] = cpu_batch["metadata_shape_warning"]
-                record["roi_voxels"] = float(batch["segmask"].sum())
-                mixer_gradients = [p.grad for name, p in model.named_parameters()
-                                   if "flowvn_mixer.regularizers." in name and p.grad is not None]
-                if mixer_gradients:
-                    record["mixer_regularizer_grad_abs_sum"] = sum(float(g.detach().abs().sum()) for g in mixer_gradients)
-                    record["mixer_scale_values"] = {name: float(p.detach()) for name, p in model.named_parameters()
-                                                    if name.endswith("flowvn_mixer.scale")}
-                report["steps"].append(record)
-                pending, accumulated_loss = 0, 0.0
-                if args.smoke or step % 10 == 0:
-                    print(json.dumps(record), flush=True)
-                if not args.smoke:
-                    report["steps"] = report["steps"][-10:]
-                step += 1
-                if args.smoke:
-                    model.eval()
-                    with torch.no_grad():
-                        inferred = adapter.reconstruct(batch)
-                    if inferred.shape != prediction.shape or not torch.isfinite(inferred).all():
-                        raise AssertionError("Inference output shape/finite-value check failed")
-                    report["inference_shape"] = list(inferred.shape)
-                    report["inference_complex"] = bool(torch.is_complex(inferred))
-                    report["inference_uses_ema"] = bool(getattr(adapter, "inference_uses_ema", False))
-                    model.train()
-                    # Export only a real train window; never label this as a complete case reconstruction.
-                    destination = guard.check(output / "train_window_complex.npy")
-                    with destination.open("wb") as stream:
-                        np.save(stream, inferred.detach().cpu().numpy())
-                    if len(report["steps"]) >= args.steps:
-                        break
+            timing = {"windows": 0, "loader_wait_seconds": 0.0, "train_step_seconds": 0.0}
+            with loader.epoch_batches() as batches:
+                batch_done = time.perf_counter()
+                for batch_index, cpu_batch in enumerate(batches):
+                    batch_start = time.perf_counter()
+                    timing["loader_wait_seconds"] += batch_start - batch_done
+                    timing["windows"] += 1
+                    sampling = sampling_log(cpu_batch)
+                    if sampling:
+                        case_id = cpu_batch["case_id"][0]
+                        if case_sampling.setdefault(case_id, sampling) != sampling:
+                            raise RuntimeError(f"Inconsistent online mask settings for {case_id} in epoch {epoch}")
+                    before = {p: p.detach().clone() for p in model.parameters() if p.requires_grad and p.numel() <= 100} if args.smoke and not report["steps"] else {}
+                    batch = loader.to_device(cpu_batch, device)
+                    if pending == 0:
+                        optimizer.zero_grad(set_to_none=True)
+                    loss, prediction, components = adapter.step(batch, epoch, step)
+                    if not torch.isfinite(loss):
+                        raise FloatingPointError(f"Non-finite loss: {loss}")
+                    if prediction.shape != cpu_batch["target"].shape or not torch.is_complex(prediction):
+                        raise AssertionError(f"Output must be four-encoding complex [B,E,T,S,Z,Y]: {prediction.shape}")
+                    if args.smoke and not torch.isfinite(prediction).all():
+                        raise FloatingPointError("Non-finite complex prediction")
+                    if not getattr(adapter, "backward_in_step", False):
+                        (loss / accumulation).backward()
+                    pending += 1
+                    accumulated_loss = accumulated_loss + loss.detach()
+                    if pending < accumulation and batch_index + 1 < len(loader):
+                        batch_done = time.perf_counter()
+                        timing["train_step_seconds"] += batch_done - batch_start
+                        continue
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, error_if_nonfinite=True)
+                    if args.smoke and grad_norm <= 0:
+                        raise AssertionError("All gradients are zero or absent")
+                    optimizer.step()
+                    if hasattr(adapter, "after_step"):
+                        adapter.after_step()
+                    if args.smoke and device.type == "cuda":
+                        torch.cuda.synchronize(device)
+                    timing["train_step_seconds"] += time.perf_counter() - batch_start
+                    if args.smoke or step % 10 == 0:
+                        record = {"epoch": epoch, "step": step, "case": cpu_batch["case_id"],
+                                  "source": cpu_batch["source"], "input_shape": list(batch["kspace"].shape),
+                                  "output_shape": list(prediction.shape), "native_shape": cpu_batch["native_shape"].tolist(),
+                                  "acceleration_nominal": cpu_batch["acceleration"].tolist(),
+                                  "acceleration_actual": float(cpu_batch["mask"].numel() / cpu_batch["mask"].sum()),
+                                  "venc_order": cpu_batch["venc_order"], "slice_indices": cpu_batch["slice_indices"].tolist(),
+                                  "frame_indices": cpu_batch["frame_indices"].tolist(), "loss": float(accumulated_loss / pending),
+                                  "accumulated_microbatches": pending, "gradient_norm": float(grad_norm),
+                                  "parameters_with_grad": sum(p.grad is not None for p in model.parameters()),
+                                  "small_parameters_changed": sum(not torch.equal(old, p.detach()) for p, old in before.items()) if before else None,
+                                  "components": {k: float(v) for k, v in components.items()},
+                                  "learning_rate": optimizer.param_groups[0]["lr"],
+                                  "metadata_shape_warning": cpu_batch["metadata_shape_warning"],
+                                  "roi_voxels": float(cpu_batch["segmask"].sum())}
+                        if sampling:
+                            record["sampling"] = sampling
+                        if args.smoke:
+                            mixer_gradients = [p.grad for name, p in model.named_parameters()
+                                               if "flowvn_mixer.regularizers." in name and p.grad is not None]
+                            if mixer_gradients:
+                                record["mixer_regularizer_grad_abs_sum"] = sum(float(g.detach().abs().sum()) for g in mixer_gradients)
+                                record["mixer_scale_values"] = {name: float(p.detach()) for name, p in model.named_parameters()
+                                                                if name.endswith("flowvn_mixer.scale")}
+                        report["steps"].append(record)
+                        if not args.smoke:
+                            report["steps"] = report["steps"][-10:]
+                        print(json.dumps(record), flush=True)
+                    pending, accumulated_loss = 0, 0.0
+                    step += 1
+                    if args.smoke:
+                        model.eval()
+                        with torch.no_grad():
+                            inferred = adapter.reconstruct(batch)
+                        if inferred.shape != prediction.shape or not torch.isfinite(inferred).all():
+                            raise AssertionError("Inference output shape/finite-value check failed")
+                        report["inference_shape"] = list(inferred.shape)
+                        report["inference_complex"] = bool(torch.is_complex(inferred))
+                        report["inference_uses_ema"] = bool(getattr(adapter, "inference_uses_ema", False))
+                        model.train()
+                        destination = guard.check(output / "train_window_complex.npy")
+                        with destination.open("wb") as stream:
+                            np.save(stream, inferred.detach().cpu().numpy())
+                        if len(report["steps"]) >= args.steps:
+                            break
+                    batch_done = time.perf_counter()
+            report["epoch_timing"] = timing
+            print(f"EPOCH {epoch + 1}/{end_epoch} {json.dumps(timing)}", flush=True)
             if scheduler is not None:
                 scheduler.step()
-            checkpoint = guard.check(output / "latest.pt")
+            if case_sampling:
+                guard.json(output / "sampling" / f"epoch_{epoch:04d}.json",
+                           {"epoch": epoch, "generator": report["online_undersampling"], "cases": case_sampling})
+            if not args.smoke and (epoch + 1) % save_every != 0 and epoch + 1 != end_epoch:
+                continue
             temporary = guard.check(output / "latest.pt.tmp")
             torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(),
                         "adapter": adapter.state_dict() if hasattr(adapter, "state_dict") else {},

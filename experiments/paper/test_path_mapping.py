@@ -135,7 +135,8 @@ def test_readme_row_is_metadata_not_an_extra_case(tables):
     assert len(cases) == 2
 
 
-def test_virtual_builder_keeps_model_configs_and_inputs_unchanged(tmp_path, monkeypatch):
+@pytest.mark.parametrize("flat_root", [False, True])
+def test_virtual_builder_keeps_model_configs_and_inputs_unchanged(tmp_path, monkeypatch, flat_root):
     import h5py
 
     from .build_virtual_dataset import main
@@ -162,22 +163,33 @@ def test_virtual_builder_keeps_model_configs_and_inputs_unchanged(tmp_path, monk
     write_csv(mp, mapping)
     before = manifest.read_bytes(), mp.read_bytes()
     output = tmp_path / "virtual"
-    monkeypatch.setattr("sys.argv", ["build_virtual_dataset", "--manifest", str(manifest), "--mapping", str(mp), "--output", str(output)])
+    if flat_root:
+        staged = tmp_path / "staged"
+        staged.mkdir()
+        (staged / case["case_id"]).symlink_to(case["directory"], target_is_directory=True)
+        source = ["--dataset-root", str(staged)]
+    else:
+        source = ["--mapping", str(mp)]
+    monkeypatch.setattr("sys.argv", ["build_virtual_dataset", "--manifest", str(manifest), *source,
+                                    "--output", str(output), "--verify-train-files"])
     main()
     report = json.loads((output / "mapping_report.json").read_text())
     assert report["passed"] and report["train_headers_checked"][0]["passed"]
+    assert report["all_train_file_sizes_verified"]
     assert not report["symlinks_created"] and not report["dataset_files_copied"] and not report["test_contents_read"]
     for entry in json.loads((ROOT / "experiments/paper/experiment_registry.json").read_text())["experiments"]:
         original = json.loads((ROOT / entry["config"]).read_text())
         generated = json.loads((output / "configs" / f"{entry['name']}.json").read_text())
         new_paper, old_paper = generated.pop("paper"), original.pop("paper")
         assert generated == original
-        for key in ("source_mapping", "train_index", "output_dir"):
+        assert new_paper["manifest"] == str(manifest)
+        for key in ("manifest", "source_mapping", "train_index", "output_dir"):
             new_paper.pop(key, None)
             old_paper.pop(key, None)
         assert new_paper == old_paper
     assert before == (manifest.read_bytes(), mp.read_bytes())
-    assert (output / "inputs/source_mapping.csv").read_bytes() == mp.read_bytes()
+    if not flat_root:
+        assert (output / "inputs/source_mapping.csv").read_bytes() == mp.read_bytes()
 
 
 def test_guard_prunes_nested_roots_without_weakening_protection(tmp_path):

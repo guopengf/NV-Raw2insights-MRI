@@ -15,6 +15,16 @@ from .common.safety import OutputGuard, ROOT, sha256
 TEMPLATE = ROOT / "configs/nv_raw2insights_mri_small_4dflow_3d_flowvn_joint_venc_flow_unified_70_15_15.json"
 INPUT_ROOT = Path("/SSDHome/share/haosen/4dflow/后续实验")
 BASE_SHA = "9504c29e50237d96eee89f3cf47693c64482bd2f"
+ONLINE_UNDERSAMPLING = {
+    "enabled": True,
+    "suite_path": str(INPUT_ROOT / "final_mask_suite_20261118" / "code" / "mask_suite.py"),
+    "methods": ["gaussian", "pr4d", "pseudo", "uih"],
+    "rate_mode": "continuous",
+    "rate_range": [10, 50],
+    "acs_zy": [3, 3],
+    "pseudo_profile": "aorta_c001_R10",
+    "cache_cases": 1024,
+}
 
 
 def configuration(name, manifest, tree):
@@ -39,6 +49,9 @@ def configuration(name, manifest, tree):
                     "output_dir": f"outputs/paper/{name}",
                     "initialization": "independent_random", "smoke_steps": 1,
                     "num_slices": 3, "num_frames": 5, "samples_per_case": 8,
+                    "loader": {"case_cache_mib": 512, "prefetch": True, "pin_limit_mib": 128},
+                    "checkpoint_every_epochs": 1,
+                    "online_undersampling": copy.deepcopy(ONLINE_UNDERSAMPLING),
                     "accelerations": [10, 20, 30, 40, 50],
                     "protected_roots": ["/media/Elements/4DFlow", "/media/fudan22/4DFlow"],
                     "checkpoint": None, "baseline_commit": BASE_SHA}
@@ -63,6 +76,9 @@ def baseline(name, common):
            "num_epochs": 100, "num_workers": 0, "batch_size": 1}
     p = cfg["paper"]
     p.update(name=name, method=name, output_dir=f"outputs/paper/{name}", smoke_steps=1)
+    if name in {"cg_sense", "cs_tv"}:
+        p.pop("loader")
+        p.pop("checkpoint_every_epochs")
     if name == "cg_sense":
         cfg["solver"] = {"iterations": 30, "tolerance": 1e-6, "l2": 1e-4}
     elif name == "cs_tv":

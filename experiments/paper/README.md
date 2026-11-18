@@ -6,14 +6,16 @@
 2026-11-15 已完成真实 Train 样本的 1–3 步预检，未执行完整训练、测试集推理、测试指标或 checkpoint 选择。
 2026-11-17 按追加要求新增全病例推理/拼接与原评测接口，入口和命令见下文。
 新增流程的验证状态单独记录在 `FULL_CASE_PIPELINE_20261117.md`，不能把旧窗口预检等同于全病例验收。
+2026-11-18 训练配置增加最终版在线采样；旧预检报告及其 registry 中的配置指纹是历史记录。
 
 ## 发布分支与首次克隆
 
-发布到 `git@github.com:guopengf/NV-Raw2insights-MRI.git` 的
-`haosen/baseline_ablation` 分支，基于上述 baseline commit，不修改其他分支。
+集群版本发布到 `git@github.com:guopengf/NV-Raw2insights-MRI.git` 的
+`haosen/baselin_ablation` 分支（按本次指定拼写），原 `haosen/baseline_ablation` 保留。
+九个训练配置的交付命令、I/O 优化与排队顺序见 [CLUSTER_TRAINING.md](CLUSTER_TRAINING.md)。
 
 ```bash
-git clone --branch haosen/baseline_ablation \
+git clone --branch haosen/baselin_ablation \
   git@github.com:guopengf/NV-Raw2insights-MRI.git
 cd NV-Raw2insights-MRI
 conda activate 4dflow
@@ -61,7 +63,7 @@ outputs/paper/                 索引、缓存、日志、checkpoint、预检和
 - 没有 `val`，因此验证、模型选择均关闭；不拿任何 Test 病例补成验证集。
 - `/media/Elements/4DFlow/`、`/media/fudan22/4DFlow/`、原始 Source/Destination 路径严格只读。
 - `OutputGuard` 在写入前解析 realpath，保护数据根、清单中所有病例目录及输入清单目录，拒绝通过符号链接写回数据。
-- kt-Gaussian mask 在内存生成，复用项目现有生成函数。没有在数据目录中创建欠采样文件、缓存或链接。
+- 新配置从全采 k-space 在内存生成欠采样输入，直接调用 cy136 最终 mask suite。没有在数据目录中创建欠采样文件、缓存或链接。
 
 原始 k-space 是 `[encoding,time,coil,kz,ky,kx]`；只沿 raw kx 先做 IFFT，
 之后以 raw x 为 slice/slab，欠采样平面仍是 z-y。本包的共同张量约定：
@@ -213,20 +215,39 @@ CUDA_VISIBLE_DEVICES=0 WANDB_MODE=disabled \
 基线保留其窗口内实际重建的时间帧。导出保留归一化域的 complex 数值，不代表扫描仪原始幅值单位。
 该文件不能直接当作完整病例的 challenge submission 提交。
 
-## 动态欠采样采用哪种方案
+## 在线欠采样训练
 
-采用项目已有 **kt-Gaussian 可变密度随机采样**，复用
-`scripts/generate_4dflow_ktgaussian_train.py::generate_ktgaussian_mask_2d`，
-不是 uniform、radial，也不是 VAA 使用的血管分割 mask。
-沿 kz/ky 采样、完整保留 kx；每个时间帧的 mask 不同，同一帧的四编码/所有 x 共用 mask。
-Gaussian sigma 分别为 Ny/5、Nz/5，默认中心保留一个点，时间重复采样权重衰减 0.5，
-帧内最小间距因子 3；每帧目标点数为 `floor(Nz*Ny/R)`，实际 R 会另存日志。
-这是当前项目的 Python 实现，不声称与挑战官方 MATLAB mask 逐点相同。
+11 份实验配置默认开启 `paper.online_undersampling.enabled`。
+`suite_path` 指向 cy136 共享盘的最终 `code/mask_suite.py`，训练直接调用其 `generate()`，
+不复制生成器，不使用 CLI 或创建中间 mask 文件。其他服务器须能读取该目录；
+如挂载位置不同，配置里改为实际路径，保留套件及两个 profile JSON 的相对位置。
+使用 NAS 虚拟索引的旧配置需重新运行 `build_virtual_dataset`，把新字段带到本地生成配置中。
 
-- **训练**：`common/data.py::TrainSlabs` 在内存动态生成窗口采样，训练随机性保持原实现。
-- **推理/评测**：`common/case_data.py::FullCase.fixed_mask` 按 case/R/seed 生成完整 Nt 序列一次，
-  固定保存到实验 cache。不同方法、不同 S/T 窗口读取相同绝对时间位置的 mask；不能逐窗重抽。
-- 所有 mask、hybrid k-space、GT 缓存写在 `outputs/paper/case_cache/`，不写数据盘。
+| 配置项 | 用途 |
+|---|---|
+| `enabled` | `true` 使用最终套件；`false` 保留原实验入口的窗口级 kt-Gaussian 行为 |
+| `methods` | 从 `gaussian` / `pr4d` / `pseudo` / `uih` 中等概率选择；只留一个可做方法对照 |
+| `rate_mode` | `continuous` 随机实数倍率；`integer` 在范围内均匀抽整数，默认范围对应 41 档 |
+| `rate_range` | 倍率范围，默认 `[10, 50]`；可设 `[27.5, 27.5]` 做固定实数倍率对照 |
+| `acs_zy` / `pseudo_profile` | 动态三种方法默认 `3x3` ACS；pseudo 默认拟合几何。UIH 由套件自行缩放分层 |
+| `cache_cases` | 单 worker 内存缓存的病例数，默认 1024，二值图案按位存储；跨 worker 或淘汰后仍能按固定 seed 重建同一图案 |
+
+每个病例每个 epoch 只选一组方法、倍率和 seed；由 `paper.seed`、epoch 和 case ID
+稳定确定，同一 epoch 不受窗口大小、读取顺序或 worker 影响；下个 epoch 重新抽样。
+Gaussian、PR4D e0、pseudo 原生为 `[T,Z,Y]` 并随 T 变化，窗口按绝对时间索引取对应帧；
+UIH 原生为 `[Z,Y]`，只在读取窗口时沿 T 广播。所有方法沿四编码、线圈和完整 kx 共用采样。
+读取全采 `kdata_full.mat`，在 kx IFFT 后应用 mask（与 IFFT 前应用等价，因为 mask 不依赖 kx），
+GT 仍取自未掩蔽的全采数据。每帧点数为 `floor(Nz*Ny/R)`，请求 R 与实际网格 R 分开记。
+训练输出的 `sampling/epoch_*.json` 记录每例方法、倍率、实际点数、seed 和套件源码/配置指纹。
+
+FlowVN 和 FlowMoDL 的连续条件输入接收请求 R；本模型的离散倍率标签和 CUT 的原生条件表
+选择最近档，本模型的 FlowVN mixer 仍使用实数 R。本模型四种 mask 共用既有 mask-conditioning
+槽位以保留 checkpoint 形状；传给 DC 的始终是真实二值 mask，不是 Gaussian 替代图案。
+
+本次接入的是独立实验入口的训练和传统方法 Train 窗口预检；旧 `scripts/train.py` 预生成数据入口未迁移。
+正式整病例推理/评测的固定采样协议仍保持原样：`FullCase.fixed_mask` 使用旧 kt-Gaussian，
+按 case/R/seed 固定完整 Nt 并共享，不会自动改用训练随机样式。
+两种阶段都不会在原数据盘写入缓存或 mask。
 
 ## 全病例推理与拼接
 
@@ -335,7 +356,8 @@ Center012_P000203_Aorta,10,legacy_ours,3,/path/enc3.mat,yzxt,img4ranking,
 ```bash
 "$PAPER_PYTHON" -m pytest \
   experiments/paper/test_contracts.py experiments/paper/test_full_case.py \
-  experiments/paper/test_path_mapping.py experiments/paper/test_bootstrap.py -q
+  experiments/paper/test_path_mapping.py experiments/paper/test_bootstrap.py \
+  experiments/paper/test_online_sampling.py -q
 
 CUDA_VISIBLE_DEVICES=2 WANDB_MODE=disabled \
   "$PAPER_PYTHON" -m experiments.paper.validate_full_case --run --device cuda:0
@@ -375,7 +397,7 @@ runs/                      NAS 训练配置的独立训练/smoke 输出
 validation/                本次真实 Train 验证记录和指标
 ```
 
-生成配置只改 `paper.source_mapping`、`paper.train_index`、`paper.output_dir`，
+生成配置只改数据/输出地址和显式指定的 `suite_path`，
 模型结构、loss、seed、S/T 和所有训练超参数与原 config 一致，原 config 本身不改。
 `--check-train-cases 1|2|3` 控制只读检查的小 Train 病例数；索引完整不等于全部 NAS 文件已物理验收。
 映射文件有缺失、多余、重复 target/source 或 size/shape 不一致时直接报错，不尝试按 shape 猜病例。
