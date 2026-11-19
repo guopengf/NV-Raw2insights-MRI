@@ -364,7 +364,9 @@ def squeue_names():
 
 
 def sbatch(cmd):
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    # Inside a Slurm job the inherited SLURM_* variables would override the child job's resources.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("SLURM_")}
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
     return result.stdout.strip()
 
 
