@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .data import TrainSlabs
+from .data import TrainSlabs, h5_root
 from .manifest import read_manifest, validate_train_index
 from .online_sampling import sampling_log
 from .path_mapping import protected_case_paths
@@ -80,7 +80,8 @@ def execute(args, factory):
                              num_frames=paper.get("smoke_num_frames", paper["num_frames"]) if args.smoke else paper["num_frames"],
                              samples_per_case=paper["samples_per_case"], accelerations=paper["accelerations"], smoke=args.smoke,
                              smoke_case_id=getattr(args, "smoke_case_id", None),
-                             online_undersampling=paper.get("online_undersampling"))
+                             online_undersampling=paper.get("online_undersampling"),
+                             h5_root=h5_root(paper))
         validate_train_index(dataset.cases, source_cases, require_complete=not args.smoke)
         if dataset.online_sampler is not None:
             report["online_undersampling"] = dataset.online_sampler.provenance()

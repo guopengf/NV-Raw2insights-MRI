@@ -10,7 +10,7 @@ import torch
 from scipy.sparse.linalg import LinearOperator, cg
 from torch.utils.data import DataLoader
 
-from ..common.data import TrainSlabs, fft2
+from ..common.data import TrainSlabs, fft2, h5_root
 from ..common.manifest import read_manifest, validate_train_index
 from ..common.online_sampling import sampling_log
 from ..common.path_mapping import protected_case_paths
@@ -85,7 +85,7 @@ def execute_solver(args):
     try:
         dataset = TrainSlabs(ROOT / p["train_index"], seed=p["seed"], num_slices=p["num_slices"],
                              num_frames=p["num_frames"], accelerations=p["accelerations"], smoke=True,
-                             online_undersampling=p.get("online_undersampling"))
+                             online_undersampling=p.get("online_undersampling"), h5_root=h5_root(p))
         validate_train_index(dataset.cases, cases)
         before = {str(source): (Path(source).stat().st_size, Path(source).stat().st_mtime_ns)
                   for source in dataset.cases[0]["files"].values()}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 from collections import Counter
 from pathlib import Path
@@ -64,8 +65,11 @@ def read_manifest(path, source_mapping=None):
 
 
 def read_params(path):
-    with Path(path).open(encoding="utf-8-sig", newline="") as stream:
-        rows = list(csv.DictReader(stream))
+    return parse_params(Path(path).read_text(encoding="utf-8-sig"), path)
+
+
+def parse_params(text, path="<params>"):
+    rows = list(csv.DictReader(io.StringIO(text.lstrip("\ufeff"), newline="")))
     if len(rows) != 1:
         raise ValueError(f"Expected one metadata row: {path}")
     row = rows[0]

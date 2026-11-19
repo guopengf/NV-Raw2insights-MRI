@@ -14,7 +14,7 @@ from scipy import fft
 import torch
 from torch.utils.data import Dataset
 
-from .manifest import read_params
+from .manifest import parse_params, read_params
 from .online_sampling import online_sampler
 from .safety import ROOT
 
@@ -54,12 +54,22 @@ def kt_mask(z, y, t, acceleration, seed):
     return torch.from_numpy(mask.transpose(2, 0, 1).copy())
 
 
+def h5_root(paper):
+    backend = paper.get("train_backend", "raw_mat")
+    if backend == "raw_mat":
+        return None
+    if backend != "windowed_hdf5" or not paper.get("h5_root"):
+        raise ValueError("train_backend must be raw_mat, or windowed_hdf5 with paper.h5_root")
+    return paper["h5_root"]
+
+
 class TrainSlabs(Dataset):
     """Each item contains all 4 encodings; individual-encoding models split them later."""
 
     def __init__(self, index, *, seed=2026, num_slices=3, num_frames=5, samples_per_case=8,
                  accelerations=(10, 20, 30, 40, 50), smoke=False, smoke_case_id=None,
-                 online_undersampling=None):
+                 online_undersampling=None, h5_root=None):
+        self.h5_root = Path(h5_root) if h5_root else None
         self.cases = json.loads(Path(index).read_text())
         if not self.cases or any(c["dataset_group"] != "train" for c in self.cases):
             raise ValueError("TrainSlabs accepts only an explicit, nonempty train index")
@@ -103,6 +113,9 @@ class TrainSlabs(Dataset):
 
     def _case_windows(self, case_index, indices, cache_bytes):
         case = self.cases[case_index]
+        if self.h5_root:
+            yield from self._h5_case_windows(case, indices)
+            return
         files = case["files"]
         with ExitStack() as stack:
             # Compressed chunks often span several cardiac frames; avoid inflating
@@ -123,6 +136,34 @@ class TrainSlabs(Dataset):
             for window_index, (xs, ts, seed, rng) in enumerate(plans):
                 yield self._sample(case, shape, xs, ts, seed, rng, anatomical_mask, coilmaps, params,
                                    frames.read(window_index, ts, xs))
+
+    def _h5_case_windows(self, case, indices):
+        # Converted store from scripts/tools/final_v2_h5.py: hybrid/target [T,X,E,C,Z,Y,2] already has kx IFFT applied.
+        path = self.h5_root / "cases" / (case["case_id"] + ".h5")
+        with h5py.File(path, "r") as f:
+            if not f.attrs.get("complete", False):
+                raise ValueError(f"Incomplete HDF5 store: {path}")
+            target = f["hybrid/target"]
+            nt, nx, enc, nc, nz, ny, _ = target.shape
+            if enc != 4:
+                raise ValueError(f"Expected 4 encodings, got {target.shape}")
+            if f["coilmap"].attrs["layout"] != "shared":
+                raise NotImplementedError(f"Per-encoding coil maps are not supported: {path}")
+            shape = (enc, nt, nc, nz, ny, nx)
+            anatomical_mask = np.moveaxis(f["segmask"][...], 0, -1)  # [X,Z,Y] -> [Z,Y,X]
+            coilmaps = f["coilmap"][...]  # [X,C,Z,Y,2]
+            coilmaps = np.moveaxis(coilmaps[..., 0] + 1j * coilmaps[..., 1], 0, -1).astype(np.complex64)  # [C,Z,Y,X]
+            params = parse_params(f.attrs["params_csv"], path)
+            for index in indices:
+                xs, ts, seed, rng = self._window(index, shape, anatomical_mask)
+                ux = np.unique(xs)
+                pos = np.searchsorted(ux, xs)
+                full = np.empty((enc, len(ts), nc, len(xs), nz, ny), dtype=np.complex64)
+                for t in np.unique(ts):
+                    block = target[int(t), ux]  # [U,E,C,Z,Y,2]
+                    plane = (block[..., 0] + 1j * block[..., 1]).astype(np.complex64)[pos]
+                    full[:, ts == t] = plane.transpose(1, 2, 0, 3, 4)[:, None]
+                yield self._sample(case, shape, xs, ts, seed, rng, anatomical_mask, coilmaps, params, full)
 
     def _sample(self, case, shape, xs, ts, sample_seed, rng, anatomical_mask, coilmaps, params, full):
         enc, nt, nc, nz, ny, nx = shape
