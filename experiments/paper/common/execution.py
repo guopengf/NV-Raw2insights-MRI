@@ -110,6 +110,10 @@ def execute(args, factory):
         accumulation = int(paper.get("gradient_accumulation", 1))
         if accumulation < 1 or (accumulation != 1 and getattr(adapter, "backward_in_step", False)):
             raise ValueError("Invalid accumulation, or native backward adapter requires accumulation=1")
+        if hasattr(adapter, "pretrained"):
+            report["pretrained"] = adapter.pretrained
+            if main:
+                print(f"PRETRAINED {json.dumps(adapter.pretrained)}", flush=True)
         report["parameters"] = sum(p.numel() for p in model.parameters())
         report["trainable_parameters"] = sum(p.numel() for p in model.parameters() if p.requires_grad)
         model.train()

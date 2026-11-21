@@ -20,7 +20,12 @@ def main():
     p.add_argument("--suite-path", type=Path)
     p.add_argument("--accumulate", nargs="*", default=[], help="Our-method runs that accumulate 2 windows instead of stacking them")
     p.add_argument("--bucket-steps", type=int, default=0, help="paper.loader.bucket_steps for multi-GPU runs (0 = plain shuffle)")
+    p.add_argument("--pretrained", type=Path, help="Checkpoint (net_state_dict) every our-method run starts from")
+    p.add_argument("--pretrained-2d", type=Path, help="The same weights in the 2D layout, for runs with a 2D backbone (A0)")
     args = p.parse_args()
+    for path in (args.pretrained, args.pretrained_2d):
+        if path and not path.is_file():
+            p.error(f"Pretrained checkpoint not found: {path}")
     if not (args.h5_root / "cases").is_dir():
         p.error(f"No converted stores under {args.h5_root}")
     if args.suite_path and not args.suite_path.is_file():
@@ -44,6 +49,10 @@ def main():
             stacked = paper["name"] not in args.accumulate
             paper["loader"]["stack"] = 2 if stacked else 1
             paper["gradient_accumulation"] = 1 if stacked else 2
+            flat = cfg["phase3"]["backbone"]["spatial_dims"] == 2
+            weights = args.pretrained_2d if flat and args.pretrained_2d else args.pretrained
+            if weights:
+                paper.update(pretrained=str(weights.absolute()), initialization="pretrained")
         elif method in NEURAL_BASELINES:
             paper.update(BASELINE)
         if method == "ours" or method in NEURAL_BASELINES:

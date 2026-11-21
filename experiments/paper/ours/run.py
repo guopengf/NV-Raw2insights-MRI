@@ -29,6 +29,18 @@ class Ours:
         args = Config(cfg)
         validate_phase3_config(args)
         self.model = create_mri_recon_model(args).to(device)
+        # Fresh runs start from pretrained weights, loaded as scripts/train.py does with resume_weights_only
+        # (matching shapes, optimizer and epoch reset). A resumed run overwrites them with its own checkpoint.
+        if cfg["paper"].get("pretrained"):
+            from utils import load_shape_compatible_state_dict
+            state = torch.load(cfg["paper"]["pretrained"], map_location="cpu", weights_only=False)["net_state_dict"]
+            # The public 2D checkpoint (used by A0) names tensors "cascades.*"; this model nests them under recon_model.
+            state = {k if k.startswith("recon_model.") else "recon_model." + k.removeprefix("module."): v for k, v in state.items()}
+            loaded, initial, skipped, unused, inflated = load_shape_compatible_state_dict(self.model, state)
+            self.pretrained = {"path": cfg["paper"]["pretrained"], "tensors_loaded": len(loaded), "of_which_inflated": len(inflated),
+                               "tensors_left_at_init": len(initial), "shape_skipped": len(skipped), "checkpoint_unused": len(unused)}
+            if not loaded:
+                raise ValueError(f"Pretrained checkpoint matches no model tensor: {cfg['paper']['pretrained']}")
         self.optimizer = torch.optim.AdamW((p for p in self.model.parameters() if p.requires_grad), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
         def lr_factor(epoch):
             warmup = int(cfg["warmup_epochs"])
