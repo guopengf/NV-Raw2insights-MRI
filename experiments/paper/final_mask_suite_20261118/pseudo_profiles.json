@@ -1,0 +1,26 @@
+{
+  "aorta_c001_R10": {
+    "model": "proud",
+    "radius_power": 1,
+    "turns": 5,
+    "points_per_arm": 75
+  },
+  "aorta_c001_R30": {
+    "model": "proud",
+    "radius_power": 1,
+    "turns": 3,
+    "points_per_arm": 75
+  },
+  "aera_phantom_R20": {
+    "model": "proud",
+    "radius_power": 1,
+    "turns": 5,
+    "points_per_arm": 25
+  },
+  "brain_R50": {
+    "model": "proud",
+    "radius_power": 1.5,
+    "turns": 3,
+    "points_per_arm": 75
+  }
+}

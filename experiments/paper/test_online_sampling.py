@@ -1,7 +1,6 @@
 """Online masks obey case/epoch scope and the final suite's native conventions."""
 
 import json
-from pathlib import Path
 
 import h5py
 import numpy as np
@@ -11,13 +10,13 @@ from torch.utils.data import DataLoader
 
 from .common.data import TrainSlabs
 from .common.online_sampling import METHODS, OnlineUndersampling, online_sampler, sampling_log
+from .common.safety import ROOT
 from .generate_configs import ONLINE_UNDERSAMPLING
 
 
 @pytest.fixture
 def suite_config():
-    if not Path(ONLINE_UNDERSAMPLING["suite_path"]).is_file():
-        pytest.skip("final external mask suite is not mounted")
+    assert (ROOT / ONLINE_UNDERSAMPLING["suite_path"]).is_file(), "Bundled final mask suite is missing"
     return {**ONLINE_UNDERSAMPLING, "cache_cases": 1}
 
 

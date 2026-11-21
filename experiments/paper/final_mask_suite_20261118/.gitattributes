@@ -1,0 +1,4 @@
+code/*.py -text
+*_profile*.json -text
+PR4D_LICENSE -text
+code/gaussian.py whitespace=-blank-at-eof

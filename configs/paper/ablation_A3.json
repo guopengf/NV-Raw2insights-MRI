@@ -371,7 +371,7 @@
     "checkpoint_every_epochs": 1,
     "online_undersampling": {
       "enabled": true,
-      "suite_path": "/SSDHome/share/haosen/4dflow/后续实验/final_mask_suite_20261118/code/mask_suite.py",
+      "suite_path": "experiments/paper/final_mask_suite_20261118/code/mask_suite.py",
       "methods": ["gaussian", "pr4d", "pseudo", "uih"],
       "rate_mode": "continuous",
       "rate_range": [10, 50],

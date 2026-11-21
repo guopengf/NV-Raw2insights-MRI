@@ -1,0 +1,402 @@
+{
+  "mode": "periodic",
+  "phase": [
+    0,
+    0
+  ],
+  "score": 1333.0571253340727,
+  "ring_bounds": [
+    9,
+    47,
+    14,
+    70
+  ],
+  "grid_tile": [
+    [
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  ],
+  "acs_bounds": [
+    19,
+    38,
+    33,
+    52
+  ],
+  "center": [
+    29,
+    42
+  ],
+  "fit_shape": [
+    58,
+    84
+  ],
+  "likelihood_outer_q": 0.028186274509803922,
+  "shape_rule": "ACS width fixed in grid cells; middle rectangle bounds scale with matrix size; periodic cell translated with rounded center offset. Exploratory rule checked after initial transfer diagnostics, not blinded validation.",
+  "support_bbox": [
+    0,
+    58,
+    0,
+    72
+  ],
+  "observed_bbox": [
+    0,
+    57,
+    0,
+    72
+  ],
+  "support_edge_rule": "Snap empty edge strips of <=3 lines to full matrix boundary; retain longer strips as an empirical proxy only.",
+  "support_warning": "Observed fit-frame bounding box only; eligibility/zero-fill not independently known. Not an exact acquisition support.",
+  "geometry_candidates": [
+    {
+      "mode": "lattice",
+      "phase": [
+        0,
+        0
+      ],
+      "score": 73.38635312891057,
+      "ring_bounds": [
+        15,
+        39,
+        33,
+        52
+      ],
+      "grid_tile": null
+    },
+    {
+      "mode": "lattice",
+      "phase": [
+        0,
+        1
+      ],
+      "score": 134.7892712120941,
+      "ring_bounds": [
+        19,
+        38,
+        27,
+        58
+      ],
+      "grid_tile": null
+    },
+    {
+      "mode": "lattice",
+      "phase": [
+        1,
+        0
+      ],
+      "score": 76.43391180734187,
+      "ring_bounds": [
+        19,
+        38,
+        30,
+        55
+      ],
+      "grid_tile": null
+    },
+    {
+      "mode": "lattice",
+      "phase": [
+        1,
+        1
+      ],
+      "score": 0.0,
+      "ring_bounds": [
+        19,
+        38,
+        33,
+        52
+      ],
+      "grid_tile": null
+    },
+    {
+      "mode": "checkerboard",
+      "phase": [
+        0,
+        0
+      ],
+      "score": 64.04468229114798,
+      "ring_bounds": [
+        18,
+        39,
+        33,
+        52
+      ],
+      "grid_tile": null
+    },
+    {
+      "mode": "checkerboard",
+      "phase": [
+        0,
+        1
+      ],
+      "score": 210.53135946448174,
+      "ring_bounds": [
+        19,
+        38,
+        29,
+        56
+      ],
+      "grid_tile": null
+    },
+    {
+      "mode": "periodic",
+      "phase": [
+        0,
+        0
+      ],
+      "score": 1333.0571253340727,
+      "ring_bounds": [
+        9,
+        47,
+        14,
+        70
+      ],
+      "grid_tile": [
+        [
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    }
+  ],
+  "periodic_cell_cv_loss": 0.20168176429917647,
+  "cell_selection": "3-fold spatial withholding inside fit acquisition only; periods 1..12; cross-entropy + 0.0001*cell area",
+  "geometry_method": "maximum full ACS at DC; rectangle likelihood with 2% mismatch; simple parity versus learned periodic unit cell, fit frame 0 only",
+  "min_distance": 3.0,
+  "density_sigma": null,
+  "outer_fit_score": 0.32073277707425746,
+  "acs_checker_width": 4,
+  "acs_checker_geometry": "Two ky flanks, four columns per flank. Exclude top/bottom ACS rows. Odd parity in ACS-relative Z/Y coordinates."
+}
