@@ -6,9 +6,9 @@ CG-SENSE and CS-TV are reconstruction-only baselines and are not in this job lis
 ## Prepare once on the training server
 
 Use Python 3.12 with the project's GPU-enabled PyTorch environment. The destination
-must have the original final dataset and read access to the complete
-`final_mask_suite_20261118` directory, including `code/` and both profile JSONs.
-The repository does not contain the dataset, private source mapping, or external mask suite.
+must have the original final dataset. The final runtime mask suite and its profiles
+are tracked in the branch; no separate transfer or cy136 mount is required.
+The repository does not contain the dataset or private source mapping.
 
 ```bash
 git clone --branch haosen/baselin_ablation git@github.com:guopengf/NV-Raw2insights-MRI.git
@@ -19,10 +19,9 @@ export PAPER_PYTHON="$PWD/experiments/paper/.venv/bin/python"
 
 export RUN_ROOT=/path/to/writable/scratch/4dflow-online
 export DATA_ROOT=/path/to/final/4DFlow
-export MASK_SUITE=/path/to/final_mask_suite_20261118/code/mask_suite.py
 
 "$PAPER_PYTHON" -m experiments.paper.build_virtual_dataset \
-  --dataset-root "$DATA_ROOT" --suite-path "$MASK_SUITE" \
+  --dataset-root "$DATA_ROOT" \
   --output "$RUN_ROOT" --verify-train-files
 ```
 
@@ -31,6 +30,9 @@ unchanged final case IDs and files. For scattered raw source paths use an existi
 `--mapping /path/to/source_mapping.csv` instead of `--dataset-root`; the mapping
 must reflect paths visible on the training host. The checked-in final manifest
 defines split membership. No Test contents are read in preparation or training.
+If your configs were generated before the suite was bundled, pull this branch and
+rerun setup with the original dataset root/mapping, omitting `--suite-path`.
+That option remains available to explicitly override the bundled generator.
 
 The setup checks all Train file sizes and small-case headers before queueing.
 Keep `RUN_ROOT` outside the raw dataset and suite directories, with enough space

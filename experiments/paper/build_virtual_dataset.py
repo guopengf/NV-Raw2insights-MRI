@@ -44,7 +44,7 @@ def main():
     p.add_argument("--output", type=Path, default=ROOT / "outputs/paper/virtual_dataset")
     p.add_argument("--check-train-cases", type=int, default=1, help="Read headers of 1-3 smallest Train cases only")
     p.add_argument("--verify-train-files", action="store_true", help="Check presence and original byte size for every Train file before queueing")
-    p.add_argument("--suite-path", type=Path, help="Absolute or relative path to cy136's final code/mask_suite.py on this server")
+    p.add_argument("--suite-path", type=Path, help="Optional mask_suite.py override; defaults to the bundled final suite")
     args = p.parse_args()
     if not 1 <= args.check_train_cases <= 3:
         p.error("Only 1-3 Train cases are inspected during virtual-path setup")
@@ -106,14 +106,18 @@ def main():
     guard.json(output / "pipeline.json", pipeline)
     registry = json.loads((ROOT / "experiments/paper/experiment_registry.json").read_text())["experiments"]
     configurations = []
+    verified_suites = set()
     for entry in registry:
         cfg = json.loads((ROOT / entry["config"]).read_text())
         cfg["paper"].update(manifest=portable(args.manifest), source_mapping=portable(snapshot), train_index=portable(output / "train_index.json"),
                             output_dir=portable(output / "runs" / entry["name"]))
-        if args.suite_path and cfg["paper"].get("online_undersampling", {}).get("enabled"):
+        if cfg["paper"].get("online_undersampling", {}).get("enabled"):
             options = cfg["paper"]["online_undersampling"]
-            options["suite_path"] = str(args.suite_path.resolve())
-            online_sampler(options, cfg["paper"]["seed"]).provenance()
+            if args.suite_path:
+                options["suite_path"] = str(args.suite_path.resolve())
+            if options["suite_path"] not in verified_suites:
+                online_sampler(options, cfg["paper"]["seed"]).provenance()
+                verified_suites.add(options["suite_path"])
         path = guard.json(output / "configs" / f"{entry['name']}.json", cfg)
         configurations.append({"experiment": entry["name"], "config": portable(path), "sha256": sha256(path)})
     protected = True

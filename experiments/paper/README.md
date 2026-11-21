@@ -218,10 +218,10 @@ CUDA_VISIBLE_DEVICES=0 WANDB_MODE=disabled \
 ## 在线欠采样训练
 
 11 份实验配置默认开启 `paper.online_undersampling.enabled`。
-`suite_path` 指向 cy136 共享盘的最终 `code/mask_suite.py`，训练直接调用其 `generate()`，
-不复制生成器，不使用 CLI 或创建中间 mask 文件。其他服务器须能读取该目录；
-如挂载位置不同，配置里改为实际路径，保留套件及两个 profile JSON 的相对位置。
-使用 NAS 虚拟索引的旧配置需重新运行 `build_virtual_dataset`，把新字段带到本地生成配置中。
+`suite_path` 默认指向随仓库提交的最终 `code/mask_suite.py`，源码和两个 profile
+与 cy136 最终版逐字节一致。训练直接调用 `generate()`，不挂载 cy136、不运行 CLI，
+也不创建中间 mask 文件。已生成的旧配置不会随 Git 更新：请重新运行
+`build_virtual_dataset`，并省略 `--suite-path`，以使用仓库内默认版本。
 
 | 配置项 | 用途 |
 |---|---|

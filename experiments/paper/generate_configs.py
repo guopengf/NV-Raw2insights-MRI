@@ -17,7 +17,7 @@ INPUT_ROOT = Path("/SSDHome/share/haosen/4dflow/后续实验")
 BASE_SHA = "9504c29e50237d96eee89f3cf47693c64482bd2f"
 ONLINE_UNDERSAMPLING = {
     "enabled": True,
-    "suite_path": str(INPUT_ROOT / "final_mask_suite_20261118" / "code" / "mask_suite.py"),
+    "suite_path": "experiments/paper/final_mask_suite_20261118/code/mask_suite.py",
     "methods": ["gaussian", "pr4d", "pseudo", "uih"],
     "rate_mode": "continuous",
     "rate_range": [10, 50],

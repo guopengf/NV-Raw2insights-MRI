@@ -1,8 +1,9 @@
 # Online 4D Flow Sampling: 2026-11-18
 
 The experiment training loaders directly call `generate()` in the user-specified
-`final_mask_suite_20261118/code/mask_suite.py`. The external generator, profiles and raw
-dataset are not edited or copied. No mask files are needed in the dataset.
+`final_mask_suite_20261118/code/mask_suite.py`. Initially read from the cy136 share,
+the unchanged runtime files and license are now bundled for cluster deployment.
+The source suite and raw dataset are not modified. No mask files are needed in the dataset.
 
 ## Behavior
 

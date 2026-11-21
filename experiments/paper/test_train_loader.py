@@ -75,4 +75,6 @@ def test_nine_cluster_configs_enable_online_sampling_and_prefetch():
         online = p["online_undersampling"]
         assert online["enabled"] and online["rate_range"] == [10, 50]
         assert online["rate_mode"] == "continuous" and online["methods"] == ["gaussian", "pr4d", "pseudo", "uih"]
+        assert online["suite_path"] == "experiments/paper/final_mask_suite_20261118/code/mask_suite.py"
+        assert (ROOT / online["suite_path"]).is_file()
         assert p["loader"]["prefetch"]
