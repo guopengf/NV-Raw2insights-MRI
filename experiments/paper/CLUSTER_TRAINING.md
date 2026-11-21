@@ -5,19 +5,27 @@ CG-SENSE and CS-TV are reconstruction-only baselines and are not in this job lis
 
 ## Prepare once on the training server
 
-Use Python 3.12 with the project's GPU-enabled PyTorch environment. The destination
-must have the original final dataset. The final runtime mask suite and its profiles
-are tracked in the branch; no separate transfer or cy136 mount is required.
-The repository does not contain the dataset or private source mapping.
+The destination must have the original final dataset and a compatible NVIDIA
+driver. The runtime mask suite and profiles are tracked in the branch. No cy136
+mount, private checkpoint or Hugging Face download is needed for these jobs.
+Initial setup needs access to GitHub, PyPI, and the PyTorch wheel index (or
+equivalent local mirrors); the two author repositories are fetched at pinned
+commits. Do not install the author environments separately.
 
 ```bash
-git clone --branch haosen/baselin_ablation git@github.com:guopengf/NV-Raw2insights-MRI.git
+git clone --depth 1 --single-branch --branch haosen/baselin_ablation \
+  git@github.com:guopengf/NV-Raw2insights-MRI.git
 cd NV-Raw2insights-MRI
-conda activate 4dflow
+conda create -y -n 4dflow-cluster python=3.12 pip
+conda activate 4dflow-cluster
+python -m pip install torch==2.6.0 torchvision==0.21.0 \
+  --index-url https://download.pytorch.org/whl/cu124
 python -m experiments.paper.bootstrap --fetch-authors --install-deps
 export PAPER_PYTHON="$PWD/experiments/paper/.venv/bin/python"
+export PYTHONNOUSERSITE=1
+"$PAPER_PYTHON" -m pip check
 
-export RUN_ROOT=/path/to/writable/scratch/4dflow-online
+export RUN_ROOT="$PWD/outputs/paper/cluster"
 export DATA_ROOT=/path/to/final/4DFlow
 
 "$PAPER_PYTHON" -m experiments.paper.build_virtual_dataset \
@@ -46,8 +54,11 @@ Request a single GPU per job; let the scheduler assign `CUDA_VISIBLE_DEVICES`.
 Load the same environment in the job and run from the cloned repository:
 
 ```bash
+conda activate 4dflow-cluster
 export PAPER_PYTHON="$PWD/experiments/paper/.venv/bin/python"
-export RUN_ROOT=/path/to/writable/scratch/4dflow-online
+export PYTHONNOUSERSITE=1
+export RUN_ROOT="$PWD/outputs/paper/cluster"
+"$PAPER_PYTHON" -c 'import torch; print(torch.__version__, torch.version.cuda); assert torch.cuda.is_available(); print(torch.ones(1, device="cuda"))'
 EXPERIMENT=flowvn
 bash experiments/paper/scripts/cluster_train.sh "$EXPERIMENT" "$RUN_ROOT/configs" \
   --smoke --steps 1 --device cuda:0
@@ -67,6 +78,9 @@ largest Train grid on the assigned GPU before booking long jobs, for example add
 All nine configs enable `paper.online_undersampling`: one of the four final
 mask families and one real R in [10,50] per case per epoch; the four encodings
 share points. Prior fixed whole-case evaluation settings are unchanged.
+The separate official-metric command (`experiments.paper.evaluate`) still needs
+a locally accessible official EvaluationCode directory if run on this cluster.
+That path is not read by data preparation, training, or reconstruction.
 
 ## Throughput changes
 
