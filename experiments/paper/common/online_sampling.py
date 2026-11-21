@@ -90,14 +90,19 @@ class OnlineUndersampling:
             rate = float(rng.integers(int(self.low), int(self.high) + 1))
         else:
             rate = float(rng.uniform(self.low, self.high))
-        seed = int(rng.integers(0, 2**63, dtype=np.int64))
         suite = load_suite(self.suite_path.parent)
-        try:
-            pattern, meta = suite.generate(method, ny, nz, nt, rate, seed,
-                                           acs_size=self.acs, pseudo_profile=self.pseudo_profile)
-        except (ValueError, RuntimeError) as exc:
-            raise ValueError(f"Online mask failed: case={case_id}, epoch={epoch}, method={method}, "
-                             f"R={rate:.8g}, seed={seed}, TZY={(nt, nz, ny)}: {exc}") from exc
+        # The suite rejects a rare draw whose adjacent frames coincide (6 of the 666,234 Train masks over 960
+        # epochs). Redraw the seed, keeping method and rate; the first draw is unchanged, so every other mask is too.
+        for attempt in range(4):
+            seed = int(rng.integers(0, 2**63, dtype=np.int64))
+            try:
+                pattern, meta = suite.generate(method, ny, nz, nt, rate, seed,
+                                               acs_size=self.acs, pseudo_profile=self.pseudo_profile)
+                break
+            except (ValueError, RuntimeError) as exc:
+                if isinstance(exc, ValueError) or attempt == 3:
+                    raise ValueError(f"Online mask failed: case={case_id}, epoch={epoch}, method={method}, "
+                                     f"R={rate:.8g}, seed={seed}, TZY={(nt, nz, ny)}: {exc}") from exc
         native_shape = (nz, ny) if method == "uih" else (nt, nz, ny)
         if pattern.shape != native_shape or not np.isin(pattern, (0, 1)).all():
             raise ValueError(f"Invalid native binary {method} mask: {pattern.shape}, expected {native_shape}")

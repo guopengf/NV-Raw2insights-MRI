@@ -42,6 +42,18 @@ def test_final_suite_native_shape_budget_and_distinct_seeds(suite_config, method
     assert same["seed"] == meta["seed"]
 
 
+def test_rejected_draw_is_redrawn_with_the_same_method_and_rate(suite_config):
+    # With the first seed (1667491702704426172) the suite reports identical adjacent frames for this Train case.
+    sampler = OnlineUndersampling(suite_config, 2026)
+    pattern, meta = sampler.get("Center010_P000254_Aorta", 316, 28, 18, 106)
+    assert meta["method"] == "pseudo" and meta["seed"] != 1667491702704426172
+    assert abs(meta["requested_R_grid"] - 47.102102) < 1e-5
+    assert np.all(np.any(pattern[1:] != pattern[:-1], axis=(1, 2)))
+    again, same = OnlineUndersampling(suite_config, 2026).get("Center010_P000254_Aorta", 316, 28, 18, 106)
+    np.testing.assert_array_equal(pattern, again)
+    assert same["seed"] == meta["seed"]
+
+
 @pytest.fixture
 def train_index(tmp_path):
     nt, z, y, x = 7, 19, 96, 3
